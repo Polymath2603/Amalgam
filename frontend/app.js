@@ -799,7 +799,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 vault: { path: document.getElementById('vault-path').value }
             })
         });
-        showToast('Settings saved');
+        if (result) {
+            showToast('Settings saved');
+        } else {
+            showToast('Failed to save settings', 'error');
+        }
     });
 
     

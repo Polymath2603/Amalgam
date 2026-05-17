@@ -59,6 +59,7 @@ class Agent :
             tool_detected =False 
             tool_block =""
             in_tool_block =False 
+            last_emotion_end =0 
 
             async for token in self .llm .stream (messages ):
                 if not tool_detected and "```tool"in full_response +token :
@@ -91,17 +92,17 @@ class Agent :
                             current_input =f"Tool parse error: {e }"
                             break 
                 else :
-
-                    emotion_match =EMOTION_RE .search (token )
-                    if emotion_match :
-                        yield ('__emotion__',emotion_match .group (1 ))
-                        token =EMOTION_RE .sub ('',token )
                     full_response +=token 
+
+                    for m in EMOTION_RE .finditer (full_response ,last_emotion_end ):
+                        yield ('__emotion__',m .group (1 ))
+                        last_emotion_end =m .end ()
                     if token :
                         yield token 
 
             if not in_tool_block :
-                await self .memory .add_turn ("assistant",full_response )
+                clean =EMOTION_RE .sub ('',full_response ).strip ()
+                await self .memory .add_turn ("assistant",clean )
                 return 
 
         if iterations >=5 :

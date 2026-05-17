@@ -196,11 +196,7 @@ export class AvatarRenderer {
 
                 console.log('VRM loaded:', vrm.meta?.title || 'Unknown');
             },
-            (progress) => {
-                if (progress.total > 0) {
-                    console.log('Loading VRM...', Math.round(100 * progress.loaded / progress.total), '%');
-                }
-            },
+            () => {},
             (error) => {
                 console.warn('VRM load error:', error?.message || error);
             }
@@ -394,8 +390,8 @@ export class AvatarRenderer {
                 const yawDeg = this._yawDamped * (180 / Math.PI);
                 const pitchDeg = this._pitchDamped * (180 / Math.PI);
                 
-                if (lookAt.applier && typeof lookAt.applier.lookAt === 'function') {
-                    lookAt.applier.lookAt(new THREE.Euler(pitchDeg, yawDeg, 0));
+                if (lookAt.applier && typeof lookAt.applier.apply === 'function') {
+                    lookAt.applier.apply(new THREE.Euler(pitchDeg, yawDeg, 0));
                 }
             }
         }

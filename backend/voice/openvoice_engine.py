@@ -3,6 +3,7 @@ OpenVoice v2 engine — local voice cloning via MeloTTS + ToneColorConverter.
 Runs on CPU to avoid VRAM conflict with LLM.
 """
 import os 
+import threading 
 import logging 
 import numpy as np 
 
@@ -21,14 +22,29 @@ class OpenVoiceEngine :
         self ._source_se =None 
         self ._speaker_cache ={}
         self ._loaded =False 
+        self ._load_lock =threading .Lock ()
 
     def _ensure_loaded (self ):
-        """Lazy-load models on first use."""
+        """Lazy-load models on first use. Thread-safe."""
         if self ._loaded :
             return 
+        with self ._load_lock :
+            if self ._loaded :
+                return 
 
         try :
             import torch 
+
+            if not hasattr (torch .nn .Module ,'_original_to'):
+                torch .nn .Module ._original_to =torch .nn .Module .to 
+                def _patched_to (self ,*args ,**kwargs ):
+                    for param in self .parameters ():
+                        if param .device .type =='meta':
+                            device =args [0 ]if args else kwargs .get ('device','cpu')
+                            return self .to_empty (device =device )
+                    return torch .nn .Module ._original_to (self ,*args ,**kwargs )
+                torch .nn .Module .to =_patched_to 
+
             from openvoice .api import ToneColorConverter 
             from melo .api import TTS 
             self ._torch =torch 

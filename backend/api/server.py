@@ -89,6 +89,16 @@ async def startup ():
 
     memory ().start_session ()
 
+    engine =settings ().get ("voice.engine","edge-tts")
+    if engine =="openvoice":
+        logger .info ("Preloading OpenVoice TTS engine...")
+        try :
+            loop =asyncio .get_event_loop ()
+            await loop .run_in_executor (None ,tts ().get_openvoice_loaded )
+            logger .info ("OpenVoice TTS engine ready")
+        except Exception as e :
+            logger .warning (f"OpenVoice preload failed: {e }")
+
     vault_path =settings ().get ("vault.path","user_data/vault")
     os .makedirs (vault_path ,exist_ok =True )
 
@@ -429,12 +439,13 @@ async def ws_chat (websocket :WebSocket ):
                                 if not ref_audio :
                                     logger .warning ("No voice_ref for OpenVoice, skipping TTS")
                                     return 
-                            audio_np ,_ =await asyncio .wait_for (
+                            result =await asyncio .wait_for (
                             tts ().synthesize (sentence_text ,ref_audio =ref_audio ),
-                            timeout =30.0 
+                            timeout =60.0 
                             )
+                            audio_np ,_ ,sr =result 
+                            logger .info (f"TTS sentence {idx }: {len (audio_np )} samples, sr={sr }")
                             if len (audio_np )>0 :
-                                sr =22050 if tts ().engine =="openvoice"else 16000 
                                 pcm =(audio_np *32767 ).astype ("int16").tobytes ()
                                 data_size =len (pcm )
                                 header =_struct .pack (
@@ -454,13 +465,13 @@ async def ws_chat (websocket :WebSocket ):
                                 "duration":round (duration ,2 ),
                                 "sentence_idx":idx 
                                 })
+                                logger .info (f"TTS sentence {idx }: sent {duration :.2f}s audio")
+                            else :
+                                logger .warning (f"TTS sentence {idx }: empty audio")
+                        except asyncio .TimeoutError :
+                            logger .error (f"TTS sentence {idx }: timed out after 60s")
                         except Exception as tts_err :
-                            logger .error (f"TTS error for sentence {idx }: {tts_err }")
-                            await websocket .send_json ({
-                            "type":"tts_error",
-                            "message":f"TTS error: {tts_err }",
-                            "sentence_idx":idx 
-                            })
+                            logger .error (f"TTS error for sentence {idx }: {type (tts_err ).__name__ }: {tts_err }")
 
 
                     tts_tasks =[]
@@ -579,13 +590,11 @@ async def tts_preview (body :dict ):
         if not ref_audio :
             return {"audio":None ,"error":"No voice_ref set. Place a ref.wav in the character directory."}
         temp_tts =TTS (engine ="openvoice")
-        audio ,_ =await temp_tts .synthesize (text ,ref_audio =ref_audio )
-        sr =22050 
+        audio ,_ ,sr =await temp_tts .synthesize (text ,ref_audio =ref_audio )
     else :
         voice =char .get ("voice","en-US-AriaNeural")if char else "en-US-AriaNeural"
         temp_tts =TTS (voice =voice )
-        audio ,_ =await temp_tts .synthesize (text )
-        sr =16000 
+        audio ,_ ,sr =await temp_tts .synthesize (text )
 
     if len (audio )>0 :
         import base64 

@@ -21,6 +21,7 @@ class TTS :
         self .engine =engine 
         self ._ov_engine =None 
         self ._has_ffmpeg =shutil .which ("ffmpeg")is not None 
+        self ._lock =asyncio .Lock ()
         if not self ._has_ffmpeg :
             logger .warning ("ffmpeg not found. Edge-TTS will fail. Install ffmpeg.")
 
@@ -31,19 +32,36 @@ class TTS :
             self ._ov_engine =OpenVoiceEngine ()
         return self ._ov_engine 
 
+    def get_openvoice_loaded (self ):
+        """Force-load OpenVoice engine (for startup preload)."""
+        ov =self ._get_openvoice ()
+        ov ._ensure_loaded ()
+        return True 
+
     async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
-        """Synthesizes text and returns audio (float32) and visemes.
+        """Synthesizes text and returns audio (float32), visemes, and sample rate.
 
         For edge-tts: returns 16kHz audio.
         For openvoice: returns audio at converter sample rate (22050Hz).
+        Falls back to edge-tts if openvoice fails.
+        Serialized via lock to prevent concurrent model access.
+        Returns: (audio_np, visemes, sample_rate)
         """
         if not text .strip ():
-            return np .zeros (0 ,dtype =np .float32 ),[]
+            return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-        if self .engine =="openvoice":
-            return await self ._synthesize_openvoice (text ,ref_audio )
-        else :
-            return await self ._synthesize_edge_tts (text )
+        async with self ._lock :
+            if self .engine =="openvoice":
+                audio ,visemes =await self ._synthesize_openvoice (text ,ref_audio )
+                if len (audio )>0 :
+                    return audio ,visemes ,22050 
+
+                logger .warning ("OpenVoice failed, falling back to edge-tts")
+                audio ,visemes =await self ._synthesize_edge_tts (text )
+                return audio ,visemes ,16000 
+            else :
+                audio ,visemes =await self ._synthesize_edge_tts (text )
+                return audio ,visemes ,16000 
 
     async def _synthesize_edge_tts (self ,text :str )->tuple :
         """Cloud TTS via edge-tts."""
@@ -72,7 +90,7 @@ class TTS :
             return audio_np ,visemes 
 
         except Exception as e :
-            logger .error (f"TTS Error: {e }")
+            logger .error (f"Edge-TTS Error: {type (e ).__name__ }: {e }")
             return np .zeros (0 ,dtype =np .float32 ),[]
 
         finally :
@@ -92,12 +110,19 @@ class TTS :
 
         try :
             loop =asyncio .get_event_loop ()
-            audio_np ,sr =await loop .run_in_executor (
+            result =await loop .run_in_executor (
             None ,ov .synthesize ,text ,ref_audio 
             )
+            if not result or not isinstance (result ,tuple )or len (result )<2 :
+                logger .error (f"OpenVoice returned invalid result: {type (result )}")
+                return np .zeros (0 ,dtype =np .float32 ),[]
+            audio_np ,sr =result 
+            if not isinstance (audio_np ,np .ndarray ):
+                audio_np =np .array (audio_np ,dtype =np .float32 )if audio_np is not None else np .zeros (0 ,dtype =np .float32 )
+            logger .info (f"OpenVoice synthesized: {len (audio_np )} samples, sr={sr }")
             visemes =["A"]*(len (text )//2 )
             return audio_np ,visemes 
 
         except Exception as e :
-            logger .error (f"OpenVoice TTS Error: {e }")
+            logger .error (f"OpenVoice TTS Error: {type (e ).__name__ }: {e }")
             return np .zeros (0 ,dtype =np .float32 ),[]
