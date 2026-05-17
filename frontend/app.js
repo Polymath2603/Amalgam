@@ -603,8 +603,8 @@ document.addEventListener('DOMContentLoaded', () => {
             card.innerHTML = `
                 <img src="${iconUrl}" alt="" class="char-avatar" onerror="this.src='/static/icons/logo.png'">
                 <div class="char-info">
-                    <h3>${c.name || id}</h3>
-                    <p>${c.description || ''}</p>
+                    <h3>${escHtml(c.name || id)}</h3>
+                    <p>${escHtml(c.description || '')}</p>
                     <div class="char-tags">
                         ${c.personality ? `<span class="tag">${c.personality}</span>` : ''}
                         ${c.voice ? `<span class="tag tag-voice">${c.voice.split('-').pop().replace('Neural', '')}</span>` : ''}
@@ -977,5 +977,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     
     connectWS();
-    init();
+    init().catch(e => {
+        console.error('Init failed:', e);
+        showToast('Failed to connect to server', 'danger');
+    });
 });

@@ -20,6 +20,7 @@ class MCPClient :
         self .tools_cache :Dict [str ,Any ]={}
         self .server_tool_map :Dict [str ,str ]={}
         self .exit_stack =AsyncExitStack ()
+        self ._reconnect_tasks ={}
 
     async def connect_servers (self ,config_path :str ):
         """Connect to MCP servers defined in a JSON config file."""
@@ -87,7 +88,8 @@ class MCPClient :
             logger .error (f"Timeout connecting to MCP server {name } ({timeout }s)")
         except Exception as e :
             logger .error (f"Failed to connect to {name }: {e }")
-            asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ))
+            task =asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ))
+            self ._reconnect_tasks [name ]=task 
 
     async def _reconnect (self ,name :str ,cmd :str ,args :List [str ],
     env :Optional [Dict [str ,str ]],delay =1 ):

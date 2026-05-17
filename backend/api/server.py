@@ -429,7 +429,10 @@ async def ws_chat (websocket :WebSocket ):
                                 if not ref_audio :
                                     logger .warning ("No voice_ref for OpenVoice, skipping TTS")
                                     return 
-                            audio_np ,_ =await tts ().synthesize (sentence_text ,ref_audio =ref_audio )
+                            audio_np ,_ =await asyncio .wait_for (
+                            tts ().synthesize (sentence_text ,ref_audio =ref_audio ),
+                            timeout =30.0 
+                            )
                             if len (audio_np )>0 :
                                 sr =22050 if tts ().engine =="openvoice"else 16000 
                                 pcm =(audio_np *32767 ).astype ("int16").tobytes ()
@@ -514,7 +517,10 @@ async def ws_chat (websocket :WebSocket ):
 
                     if tts_tasks :
                         await asyncio .gather (*tts_tasks ,return_exceptions =True )
-                        await websocket .send_json ({"type":"voice_state","state":"idle"})
+                        try :
+                            await websocket .send_json ({"type":"voice_state","state":"idle"})
+                        except Exception :
+                            pass 
 
                 except Exception as e :
                     logger .error (f"Agent error: {e }")
