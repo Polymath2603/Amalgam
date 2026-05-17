@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amalgam</title>
+    <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+            "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.2/lib/three-vrm.module.min.js"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="sidebar-brand">
+                <img src="/static/icons/logo.svg" alt="Amalgam" class="brand-logo">
+                <span class="brand-text">Amalgam</span>
+            </div>
+            <div class="sidebar-nav">
+                <button class="nav-item active" data-tab="chat">
+                    <span class="material-icons-round">chat</span><span>Chat</span>
+                </button>
+                <button class="nav-item" data-tab="avatar">
+                    <span class="material-icons-round">view_in_ar</span><span>Avatar</span>
+                </button>
+                <button class="nav-item" data-tab="characters">
+                    <span class="material-icons-round">people</span><span>Characters</span>
+                </button>
+                <button class="nav-item" data-tab="settings">
+                    <span class="material-icons-round">tune</span><span>Settings</span>
+                </button>
+            </div>
+            <div class="sidebar-footer">
+                <div class="connection-status">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">Disconnected</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="content">
+
+            <!-- ═══ CHAT TAB ═══ -->
+            <section class="tab-panel active" id="tab-chat">
+                <div class="chat-container">
+                    <!-- Chat Header with Avatar Preview + Voice Controls -->
+                    <div class="chat-header">
+                        <div class="chat-avatar" id="chat-avatar">
+                            <div class="avatar-preview" id="avatar-preview"></div>
+                            <div class="chat-avatar-info">
+                                <span class="chat-avatar-name" id="chat-avatar-name">Aria</span>
+                                <span class="chat-avatar-status" id="chat-avatar-status">Ready</span>
+                            </div>
+                        </div>
+                        <div class="chat-controls">
+                            <button class="icon-toggle" id="voice-input-toggle" title="Toggle voice input (mic)">
+                                <span class="material-icons-round">mic_off</span>
+                            </button>
+                            <button class="icon-toggle" id="voice-output-toggle" title="Toggle voice output (speaker)">
+                                <span class="material-icons-round">volume_off</span>
+                            </button>
+                            <div class="voice-bars" id="voice-bars">
+                                <span></span><span></span><span></span><span></span><span></span>
+                            </div>
+                            <button class="icon-toggle" id="new-chat-btn" title="New conversation">
+                                <span class="material-icons-round">add</span>
+                            </button>
+                            <button class="icon-toggle" id="history-toggle" title="Conversation history">
+                                <span class="material-icons-round">history</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- History Panel (hidden by default) -->
+                    <div class="history-panel" id="history-panel">
+                        <div class="history-header">
+                            <h3>Conversation History</h3>
+                            <div class="history-header-actions">
+                                <button class="icon-btn" id="new-session-btn" title="New conversation"><span class="material-icons-round">add</span></button>
+                                <button class="icon-btn danger" id="clear-all-history" title="Clear all history"><span class="material-icons-round">delete_sweep</span></button>
+                                <button class="icon-btn" id="close-history"><span class="material-icons-round">close</span></button>
+                            </div>
+                        </div>
+                        <div class="history-list" id="history-list"></div>
+                    </div>
+
+                    <!-- Messages -->
+                    <div class="chat-messages" id="chat-messages"></div>
+
+                    <!-- Input -->
+                    <div class="chat-input-area">
+                        <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
+                        <button class="send-btn" id="send-btn">
+                            <span class="material-icons-round">arrow_upward</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ AVATAR TAB ═══ -->
+            <section class="tab-panel" id="tab-avatar">
+                <div class="avatar-tab-container">
+                    <div class="avatar-canvas-container" id="avatar-canvas"></div>
+                </div>
+            </section>
+
+            <!-- ═══ CHARACTERS TAB ═══ -->
+            <section class="tab-panel" id="tab-characters">
+                <div class="panel-header">
+                    <h1>Characters</h1>
+                    <p>Choose who you're talking to</p>
+                </div>
+                <div class="char-search">
+                    <span class="material-icons-round">search</span>
+                    <input type="text" id="char-search-input" placeholder="Search characters..." autocomplete="off">
+                </div>
+                <div class="characters-grid" id="characters-grid"></div>
+            </section>
+
+
+            <!-- ═══ SETTINGS TAB ═══ -->
+            <section class="tab-panel" id="tab-settings">
+                <div class="settings-scroll">
+                    <div class="panel-header">
+                        <h1>Settings</h1>
+                    </div>
+
+                    <div class="settings-grid">
+                        <!-- Appearance Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">palette</span> Appearance</h3>
+                            <div class="form-row">
+                                <label>Theme</label>
+                                <select id="theme-select">
+                                    <option value="dark">Dark</option>
+                                    <option value="midnight">Midnight</option>
+                                    <option value="light">Light</option>
+                                    <option value="nord">Nord</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label>Accent Color</label>
+                                <div class="color-swatches" id="color-swatches">
+                                    <button class="swatch active" data-color="#6c5ce7" style="background:#6c5ce7" title="Purple"></button>
+                                    <button class="swatch" data-color="#0984e3" style="background:#0984e3" title="Blue"></button>
+                                    <button class="swatch" data-color="#00b894" style="background:#00b894" title="Green"></button>
+                                    <button class="swatch" data-color="#e17055" style="background:#e17055" title="Orange"></button>
+                                    <button class="swatch" data-color="#e74c3c" style="background:#e74c3c" title="Red"></button>
+                                    <button class="swatch" data-color="#fd79a8" style="background:#fd79a8" title="Pink"></button>
+                                    <button class="swatch" data-color="#f39c12" style="background:#f39c12" title="Yellow"></button>
+                                    <button class="swatch" data-color="#00cec9" style="background:#00cec9" title="Teal"></button>
+                                    <input type="color" id="accent-color-picker" class="swatch-picker" value="#6c5ce7" title="Custom color">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label>Font Size</label>
+                                <div class="range-row">
+                                    <input type="range" id="font-size-range" min="12" max="20" value="14">
+                                    <span id="font-size-val">14px</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Voice Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">record_voice_over</span> Voice</h3>
+                            <div class="form-row">
+                                <label>TTS Engine</label>
+                                <select id="tts-engine">
+                                    <option value="edge-tts">Edge TTS (Cloud)</option>
+                                    <option value="openvoice">OpenVoice (Local)</option>
+                                </select>
+                            </div>
+                            <div class="form-row toggle-row">
+                                <label>Lip-sync</label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="lipsync-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Instructions Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">psychology</span> Additional Instructions</h3>
+                            <p class="help-text">Added on top of the character's personality. Leave empty for default.</p>
+                            <textarea id="custom-system-prompt" rows="3" placeholder="Extra instructions to add to every conversation..."></textarea>
+                            <button class="btn btn-primary btn-card" id="save-system-prompt">Save Instructions</button>
+                        </div>
+
+                        <!-- Data Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">storage</span> Data</h3>
+                            <div class="form-row">
+                                <label>Vault Path</label>
+                                <input type="text" id="vault-path" placeholder="user_data/vault">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="save-settings">Save Settings</button>
+
+                    <!-- ═══ PROVIDERS ═══ -->
+                    <div class="settings-section-header">
+                        <h2><span class="material-icons-round">cloud</span> Providers</h2>
+                    </div>
+
+                    <div class="provider-tabs">
+                        <button class="provider-tab active" data-provider="gemini">
+                            <span class="provider-dot gemini"></span> Gemini
+                        </button>
+                        <button class="provider-tab" data-provider="ollama">
+                            <span class="provider-dot ollama"></span> Ollama
+                        </button>
+                        <button class="provider-tab" data-provider="openrouter">
+                            <span class="provider-dot openrouter"></span> OpenRouter
+                        </button>
+                        <button class="provider-tab" data-provider="zai">
+                            <span class="provider-dot zai"></span> Z.AI
+                        </button>
+                        <button class="provider-tab" data-provider="siliconflow">
+                            <span class="provider-dot siliconflow"></span> SiliconFlow
+                        </button>
+                        <button class="provider-tab" data-provider="groq">
+                            <span class="provider-dot groq"></span> Groq
+                        </button>
+                        <button class="provider-tab" data-provider="chatgpt">
+                            <span class="provider-dot chatgpt"></span> ChatGPT
+                        </button>
+                    </div>
+
+                    <!-- Gemini Config -->
+                    <div class="provider-panel active" id="panel-gemini">
+                        <div class="form-row">
+                            <label>API Key</label>
+                            <div class="input-with-action">
+                                <input type="password" id="gemini-api-key" placeholder="AIza...">
+                                <button class="icon-btn" id="toggle-gemini-key">
+                                    <span class="material-icons-round">visibility_off</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Base URL</label>
+                            <input type="text" id="gemini-base-url">
+                        </div>
+                        <div class="form-row">
+                            <label>Model</label>
+                            <div class="input-with-action">
+                                <select id="gemini-model"><option value="">Select model...</option></select>
+                                <button class="btn btn-sm" id="fetch-gemini-models">Fetch</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Ollama Config -->
+                    <div class="provider-panel" id="panel-ollama">
+                        <div class="form-row">
+                            <label>Base URL</label>
+                            <input type="text" id="ollama-url" placeholder="http://localhost:11434">
+                        </div>
+                        <div class="form-row">
+                            <label>Model</label>
+                            <div class="input-with-action">
+                                <select id="ollama-model"><option value="">Select model...</option></select>
+                                <button class="btn btn-sm" id="fetch-ollama-models">Fetch</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- OpenRouter Config -->
+                    <div class="provider-panel" id="panel-openrouter">
+                        <div class="form-row">
+                            <label>API Key</label>
+                            <div class="input-with-action">
+                                <input type="password" id="openrouter-api-key" placeholder="sk-or-...">
+                                <button class="icon-btn" id="toggle-openrouter-key">
+                                    <span class="material-icons-round">visibility_off</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Model</label>
+                            <div class="input-with-action">
+                                <select id="openrouter-model"><option value="">Select model...</option></select>
+                                <button class="btn btn-sm" id="fetch-openrouter-models">Fetch</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Z.AI Config -->
+                    <div class="provider-panel" id="panel-zai">
+                        <div class="form-row">
+                            <label>API Key</label>
+                            <div class="input-with-action">
+                                <input type="password" id="zai-api-key" placeholder="API key...">
+                                <button class="icon-btn" id="toggle-zai-key">
+                                    <span class="material-icons-round">visibility_off</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Model</label>
+                            <div class="input-with-action">
+                                <select id="zai-model"><option value="">Select model...</option></select>
+                                <button class="btn btn-sm" id="fetch-zai-models">Fetch</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SiliconFlow Config -->
+                    <div class="provider-panel" id="panel-siliconflow">
+                        <div class="form-row">
+                            <label>API Key</label>
+                            <div class="input-with-action">
+                                <input type="password" id="siliconflow-api-key" placeholder="sk-...">
+                                <button class="icon-btn" id="toggle-siliconflow-key">
+                                    <span class="material-icons-round">visibility_off</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Model</label>
+                            <div class="input-with-action">
+                                <select id="siliconflow-model"><option value="">Select model...</option></select>
+                                <button class="btn btn-sm" id="fetch-siliconflow-models">Fetch</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Groq Config -->
+                    <div class="provider-panel" id="panel-groq">
+                        <div class="form-row">
+                            <label>API Key</label>
+                            <div class="input-with-action">
+                                <input type="password" id="groq-api-key" placeholder="gsk_...">
+                                <button class="icon-btn" id="toggle-groq-key">
+                                    <span class="material-icons-round">visibility_off</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Model</label>
+                            <div class="input-with-action">
+                                <select id="groq-model"><option value="">Select model...</option></select>
+                                <button class="btn btn-sm" id="fetch-groq-models">Fetch</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ChatGPT Config -->
+                    <div class="provider-panel" id="panel-chatgpt">
+                        <div class="form-row">
+                            <label>API Key</label>
+                            <div class="input-with-action">
+                                <input type="password" id="chatgpt-api-key" placeholder="sk-...">
+                                <button class="icon-btn" id="toggle-chatgpt-key">
+                                    <span class="material-icons-round">visibility_off</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label>Model</label>
+                            <div class="input-with-action">
+                                <select id="chatgpt-model"><option value="">Select model...</option></select>
+                                <button class="btn btn-sm" id="fetch-chatgpt-models">Fetch</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="save-providers">Save Provider</button>
+
+                    <!-- ═══ MCP / TOOLS ═══ -->
+                    <div class="settings-section-header">
+                        <h2><span class="material-icons-round">extension</span> Tools</h2>
+                    </div>
+
+                    <div class="mcp-toggle-list" id="mcp-toggle-list">
+                        <p class="muted">Loading...</p>
+                    </div>
+
+                    <div class="tools-section" id="tools-section">
+                        <h3>Available Tools</h3>
+                        <div class="tools-grid" id="tools-grid">
+                            <p class="muted">Loading...</p>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="save-mcp">Save & Restart</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

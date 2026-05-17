@@ -1,0 +1,10 @@
+{
+  "ollama": {
+    "base_url": "http://localhost:11434",
+    "model": "llama3.2"
+  },
+  "gemini": {
+    "base_url": "https://generativelanguage.googleapis.com/v1beta",
+    "model": "gemini-2.0-flash"
+  }
+}

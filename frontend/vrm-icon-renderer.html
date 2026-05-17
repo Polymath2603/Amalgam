@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: transparent; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.2/lib/three-vrm.module.min.js"
+  }
+}
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+const params = new URLSearchParams(location.search);
+const modelUrl = params.get('model') || '/user_data/avatars/avatar.vrm';
+
+const SIZE = 192;
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+renderer.setSize(SIZE, SIZE);
+renderer.setPixelRatio(2);
+renderer.setClearColor(0x000000, 0);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(18, 1, 0.1, 20);
+camera.position.set(0, 1.52, 1.2);
+camera.lookAt(0, 1.48, 0);
+
+scene.add(new THREE.DirectionalLight(0xffffff, Math.PI).position.set(1, 1, 1).normalize());
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+const loader = new GLTFLoader();
+loader.register(p => new VRMLoaderPlugin(p));
+
+window.__vrmReady = false;
+
+loader.load(modelUrl, (gltf) => {
+    const vrm = gltf.userData.vrm;
+    if (!vrm) { console.error('No VRM data'); return; }
+    VRMUtils.removeUnnecessaryVertices(gltf.scene);
+    VRMUtils.combineSkeletons(gltf.scene);
+    VRMUtils.combineMorphs(vrm);
+    VRMUtils.rotateVRM0(vrm);
+    gltf.scene.traverse(o => { o.frustumCulled = false; });
+    scene.add(vrm.scene);
+
+    // Relaxed pose
+    const h = vrm.humanoid;
+    if (h) {
+        const spine = h.getNormalizedBoneNode('spine');
+        if (spine) spine.rotation.x = -0.05;
+        const lua = h.getNormalizedBoneNode('leftUpperArm');
+        const rua = h.getNormalizedBoneNode('rightUpperArm');
+        if (lua) lua.rotation.z = 0.3;
+        if (rua) rua.rotation.z = -0.3;
+    }
+
+    // Look at camera
+    const target = new THREE.Object3D();
+    camera.add(target);
+    if (vrm.lookAt) vrm.lookAt.target = target;
+
+    // Set happy expression for a pleasant icon
+    if (vrm.expressionManager) {
+        vrm.expressionManager.setValue('happy', 0.6);
+    }
+
+    vrm.update(0);
+    renderer.render(scene, camera);
+    window.__vrmReady = true;
+}, undefined, (err) => {
+    console.error('VRM load error:', err?.message || err);
+    window.__vrmReady = true; // Signal done even on error
+});
+</script>
+</body>
+</html>

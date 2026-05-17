@@ -1,0 +1,17 @@
+{
+  "shell": {
+    "command": "python3",
+    "args": ["backend/mcp/servers/shell/server.py"],
+    "enabled": true
+  },
+  "screenshot": {
+    "command": "python3",
+    "args": ["backend/mcp/servers/screenshot/server.py"],
+    "enabled": true
+  },
+  "filesystem": {
+    "command": "python3",
+    "args": ["backend/mcp/servers/filesystem/server.py"],
+    "enabled": true
+  }
+}
