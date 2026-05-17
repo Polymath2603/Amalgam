@@ -74,10 +74,15 @@ class TTS :
             communicate =edge_tts .Communicate (text ,self .voice )
             await communicate .save (temp_mp3 )
 
-            subprocess .run ([
+            proc =await asyncio .create_subprocess_exec (
             "ffmpeg","-y","-i",temp_mp3 ,
-            "-ar","16000","-ac","1",temp_wav 
-            ],stdout =subprocess .DEVNULL ,stderr =subprocess .DEVNULL ,check =True )
+            "-ar","16000","-ac","1",temp_wav ,
+            stdout =asyncio .subprocess .DEVNULL ,stderr =asyncio .subprocess .DEVNULL 
+            )
+            await proc .wait ()
+            if proc .returncode !=0 :
+                logger .error (f"ffmpeg failed with code {proc .returncode }")
+                return np .zeros (0 ,dtype =np .float32 ),[]
 
             sample_rate ,data =wavfile .read (temp_wav )
 

@@ -95,16 +95,20 @@ class Agent :
                 else :
                     full_response +=token 
 
-                    for m in EMOTION_RE .finditer (full_response ,last_emotion_end ):
-                        yield ('__emotion__',m .group (1 ))
-                        last_emotion_end =m .end ()
+                    in_think ='<think>'in full_response and '</think>'not in full_response 
+                    if not in_think :
+
+                        for m in EMOTION_RE .finditer (full_response ,last_emotion_end ):
+                            yield ('__emotion__',m .group (1 ))
+                            last_emotion_end =m .end ()
 
                     think_match =THINK_RE .search (full_response )
                     if think_match :
                         yield ('__thinking__',think_match .group (1 ).strip ())
                         full_response =THINK_RE .sub ('',full_response )
                         last_emotion_end =0 
-                    if token :
+
+                    if token and not in_think :
                         yield token 
 
             if not in_tool_block :

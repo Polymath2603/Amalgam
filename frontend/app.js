@@ -354,6 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function setStatus(state) {
         const el = document.getElementById('chat-avatar-status');
         const avatar = document.getElementById('chat-avatar');
+        if (!el || !avatar) return;
         avatar.className = 'chat-avatar';
         switch (state) {
             case 'thinking': avatar.classList.add('thinking'); el.textContent = 'Thinking...'; break;

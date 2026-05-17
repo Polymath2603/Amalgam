@@ -185,36 +185,38 @@ class Memory :
 
         if count >30 :
             self .summarizing =True 
-            logger .info ("Auto-summarizing older memories...")
+            try :
+                logger .info ("Auto-summarizing older memories...")
 
-            self .cursor .execute (
-            'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT 20',
-            (session_id ,)
-            )
-            rows =self .cursor .fetchall ()
+                self .cursor .execute (
+                'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT 20',
+                (session_id ,)
+                )
+                rows =self .cursor .fetchall ()
 
-            if not rows :
+                if not rows :
+                    return 
+
+                last_id =rows [-1 ][0 ]
+                chat_log ="\n".join ([f"{r [1 ]}: {r [2 ]}"for r in rows ])
+
+                prompt =f"Summarize the following conversation history concisely:\n{chat_log }\n\nSummary:"
+                summary =await self .llm .generate ([{"role":"user","content":prompt }])
+
+                if summary and not summary .startswith ("Error"):
+                    existing =self .get_summary ()
+                    if existing :
+                        prompt =f"Combine these two summaries into one coherent overview:\n1. {existing }\n2. {summary }\n\nCombined Summary:"
+                        summary =await self .llm .generate ([{"role":"user","content":prompt }])
+
+                    self .cursor .execute ('INSERT INTO summaries (summary) VALUES (?)',(summary ,))
+                    self .cursor .execute ('DELETE FROM conversations WHERE id <= ? AND session_id = ?',(last_id ,session_id ))
+                    self .conn .commit ()
+                    logger .info ("Summarization complete.")
+            except Exception as e :
+                logger .error (f"Summarization failed: {e }")
+            finally :
                 self .summarizing =False 
-                return 
-
-            last_id =rows [-1 ][0 ]
-            chat_log ="\n".join ([f"{r [1 ]}: {r [2 ]}"for r in rows ])
-
-            prompt =f"Summarize the following conversation history concisely:\n{chat_log }\n\nSummary:"
-            summary =await self .llm .generate ([{"role":"user","content":prompt }])
-
-            if summary and not summary .startswith ("Error"):
-                existing =self .get_summary ()
-                if existing :
-                    prompt =f"Combine these two summaries into one coherent overview:\n1. {existing }\n2. {summary }\n\nCombined Summary:"
-                    summary =await self .llm .generate ([{"role":"user","content":prompt }])
-
-                self .cursor .execute ('INSERT INTO summaries (summary) VALUES (?)',(summary ,))
-                self .cursor .execute ('DELETE FROM conversations WHERE id <= ? AND session_id = ?',(last_id ,session_id ))
-                self .conn .commit ()
-                logger .info ("Summarization complete.")
-
-            self .summarizing =False 
 
     def clear (self ):
         self .cursor .execute ('DELETE FROM conversations')
