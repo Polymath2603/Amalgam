@@ -59,7 +59,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let audioContext = null;
     let currentAudioSource = null;
     let isPlayingTTS = false;
-    let ttsGeneration = 0;
     let ttsQueue = [];
     let ttsQueuePlaying = false;
 
@@ -245,6 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return;
         } else if (data.type === 'chat_start') {
+            flushTTSQueue();
             currentAssistantMessage = addMessage('assistant', '');
             setStatus('thinking');
         } else if (data.type === 'chat_append') {

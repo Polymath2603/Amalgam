@@ -346,18 +346,17 @@ async def ws_chat (websocket :WebSocket ):
                     if voice_pipeline is None :
                         loop =asyncio .get_event_loop ()
                         def on_transcription (text ):
-                            """Callback from VoicePipeline — inject as user message."""
-                            asyncio .run_coroutine_threadsafe (
-                            websocket .send_json ({"type":"voice_state","state":"idle"}),
-                            loop 
-                            )
-                            asyncio .run_coroutine_threadsafe (
-                            websocket .send_json ({"type":"user_message_from_voice","text":text }),
-                            loop 
-                            )
+                            """Callback from VoicePipeline thread — safely send to websocket."""
+                            try :
+                                future =asyncio .run_coroutine_threadsafe (
+                                websocket .send_json ({"type":"user_message_from_voice","text":text }),
+                                loop 
+                                )
+                                future .result (timeout =5 )
+                            except Exception as e :
+                                logger .warning (f"Voice transcription send failed: {e }")
                         voice_pipeline =VoicePipeline (agent_callback =on_transcription )
                     if voice_task is None or voice_task .done ():
-
                         voice_task =asyncio .create_task (
                         asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
                         )
