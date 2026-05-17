@@ -292,6 +292,17 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (data.type === 'emotion') {
             if (avatarRenderer) avatarRenderer.setEmotion(data.emotion || 'neutral');
             if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion(data.emotion || 'neutral');
+        } else if (data.type === 'thinking') {
+            
+            if (data.text) {
+                const body = currentAssistantMessage?.querySelector('.msg-body');
+                if (body) {
+                    const thinkEl = document.createElement('div');
+                    thinkEl.className = 'thinking-bubble';
+                    thinkEl.textContent = data.text;
+                    body.appendChild(thinkEl);
+                }
+            }
         }
     }
 
@@ -410,7 +421,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             
             const analyser = ctx.createAnalyser();
-            analyser.fftSize = 2048;
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.5;
             source.connect(analyser);
             source.connect(ctx.destination);
             currentAudioSource = source;
@@ -419,22 +431,22 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('speaking');
 
             
-            const timeDomainData = new Float32Array(2048);
+            if (avatarRenderer) avatarRenderer.setupFrequencyAnalyzer(ctx, analyser);
+            if (avatarPreviewRenderer) avatarPreviewRenderer.setupFrequencyAnalyzer(ctx, analyser);
+
             let animFrameId = null;
             const animateMouth = () => {
                 if (!isPlayingTTS) return;
 
-                analyser.getFloatTimeDomainData(timeDomainData);
-                let volume = 0;
-                for (let i = 0; i < 2048; i++) {
-                    volume = Math.max(volume, Math.abs(timeDomainData[i]));
-                }
                 
-                volume = 1 / (1 + Math.exp(-45 * volume + 5));
-                if (volume < 0.1) volume = 0;
-
-                if (avatarRenderer) avatarRenderer.setMouthOpen(volume);
-                if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(volume);
+                if (avatarRenderer) {
+                    const frame = avatarRenderer.updateLipSync();
+                    if (frame) avatarRenderer.setViseme(frame);
+                }
+                if (avatarPreviewRenderer) {
+                    const frame = avatarPreviewRenderer.updateLipSync();
+                    if (frame) avatarPreviewRenderer.setViseme(frame);
+                }
                 animFrameId = requestAnimationFrame(animateMouth);
             };
             animFrameId = requestAnimationFrame(animateMouth);
@@ -443,8 +455,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 isPlayingTTS = false;
                 currentAudioSource = null;
                 if (animFrameId) cancelAnimationFrame(animFrameId);
-                if (avatarRenderer) avatarRenderer.setMouthOpen(0);
-                if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(0);
+                
+                if (avatarRenderer) {
+                    avatarRenderer.setMouthOpen(0);
+                    if (avatarRenderer._frequencyAnalyzer) avatarRenderer._frequencyAnalyzer.reset();
+                }
+                if (avatarPreviewRenderer) {
+                    avatarPreviewRenderer.setMouthOpen(0);
+                    if (avatarPreviewRenderer._frequencyAnalyzer) avatarPreviewRenderer._frequencyAnalyzer.reset();
+                }
                 if (onComplete) onComplete();
             };
 
@@ -784,7 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('save-settings').addEventListener('click', async () => {
-        await api('/api/settings', {
+        const result = await api('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -802,7 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result) {
             showToast('Settings saved');
         } else {
-            showToast('Failed to save settings', 'error');
+            showToast('Failed to save settings', 'danger');
         }
     });
 

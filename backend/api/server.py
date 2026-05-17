@@ -336,6 +336,7 @@ async def ws_chat (websocket :WebSocket ):
     voice_output_enabled =False 
     voice_pipeline =None 
     voice_task =None 
+    _stream_idx =0 
 
     try :
         while True :
@@ -405,6 +406,10 @@ async def ws_chat (websocket :WebSocket ):
                 await websocket .send_json ({"type":"chat_start","role":"assistant"})
                 await websocket .send_json ({"type":"emotion","emotion":"thinking"})
 
+
+                _stream_idx +=1 
+                current_stream =_stream_idx 
+
                 try :
                     import base64 as _b64 
                     import struct as _struct 
@@ -412,6 +417,7 @@ async def ws_chat (websocket :WebSocket ):
                     full_response =""
                     sentence_buffer =""
                     sentence_idx =0 
+                    current_emotion ="neutral"
                     lipsync_on =settings ().get ("voice.lipsync_enabled",True )
 
 
@@ -422,10 +428,14 @@ async def ws_chat (websocket :WebSocket ):
                             if tts ().voice !=char_voice :
                                 tts ().voice =char_voice 
 
-                    async def synthesize_and_send (sentence_text ,idx ):
+                    async def synthesize_and_send (sentence_text ,idx ,stream_id ):
                         """TTS a single sentence and send audio over WebSocket."""
                         nonlocal sentence_idx 
                         try :
+
+                            if stream_id !=_stream_idx :
+                                logger .info (f"TTS sentence {idx }: skipped (stale stream)")
+                                return 
                             char =settings ().get_active_character ()
                             ref_audio =None 
                             if tts ().engine =="openvoice":
@@ -479,7 +489,12 @@ async def ws_chat (websocket :WebSocket ):
                     async for item in agent ().handle_user_input (text ):
 
                         if isinstance (item ,tuple )and item [0 ]=='__emotion__':
-                            await websocket .send_json ({"type":"emotion","emotion":item [1 ]})
+                            current_emotion =item [1 ]
+                            await websocket .send_json ({"type":"emotion","emotion":current_emotion })
+                            continue 
+
+                        if isinstance (item ,tuple )and item [0 ]=='__thinking__':
+                            await websocket .send_json ({"type":"thinking","text":item [1 ]})
                             continue 
 
                         token =item 
@@ -503,15 +518,15 @@ async def ws_chat (websocket :WebSocket ):
                             await websocket .send_json ({"type":"viseme","value":round (max (0 ,min (1 ,viseme_val )),2 )})
 
 
-                        if voice_output_enabled and _re .search (r'[.!?]\s',sentence_buffer ):
+                        if voice_output_enabled and _re .search (r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}',sentence_buffer ):
 
-                            parts =_re .split (r'(?<=[.!?])\s',sentence_buffer )
+                            parts =_re .split (r'(?<=[.!?。！？])\s',sentence_buffer )
                             if len (parts )>1 :
                                 complete =parts [0 ].strip ()
                                 sentence_buffer =' '.join (parts [1 :])
                                 if complete :
                                     await websocket .send_json ({"type":"voice_state","state":"speaking"})
-                                    task =asyncio .create_task (synthesize_and_send (complete ,sentence_idx ))
+                                    task =asyncio .create_task (synthesize_and_send (complete ,sentence_idx ,current_stream ))
                                     tts_tasks .append (task )
                                     sentence_idx +=1 
 
@@ -521,7 +536,7 @@ async def ws_chat (websocket :WebSocket ):
 
                     if voice_output_enabled and sentence_buffer .strip ():
                         await websocket .send_json ({"type":"voice_state","state":"speaking"})
-                        task =asyncio .create_task (synthesize_and_send (sentence_buffer .strip (),sentence_idx ))
+                        task =asyncio .create_task (synthesize_and_send (sentence_buffer .strip (),sentence_idx ,current_stream ))
                         tts_tasks .append (task )
                         sentence_idx +=1 
 

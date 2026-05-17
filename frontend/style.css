@@ -136,6 +136,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .msg-assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
 .msg-system { align-self: center; background: transparent; color: var(--text-muted); font-size: 0.8rem; font-style: italic; }
 .msg-assistant.msg-error { background: #2d1b1b; border-color: #5c3333; color: #e57373; }
+.thinking-bubble { margin-top: 0.5rem; padding: 0.4rem 0.6rem; background: var(--bg-hover); border-radius: 6px; font-size: 0.75rem; color: var(--text-muted); font-style: italic; border-left: 2px solid var(--accent); }
 
 
 .history-panel {

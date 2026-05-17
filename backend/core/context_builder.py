@@ -115,7 +115,18 @@ class ContextBuilder :
                 pass 
 
 
-        base +="\n\n## Emotion Expressions\nWhen expressing emotions, embed a tag like [happy], [sad], [angry], [surprised], [thinking], or [relaxed] in your response. Use them naturally — not every message needs one. Example: \"That's wonderful! [happy] I'd love to help.\"\n"
+        base +=(
+        "\n\n## Emotion Expressions\n"
+        "When expressing emotions, embed a tag in brackets. Use them naturally — not every message needs one.\n"
+        "Available emotions: [happy], [sad], [angry], [surprised], [thinking], [relaxed], [confused], "
+        "[shy], [jealous], [bored], [suspicious], [victory], [sleep], [love]\n"
+        "Examples:\n"
+        "- \"That's wonderful! [happy] I'd love to help.\"\n"
+        "- \"Hmm, let me think about that... [thinking] I believe the answer is 42.\"\n"
+        "- \"I'm not so sure about this... [suspicious] Something seems off.\"\n"
+        "- \"Oh! [surprised] I didn't expect that!\"\n"
+        "For reasoning models, use <think>your reasoning</think> before your response.\n"
+        )
 
         return base 
 

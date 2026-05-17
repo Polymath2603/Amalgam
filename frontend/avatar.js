@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { loadVRMAnimation } from '/static/vrm-animation.js';
+import { FrequencyAnalyzer } from '/static/frequency-analyzer.js';
 
 const EMOTION_TO_EXPRESSION = {
     neutral:    null,
@@ -16,6 +17,13 @@ const EMOTION_TO_EXPRESSION = {
     speaking:   'happy',
     listening:  null,
     confused:   'sad',
+    shy:        'relaxed',
+    jealous:    'angry',
+    bored:      'sad',
+    suspicious: 'angry',
+    victory:    'happy',
+    sleep:      'relaxed',
+    love:       'happy',
 };
 
 const EXPRESSION_NAMES = ['happy', 'angry', 'sad', 'relaxed', 'surprised'];
@@ -43,6 +51,10 @@ export class AvatarRenderer {
         this.mouthValue = 0;
         this._targetExpressions = {};
         for (const expr of EXPRESSION_NAMES) this._targetExpressions[expr] = 0;
+
+        
+        this._frequencyAnalyzer = null;
+        this._audioContext = null;
 
         
         this._blinkTimer = BLINK_OPEN_MAX;
@@ -161,6 +173,18 @@ export class AvatarRenderer {
 
                 this.vrm = vrm;
                 this.scene.add(vrm.scene);
+
+                
+                if (vrm.expressionManager) {
+                    const { expressionMap, presetExpressionMap } = vrm.expressionManager;
+                    const customExpressions = Object.keys(expressionMap).filter(k => !(k in presetExpressionMap));
+                    customExpressions.forEach(name => {
+                        const expr = expressionMap[name];
+                        if (expr) vrm.expressionManager.registerExpression(expr);
+                    });
+                    
+                    this._allExpressionNames = Object.keys(expressionMap);
+                }
 
                 
                 this._mixer = new THREE.AnimationMixer(vrm.scene);
@@ -317,13 +341,14 @@ export class AvatarRenderer {
             this._updateBlink(delta);
 
             
-            for (const expr of EXPRESSION_NAMES) {
-                const em = this.vrm.expressionManager;
-                if (!em) break;
-                const current = em.getValue(expr) || 0;
-                const target = this._targetExpressions[expr] || 0;
-                const blended = current + (target - current) * Math.min(1, delta * 5);
-                em.setValue(expr, blended);
+            const em = this.vrm.expressionManager;
+            if (em) {
+                for (const expr of (this._allExpressionNames || EXPRESSION_NAMES)) {
+                    const current = em.getValue(expr) || 0;
+                    const target = this._targetExpressions[expr] || 0;
+                    const blended = current + (target - current) * Math.min(1, delta * 5);
+                    em.setValue(expr, blended);
+                }
             }
 
             
@@ -358,6 +383,15 @@ export class AvatarRenderer {
         }
     }
 
+    
+    _setBlinkEnabled(enabled) {
+        this._blinkEnabled = enabled;
+        if (!this._blinkIsOpen) {
+            return this._blinkTimer; 
+        }
+        return 0;
+    }
+
     _updateSaccade(delta) {
         if (!this.vrm?.lookAt) return;
 
@@ -377,23 +411,26 @@ export class AvatarRenderer {
 
         
         const lookAt = this.vrm.lookAt;
-        if (lookAt) {
-            
-            
-            
-            
-            const fpBone = this.vrm.humanoid?.getNormalizedBoneNode('head');
-            if (fpBone) {
-                
-                const headQuat = fpBone.quaternion.clone();
-                
-                const yawDeg = this._yawDamped * (180 / Math.PI);
-                const pitchDeg = this._pitchDamped * (180 / Math.PI);
-                
-                if (lookAt.applier && typeof lookAt.applier.apply === 'function') {
-                    lookAt.applier.apply(new THREE.Euler(pitchDeg, yawDeg, 0));
-                }
+        if (lookAt?.applier) {
+            const yawDeg = this._yawDamped * (180 / Math.PI);
+            const pitchDeg = this._pitchDamped * (180 / Math.PI);
+            if (typeof lookAt.applier.applyYawPitch === 'function') {
+                lookAt.applier.applyYawPitch(yawDeg, pitchDeg);
             }
+        }
+
+        
+        const headBone = this.vrm.humanoid?.getNormalizedBoneNode('head');
+        if (headBone && this._lookAtTarget) {
+            const targetQuat = new THREE.Quaternion();
+            const lookDir = new THREE.Vector3();
+            lookDir.subVectors(this._lookAtTarget.position, headBone.getWorldPosition(new THREE.Vector3()));
+            lookDir.normalize();
+            const lookMatrix = new THREE.Matrix4();
+            lookMatrix.lookAt(new THREE.Vector3(0, 0, 0), lookDir, new THREE.Vector3(0, 1, 0));
+            targetQuat.setFromRotationMatrix(lookMatrix);
+            
+            headBone.quaternion.slerp(targetQuat, 0.4);
         }
     }
 
@@ -401,26 +438,63 @@ export class AvatarRenderer {
         this.currentEmotion = emotion;
 
         
-        this._blinkEnabled = (emotion === 'neutral');
-        if (this._blinkEnabled && !this._blinkIsOpen) {
-            
-            this.vrm?.expressionManager?.setValue('blink', 0);
-            this._blinkIsOpen = true;
-            this._blinkTimer = BLINK_OPEN_MAX;
-        }
-
-        
         for (const expr of EXPRESSION_NAMES) {
             this._targetExpressions[expr] = 0;
         }
+
+        if (emotion === 'neutral') {
+            
+            this._setBlinkEnabled(true);
+            return;
+        }
+
+        
+        const blinkDelay = this._setBlinkEnabled(false);
         const target = EMOTION_TO_EXPRESSION[emotion];
         if (target) {
-            this._targetExpressions[target] = emotion === 'surprised' ? 0.5 : 1.0;
+            const value = emotion === 'surprised' ? 0.5 : 1.0;
+            if (blinkDelay > 0) {
+                
+                setTimeout(() => {
+                    if (this.currentEmotion === emotion) {
+                        this._targetExpressions[target] = value;
+                    }
+                }, blinkDelay * 1000);
+            } else {
+                this._targetExpressions[target] = value;
+            }
         }
     }
 
     setMouthOpen(value) {
         this.mouthValue = Math.min(1, Math.max(0, value));
+    }
+
+    
+    setupFrequencyAnalyzer(audioContext, analyserNode) {
+        this._audioContext = audioContext;
+        this._frequencyAnalyzer = new FrequencyAnalyzer(analyserNode, audioContext.sampleRate);
+    }
+
+    
+    setViseme(visemeFrame) {
+        if (!visemeFrame || !this.vrm?.expressionManager) return;
+        const em = this.vrm.expressionManager;
+        const shape = visemeFrame.shape;
+        const intensity = visemeFrame.intensity;
+
+        
+        const lipSyncScale = this.currentEmotion === 'neutral' ? 0.5 : 0.25;
+        em.setValue('aa', shape.open * intensity * lipSyncScale);
+        em.setValue('ih', (1 - shape.width) * intensity * 0.3 * lipSyncScale);
+        em.setValue('ou', shape.round * intensity * lipSyncScale);
+        em.setValue('ee', shape.width * intensity * 0.3 * lipSyncScale);
+    }
+
+    
+    updateLipSync() {
+        if (!this._frequencyAnalyzer) return null;
+        return this._frequencyAnalyzer.analyze();
     }
 
     destroy() {

@@ -7,7 +7,8 @@ import re
 import asyncio 
 from typing import AsyncIterator 
 
-EMOTION_RE =re .compile (r'\[(happy|sad|angry|surprised|thinking|relaxed|confused)\]')
+EMOTION_RE =re .compile (r'\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)\]',re .IGNORECASE )
+THINK_RE =re .compile (r'<think>(.*?)</think>',re .DOTALL )
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .llm_router import LLMRouter 
@@ -97,11 +98,18 @@ class Agent :
                     for m in EMOTION_RE .finditer (full_response ,last_emotion_end ):
                         yield ('__emotion__',m .group (1 ))
                         last_emotion_end =m .end ()
+
+                    think_match =THINK_RE .search (full_response )
+                    if think_match :
+                        yield ('__thinking__',think_match .group (1 ).strip ())
+                        full_response =THINK_RE .sub ('',full_response )
+                        last_emotion_end =0 
                     if token :
                         yield token 
 
             if not in_tool_block :
-                clean =EMOTION_RE .sub ('',full_response ).strip ()
+                clean =THINK_RE .sub ('',full_response )
+                clean =EMOTION_RE .sub ('',clean ).strip ()
                 await self .memory .add_turn ("assistant",clean )
                 return 
 
