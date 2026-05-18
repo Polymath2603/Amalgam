@@ -551,7 +551,7 @@ async def ws_chat (websocket :WebSocket ):
                 except Exception as e :
                     logger .error (f"Agent error: {e }")
 
-                    for t in _tts_tasks :
+                    for t in tts_tasks :
                         if not t .done ():
                             t .cancel ()
                     error_text =str (e )

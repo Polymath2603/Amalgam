@@ -205,7 +205,9 @@ export class AvatarRenderer {
                         if (expr) vrm.expressionManager.registerExpression(expr);
                     });
                     
-                    this._allExpressionNames = Object.keys(expressionMap);
+                    const presetNames = Object.keys(presetExpressionMap || {});
+                    const customNames = Object.keys(expressionMap);
+                    this._allExpressionNames = [...new Set([...presetNames, ...customNames, ...EXPRESSION_NAMES])];
                 }
 
                 
@@ -363,9 +365,11 @@ export class AvatarRenderer {
             this._updateBlink(delta);
 
             
+            
             const em = this.vrm.expressionManager;
             if (em) {
                 for (const expr of (this._allExpressionNames || EXPRESSION_NAMES)) {
+                    if (expr === 'aa' || expr === 'ih' || expr === 'ou' || expr === 'ee') continue; 
                     const current = em.getValue(expr) || 0;
                     const target = this._targetExpressions[expr] || 0;
                     const blended = current + (target - current) * Math.min(1, delta * 5);

@@ -256,7 +256,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     currentAssistantMessage.classList.add('msg-error');
                 }
                 const body = currentAssistantMessage.querySelector('.msg-body');
-                body.textContent += data.text;
+                
+                const cleanText = (data.text || '').replace(/\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)\]/gi, '');
+                body.textContent += cleanText;
                 
                 if (!currentAssistantMessage.classList.contains('msg-error') && body.textContent.trim()) {
                     const parsed = parseErrorMessage(body.textContent);
