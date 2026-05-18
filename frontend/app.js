@@ -424,8 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             
             const analyser = ctx.createAnalyser();
-            analyser.fftSize = 256;
-            analyser.smoothingTimeConstant = 0.5;
+            analyser.fftSize = 2048;
             source.connect(analyser);
             source.connect(ctx.destination);
             currentAudioSource = source;
@@ -434,22 +433,22 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('speaking');
 
             
-            if (avatarRenderer) avatarRenderer.setupFrequencyAnalyzer(ctx, analyser);
-            if (avatarPreviewRenderer) avatarPreviewRenderer.setupFrequencyAnalyzer(ctx, analyser);
-
+            const timeDomainData = new Float32Array(2048);
             let animFrameId = null;
             const animateMouth = () => {
                 if (!isPlayingTTS) return;
 
+                analyser.getFloatTimeDomainData(timeDomainData);
+                let volume = 0;
+                for (let i = 0; i < 2048; i++) {
+                    volume = Math.max(volume, Math.abs(timeDomainData[i]));
+                }
                 
-                if (avatarRenderer) {
-                    const frame = avatarRenderer.updateLipSync();
-                    if (frame) avatarRenderer.setViseme(frame);
-                }
-                if (avatarPreviewRenderer) {
-                    const frame = avatarPreviewRenderer.updateLipSync();
-                    if (frame) avatarPreviewRenderer.setViseme(frame);
-                }
+                volume = 1 / (1 + Math.exp(-45 * volume + 5));
+                if (volume < 0.1) volume = 0;
+
+                if (avatarRenderer) avatarRenderer.setMouthOpen(volume);
+                if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(volume);
                 animFrameId = requestAnimationFrame(animateMouth);
             };
             animFrameId = requestAnimationFrame(animateMouth);
@@ -459,14 +458,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentAudioSource = null;
                 if (animFrameId) cancelAnimationFrame(animFrameId);
                 
-                if (avatarRenderer) {
-                    avatarRenderer.setMouthOpen(0);
-                    if (avatarRenderer._frequencyAnalyzer) avatarRenderer._frequencyAnalyzer.reset();
-                }
-                if (avatarPreviewRenderer) {
-                    avatarPreviewRenderer.setMouthOpen(0);
-                    if (avatarPreviewRenderer._frequencyAnalyzer) avatarPreviewRenderer._frequencyAnalyzer.reset();
-                }
+                if (avatarRenderer) avatarRenderer.setMouthOpen(0);
+                if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(0);
                 if (onComplete) onComplete();
             };
 

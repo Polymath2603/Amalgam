@@ -67,34 +67,37 @@ loader.load(modelUrl, (gltf) => {
         if (rua) rua.rotation.z = -0.3;
     }
 
-    // Portrait camera — position at head bone for head+neck framing
+    // Portrait camera — compute head size from VRM bone positions
     const headBone = h?.getNormalizedBoneNode('head');
     const neckBone = h?.getNormalizedBoneNode('neck');
+    const spineBone = h?.getNormalizedBoneNode('spine');
     if (headBone) {
         vrm.update(0);
         vrm.scene.updateMatrixWorld(true);
         const headPos = new THREE.Vector3();
         headBone.getWorldPosition(headPos);
-        // Position camera at neck height, looking at head
-        const neckPos = new THREE.Vector3();
+        // Compute head size from bone distances (adaptive to model proportions)
+        let headSize = 0.2; // fallback
         if (neckBone) {
+            const neckPos = new THREE.Vector3();
             neckBone.getWorldPosition(neckPos);
-        } else {
-            neckPos.copy(headPos);
-            neckPos.y -= 0.08;
+            headSize = headPos.distanceTo(neckPos) * 2.5; // head is ~2.5x neck-to-head distance
         }
-        const midY = (headPos.y + neckPos.y) / 2;
-        camera.position.set(0, midY, headPos.z + 0.35);
-        camera.lookAt(0, midY, 0);
+        const fov = camera.fov * (Math.PI / 180);
+        const dist = (headSize * 2.0) / Math.tan(fov / 2);
+        camera.position.set(0, headPos.y, headPos.z + dist);
+        camera.lookAt(0, headPos.y - headSize * 0.1, 0);
     } else {
         // Fallback: bounding box approach
         const box = new THREE.Box3().setFromObject(vrm.scene);
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
         const fov = camera.fov * (Math.PI / 180);
-        const dist = (size.y * 0.25) / Math.tan(fov / 2);
-        camera.position.set(0, center.y + size.y * 0.3, dist * 1.1);
-        camera.lookAt(0, center.y + size.y * 0.3, 0);
+        const headSize = size.y * 0.15;
+        const headY = center.y + size.y * 0.35;
+        const dist = (headSize * 2.0) / Math.tan(fov / 2);
+        camera.position.set(0, headY, dist * 1.1);
+        camera.lookAt(0, headY - headSize * 0.1, 0);
     }
 
     // Look at camera
