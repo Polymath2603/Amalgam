@@ -8,7 +8,7 @@ const path = require('path');
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const CHARACTERS_DIR = path.join(PROJECT_ROOT, 'characters');
 const RENDERER_URL = 'http:
-const DEFAULT_VRM = '/user_data/avatars/avatar.vrm';
+const DEFAULT_VRM = '/characters/default/model.vrm';
 const ICON_SIZE = 96;
 const regenerateAll = process.argv.includes('--all');
 

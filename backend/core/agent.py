@@ -57,10 +57,10 @@ class Agent :
             )
 
             full_response =""
+            clean_yielded =0 
             tool_detected =False 
             tool_block =""
             in_tool_block =False 
-            last_emotion_end =0 
 
             async for token in self .llm .stream (messages ):
                 if not tool_detected and "```tool"in full_response +token :
@@ -95,26 +95,30 @@ class Agent :
                 else :
                     full_response +=token 
 
-                    in_think ='<think>'in full_response and '</think>'not in full_response 
-                    if not in_think :
 
-                        for m in EMOTION_RE .finditer (full_response ,last_emotion_end ):
-                            yield ('__emotion__',m .group (1 ))
-                            last_emotion_end =m .end ()
+                    in_think ='<think>'in full_response and '</think>'not in full_response 
+                    if in_think :
+                        continue 
+
 
                     think_match =THINK_RE .search (full_response )
                     if think_match :
                         yield ('__thinking__',think_match .group (1 ).strip ())
                         full_response =THINK_RE .sub ('',full_response )
-                        last_emotion_end =0 
+                        clean_yielded =0 
 
-                    if token and not in_think :
-                        yield token 
+
+                    for m in EMOTION_RE .finditer (full_response ):
+                        yield ('__emotion__',m .group (1 ))
+                    full_response =EMOTION_RE .sub ('',full_response )
+
+
+                    if len (full_response )>clean_yielded :
+                        yield full_response [clean_yielded :]
+                        clean_yielded =len (full_response )
 
             if not in_tool_block :
-                clean =THINK_RE .sub ('',full_response )
-                clean =EMOTION_RE .sub ('',clean ).strip ()
-                await self .memory .add_turn ("assistant",clean )
+                await self .memory .add_turn ("assistant",full_response .strip ())
                 return 
 
         if iterations >=5 :
