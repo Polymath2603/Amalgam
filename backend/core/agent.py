@@ -114,8 +114,16 @@ class Agent :
 
 
                     if len (full_response )>clean_yielded :
-                        yield full_response [clean_yielded :]
-                        clean_yielded =len (full_response )
+                        chunk =full_response [clean_yielded :]
+
+                        incomplete =re .search (r'\[[a-zA-Z]*$',chunk )
+                        if incomplete :
+                            yield chunk [:incomplete .start ()]
+
+
+                        else :
+                            yield chunk 
+                            clean_yielded =len (full_response )
 
             if not in_tool_block :
                 await self .memory .add_turn ("assistant",full_response .strip ())

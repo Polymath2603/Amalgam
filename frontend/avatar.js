@@ -184,34 +184,6 @@ export class AvatarRenderer {
                 }
 
                 
-                const box = new THREE.Box3().setFromObject(vrm.scene);
-                const size = box.getSize(new THREE.Vector3());
-                const center = box.getCenter(new THREE.Vector3());
-                
-                const fov = this.camera.fov * (Math.PI / 180);
-                const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
-                const neckBone = vrm.humanoid?.getNormalizedBoneNode('neck');
-                if (this.preview && headBone && neckBone) {
-                    
-                    const headPos = new THREE.Vector3();
-                    const neckPos = new THREE.Vector3();
-                    headBone.getWorldPosition(headPos);
-                    neckBone.getWorldPosition(neckPos);
-                    const headTop = headPos.y + 0.1;
-                    const headBottom = neckPos.y - 0.02;
-                    const headHeight = headTop - headBottom;
-                    const dist = (headHeight * 1.3) / Math.tan(fov / 2);
-                    const midY = (headTop + headBottom) / 2;
-                    this.camera.position.set(0, midY, headPos.z + dist);
-                    this.camera.lookAt(0, midY, 0);
-                } else if (!this.preview) {
-                    const dist = (size.y * 0.7) / Math.tan(fov / 2);
-                    this.camera.position.set(0, center.y + size.y * 0.15, dist * 1.1);
-                    this.camera.lookAt(0, center.y, 0);
-                    this._lookAtTarget.position.set(0, center.y, dist);
-                }
-
-                
                 if (vrm.expressionManager) {
                     const { expressionMap, presetExpressionMap } = vrm.expressionManager;
                     const customExpressions = Object.keys(expressionMap).filter(k => !(k in presetExpressionMap));
@@ -223,15 +195,14 @@ export class AvatarRenderer {
                     const presetNames = Object.keys(presetExpressionMap || {});
                     const customNames = Object.keys(expressionMap);
                     this._allExpressionNames = [...new Set([...presetNames, ...customNames, ...EXPRESSION_NAMES])];
+                    console.log('[Avatar] Expressions available:', this._allExpressionNames);
+                    console.log('[Avatar] Preset expressions:', presetNames);
+                } else {
+                    console.warn('[Avatar] No expressionManager found on VRM');
                 }
 
                 
                 this._mixer = new THREE.AnimationMixer(vrm.scene);
-
-                
-                const lookAtTarget = new THREE.Object3D();
-                this.camera.add(lookAtTarget);
-                if (vrm.lookAt) vrm.lookAt.target = lookAtTarget;
 
                 
                 const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
@@ -352,15 +323,41 @@ export class AvatarRenderer {
         const fov = this.camera.fov * (Math.PI / 180);
 
         if (this.preview) {
-            const previewTargetY = box.max.y - size.y * 0.15;
-            const previewHeight = Math.max(size.y * 0.3, 0.15);
-            const camZ = (previewHeight / 2) / Math.tan(fov / 2) * 1.3;
-            this.camera.position.set(center.x, previewTargetY, center.z + Math.max(camZ, 0.5));
-            this.camera.lookAt(center.x, previewTargetY, center.z);
+            
+            const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
+            const neckBone = vrm.humanoid?.getNormalizedBoneNode('neck');
+            if (headBone && neckBone) {
+                vrm.update(0);
+                vrm.scene.updateMatrixWorld(true);
+                const headPos = new THREE.Vector3();
+                const neckPos = new THREE.Vector3();
+                headBone.getWorldPosition(headPos);
+                neckBone.getWorldPosition(neckPos);
+                const headTop = headPos.y + 0.1;
+                const headBottom = neckPos.y - 0.02;
+                const headHeight = headTop - headBottom;
+                const camZ = (headHeight * 0.65) / Math.tan(fov / 2);
+                const midY = (headTop + headBottom) / 2;
+                
+                const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
+                const camOffsetZ = isRotated ? camZ : -camZ;
+                this.camera.position.set(center.x, midY, headPos.z + camOffsetZ);
+                this.camera.lookAt(center.x, midY, headPos.z);
+            } else {
+                const previewTargetY = box.max.y - size.y * 0.15;
+                const previewHeight = Math.max(size.y * 0.3, 0.15);
+                const camZ = (previewHeight / 2) / Math.tan(fov / 2) * 1.3;
+                const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
+                const camOffsetZ = isRotated ? Math.max(camZ, 0.5) : -Math.max(camZ, 0.5);
+                this.camera.position.set(center.x, previewTargetY, center.z + camOffsetZ);
+                this.camera.lookAt(center.x, previewTargetY, center.z);
+            }
         } else {
             const camZ = (upperHeight / 2) / Math.tan(fov / 2) * 1.3;
             const finalZ = Math.min(Math.max(camZ, 1.5), 10);
-            this.camera.position.set(center.x, targetY, center.z + finalZ);
+            const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
+            const camOffsetZ = isRotated ? finalZ : -finalZ;
+            this.camera.position.set(center.x, targetY, center.z + camOffsetZ);
             this.camera.lookAt(center.x, targetY, center.z);
         }
 
@@ -391,9 +388,15 @@ export class AvatarRenderer {
                     if (expr === 'aa' || expr === 'ih' || expr === 'ou' || expr === 'ee') continue; 
                     const current = em.getValue(expr) || 0;
                     const target = this._targetExpressions[expr] || 0;
+                    if (target > 0 && Math.abs(current - target) > 0.01) {
+                        if (!this._exprDebugLogged) {
+                            console.log(`[Avatar] Blending ${expr}: ${current.toFixed(3)} → ${target.toFixed(3)}`);
+                        }
+                    }
                     const blended = current + (target - current) * Math.min(1, delta * 5);
                     em.setValue(expr, blended);
                 }
+                if (!this._exprDebugLogged) this._exprDebugLogged = true;
             }
 
             
@@ -468,10 +471,12 @@ export class AvatarRenderer {
 
     setEmotion(emotion) {
         this.currentEmotion = emotion;
+        const em = this.vrm?.expressionManager;
 
         
         for (const expr of EXPRESSION_NAMES) {
             this._targetExpressions[expr] = 0;
+            if (em) em.setValue(expr, 0);
         }
 
         if (emotion === 'neutral') {
@@ -483,17 +488,20 @@ export class AvatarRenderer {
         
         const blinkDelay = this._setBlinkEnabled(false);
         const target = EMOTION_TO_EXPRESSION[emotion];
-        if (target) {
+        console.log(`[Avatar] setEmotion: ${emotion} → target=${target}, blinkDelay=${blinkDelay.toFixed(2)}s, hasEM=${!!em}, names=${(this._allExpressionNames || EXPRESSION_NAMES).join(',')}`);
+        if (target && em) {
             const value = emotion === 'surprised' ? 0.5 : 1.0;
-            if (blinkDelay > 0) {
-                
-                setTimeout(() => {
-                    if (this.currentEmotion === emotion) {
-                        this._targetExpressions[target] = value;
-                    }
-                }, blinkDelay * 1000);
-            } else {
+            const apply = () => {
+                if (this.currentEmotion !== emotion) return;
                 this._targetExpressions[target] = value;
+                
+                em.setValue(target, value);
+                console.log(`[Avatar] Expression set: ${target}=${value}, getValue=${em.getValue(target)}`);
+            };
+            if (blinkDelay > 0) {
+                setTimeout(apply, blinkDelay * 1000);
+            } else {
+                apply();
             }
         }
     }

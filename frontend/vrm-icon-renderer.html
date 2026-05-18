@@ -52,7 +52,10 @@ loader.load(modelUrl, (gltf) => {
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.combineSkeletons(gltf.scene);
     VRMUtils.combineMorphs(vrm);
-    VRMUtils.rotateVRM0(vrm);
+    // Fix rotation for VRM0 models only
+    if (vrm.meta?.metaVersion === '0') {
+        vrm.scene.rotation.y = Math.PI;
+    }
     gltf.scene.traverse(o => { o.frustumCulled = false; });
     scene.add(vrm.scene);
 
@@ -68,35 +71,36 @@ loader.load(modelUrl, (gltf) => {
     }
 
     // Portrait camera — compute framing from actual VRM bone positions
+    vrm.update(0);
+    vrm.scene.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const center = box.getCenter(new THREE.Vector3());
     const headBone = h?.getNormalizedBoneNode('head');
     const neckBone = h?.getNormalizedBoneNode('neck');
     if (headBone && neckBone) {
-        vrm.update(0);
-        vrm.scene.updateMatrixWorld(true);
         const headPos = new THREE.Vector3();
         const neckPos = new THREE.Vector3();
         headBone.getWorldPosition(headPos);
         neckBone.getWorldPosition(neckPos);
-        // Compute head bounds from bone positions
-        const headTop = headPos.y + 0.1; // head extends above head bone
-        const headBottom = neckPos.y - 0.02; // neck bottom
+        const headTop = headPos.y + 0.1;
+        const headBottom = neckPos.y - 0.02;
         const headHeight = headTop - headBottom;
-        const headWidth = headHeight * 0.7; // head is ~70% as wide as tall
-        // Camera distance to frame head+neck
         const fov = camera.fov * (Math.PI / 180);
         const dist = (headHeight * 1.3) / Math.tan(fov / 2);
         const midY = (headTop + headBottom) / 2;
-        camera.position.set(0, midY, headPos.z + dist);
-        camera.lookAt(0, midY, 0);
+        // Camera faces front of model: VRM0 rotated → faces +z, VRM1 → faces -z
+        const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
+        const camOffsetZ = isRotated ? dist : -dist;
+        camera.position.set(center.x, midY, center.z + camOffsetZ);
+        camera.lookAt(center.x, midY, center.z);
     } else {
-        // Fallback: bounding box approach
-        const box = new THREE.Box3().setFromObject(vrm.scene);
         const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
         const fov = camera.fov * (Math.PI / 180);
         const dist = (size.y * 0.2) / Math.tan(fov / 2);
-        camera.position.set(0, center.y + size.y * 0.3, dist * 1.1);
-        camera.lookAt(0, center.y + size.y * 0.3, 0);
+        const isRotated2 = Math.abs(vrm.scene.rotation.y) > 0.1;
+        const camOffsetZ2 = isRotated2 ? dist * 1.1 : -dist * 1.1;
+        camera.position.set(center.x, center.y + size.y * 0.3, center.z + camOffsetZ2);
+        camera.lookAt(center.x, center.y + size.y * 0.3, center.z);
     }
 
     // Look at camera

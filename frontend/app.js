@@ -257,7 +257,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const body = currentAssistantMessage.querySelector('.msg-body');
                 
-                const cleanText = (data.text || '').replace(/\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)\]/gi, '');
+                let cleanText = (data.text || '').replace(/\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)\]/gi, '');
+                
+                cleanText = cleanText.replace(/\[(?:happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)?$/gi, '');
                 body.textContent += cleanText;
                 
                 if (!currentAssistantMessage.classList.contains('msg-error') && body.textContent.trim()) {
