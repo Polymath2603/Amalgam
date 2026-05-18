@@ -67,6 +67,15 @@ loader.load(modelUrl, (gltf) => {
         if (rua) rua.rotation.z = -0.3;
     }
 
+    // Auto-fit camera to model bounds (adapts to tall/short characters)
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const fov = camera.fov * (Math.PI / 180);
+    const dist = (size.y * 0.6) / Math.tan(fov / 2);
+    camera.position.set(0, center.y + size.y * 0.12, dist * 1.05);
+    camera.lookAt(0, center.y + size.y * 0.05, 0);
+
     // Look at camera
     const target = new THREE.Object3D();
     camera.add(target);

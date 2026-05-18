@@ -72,7 +72,7 @@ async function main() {
 
             
             const { execSync } = require('child_process');
-            execSync(`convert "${tmpPath}" -gravity center -extent 90%x90% -resize ${ICON_SIZE}x${ICON_SIZE} -quality 95 "${iconPath}"`);
+            execSync(`convert "${tmpPath}" -gravity center -extent 90%x90% -resize ${ICON_SIZE}x${ICON_SIZE}! -quality 95 "${iconPath}"`);
             fs.unlinkSync(tmpPath);
 
             console.log(`  ${label}: generated`);

@@ -175,6 +175,24 @@ export class AvatarRenderer {
                 this.scene.add(vrm.scene);
 
                 
+                if (vrm.lookAt) {
+                    vrm.lookAt.target = this.camera;
+                }
+
+                
+                const box = new THREE.Box3().setFromObject(vrm.scene);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+                if (!this.preview) {
+                    const fov = this.camera.fov * (Math.PI / 180);
+                    const dist = (size.y * 0.7) / Math.tan(fov / 2);
+                    this.camera.position.set(0, center.y + size.y * 0.15, dist * 1.1);
+                    this.camera.lookAt(0, center.y, 0);
+                    
+                    this._lookAtTarget.position.set(0, center.y, dist);
+                }
+
+                
                 if (vrm.expressionManager) {
                     const { expressionMap, presetExpressionMap } = vrm.expressionManager;
                     const customExpressions = Object.keys(expressionMap).filter(k => !(k in presetExpressionMap));
@@ -410,6 +428,7 @@ export class AvatarRenderer {
         this._pitchDamped += (this._saccadePitch - this._pitchDamped) * smoothFactor;
 
         
+        
         const lookAt = this.vrm.lookAt;
         if (lookAt?.applier) {
             const yawDeg = this._yawDamped * (180 / Math.PI);
@@ -417,20 +436,6 @@ export class AvatarRenderer {
             if (typeof lookAt.applier.applyYawPitch === 'function') {
                 lookAt.applier.applyYawPitch(yawDeg, pitchDeg);
             }
-        }
-
-        
-        const headBone = this.vrm.humanoid?.getNormalizedBoneNode('head');
-        if (headBone && this._lookAtTarget) {
-            const targetQuat = new THREE.Quaternion();
-            const lookDir = new THREE.Vector3();
-            lookDir.subVectors(this._lookAtTarget.position, headBone.getWorldPosition(new THREE.Vector3()));
-            lookDir.normalize();
-            const lookMatrix = new THREE.Matrix4();
-            lookMatrix.lookAt(new THREE.Vector3(0, 0, 0), lookDir, new THREE.Vector3(0, 1, 0));
-            targetQuat.setFromRotationMatrix(lookMatrix);
-            
-            headBone.quaternion.slerp(targetQuat, 0.4);
         }
     }
 
