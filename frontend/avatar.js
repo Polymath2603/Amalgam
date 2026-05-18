@@ -100,6 +100,7 @@ export class AvatarRenderer {
 
         
         this.scene = new THREE.Scene();
+        this.scene.add(this.camera);
 
         
         const light = new THREE.DirectionalLight(0xffffff, Math.PI);
@@ -175,8 +176,11 @@ export class AvatarRenderer {
                 this.scene.add(vrm.scene);
 
                 
+                
                 if (vrm.lookAt) {
-                    vrm.lookAt.target = this.camera;
+                    this._saccadeTarget = new THREE.Object3D();
+                    this.camera.add(this._saccadeTarget);
+                    vrm.lookAt.target = this._saccadeTarget;
                 }
 
                 
@@ -429,13 +433,13 @@ export class AvatarRenderer {
 
         
         
-        const lookAt = this.vrm.lookAt;
-        if (lookAt?.applier) {
-            const yawDeg = this._yawDamped * (180 / Math.PI);
-            const pitchDeg = this._pitchDamped * (180 / Math.PI);
-            if (typeof lookAt.applier.applyYawPitch === 'function') {
-                lookAt.applier.applyYawPitch(yawDeg, pitchDeg);
-            }
+        
+        if (this._saccadeTarget) {
+            this._saccadeTarget.position.set(
+                this._yawDamped * 0.1,
+                this._pitchDamped * 0.1,
+                0
+            );
         }
     }
 
