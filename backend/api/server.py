@@ -508,14 +508,7 @@ async def ws_chat (websocket :WebSocket ):
                         })
 
 
-                        if lipsync_on and token .strip ():
-                            import random as _rand 
-                            length_factor =min (1.0 ,len (token .strip ())/8 )
-                            if token .strip ()[-1 ]in '.!?,;:':
-                                viseme_val =0.0 
-                            else :
-                                viseme_val =0.2 +length_factor *0.5 +_rand .uniform (-0.1 ,0.1 )
-                            await websocket .send_json ({"type":"viseme","value":round (max (0 ,min (1 ,viseme_val )),2 )})
+
 
 
                         if voice_output_enabled and _re .search (r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}',sentence_buffer ):

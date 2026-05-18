@@ -281,9 +281,6 @@ document.addEventListener('DOMContentLoaded', () => {
             chatMessages.scrollTop = chatMessages.scrollHeight;
         } else if (data.type === 'voice_state') {
             updateVoiceState(data.state);
-        } else if (data.type === 'viseme') {
-            if (avatarRenderer) avatarRenderer.setMouthOpen(data.value || 0);
-            if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(data.value || 0);
         } else if (data.type === 'tts_audio') {
             
             ttsQueue.push({ audio: data.audio, duration: data.duration, idx: data.sentence_idx || 0 });
@@ -458,8 +455,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentAudioSource = null;
                 if (animFrameId) cancelAnimationFrame(animFrameId);
                 
-                if (avatarRenderer) avatarRenderer.setMouthOpen(0);
-                if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(0);
+                if (avatarRenderer) {
+                    avatarRenderer.setMouthOpen(0);
+                    avatarRenderer._frequencyAnalyzerActive = false;
+                }
+                if (avatarPreviewRenderer) {
+                    avatarPreviewRenderer.setMouthOpen(0);
+                    avatarPreviewRenderer._frequencyAnalyzerActive = false;
+                }
                 if (onComplete) onComplete();
             };
 

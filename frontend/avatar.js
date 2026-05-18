@@ -358,8 +358,12 @@ export class AvatarRenderer {
 
         if (this.vrm) {
             
-            const lipSyncScale = this.currentEmotion === 'neutral' ? 0.5 : 0.25;
-            this.vrm.expressionManager?.setValue('aa', this.mouthValue * lipSyncScale);
+            
+            
+            if (!this._frequencyAnalyzerActive) {
+                const lipSyncScale = this.currentEmotion === 'neutral' ? 0.5 : 0.25;
+                this.vrm.expressionManager?.setValue('aa', this.mouthValue * lipSyncScale);
+            }
 
             
             this._updateBlink(delta);
@@ -487,6 +491,7 @@ export class AvatarRenderer {
     setupFrequencyAnalyzer(audioContext, analyserNode) {
         this._audioContext = audioContext;
         this._frequencyAnalyzer = new FrequencyAnalyzer(analyserNode, audioContext.sampleRate);
+        this._frequencyAnalyzerActive = true;
     }
 
     
