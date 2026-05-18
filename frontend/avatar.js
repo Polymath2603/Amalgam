@@ -91,7 +91,7 @@ export class AvatarRenderer {
         const aspect = this.container.clientWidth / this.container.clientHeight || 1;
         this.camera = new THREE.PerspectiveCamera(this.preview ? 20 : 25, aspect, 0.1, 20);
         if (this.preview) {
-            this.camera.position.set(0, 1.55, 1.4);
+            this.camera.position.set(0, 1.5, 1.2);
             this.camera.lookAt(0, 1.5, 0);
         } else {
             this.camera.position.set(0, 1.3, 3.2);
@@ -187,12 +187,27 @@ export class AvatarRenderer {
                 const box = new THREE.Box3().setFromObject(vrm.scene);
                 const size = box.getSize(new THREE.Vector3());
                 const center = box.getCenter(new THREE.Vector3());
-                if (!this.preview) {
-                    const fov = this.camera.fov * (Math.PI / 180);
+                
+                const fov = this.camera.fov * (Math.PI / 180);
+                const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
+                const neckBone = vrm.humanoid?.getNormalizedBoneNode('neck');
+                if (this.preview && headBone && neckBone) {
+                    
+                    const headPos = new THREE.Vector3();
+                    const neckPos = new THREE.Vector3();
+                    headBone.getWorldPosition(headPos);
+                    neckBone.getWorldPosition(neckPos);
+                    const headTop = headPos.y + 0.1;
+                    const headBottom = neckPos.y - 0.02;
+                    const headHeight = headTop - headBottom;
+                    const dist = (headHeight * 1.3) / Math.tan(fov / 2);
+                    const midY = (headTop + headBottom) / 2;
+                    this.camera.position.set(0, midY, headPos.z + dist);
+                    this.camera.lookAt(0, midY, 0);
+                } else if (!this.preview) {
                     const dist = (size.y * 0.7) / Math.tan(fov / 2);
                     this.camera.position.set(0, center.y + size.y * 0.15, dist * 1.1);
                     this.camera.lookAt(0, center.y, 0);
-                    
                     this._lookAtTarget.position.set(0, center.y, dist);
                 }
 
