@@ -49,8 +49,8 @@ Fix order by dependency (foundational first):
 
 | # | Bug | Root cause | Fix |
 |---|-----|-----------|-----|
-| 1 | Batman VRM not loading | Model path/validation | Check path resolution, fallback to default |
-| 2 | Letter icons → VRM icons | Icon renderer uses fallback | Run VRM icon generation for all characters |
+| 1 | Batman VRM not loading | Model path/validation | Check path resolution, check timout, fallback to default |
+| 2 | Letter icons → VRM icons | Icon renderer uses fallback | Run VRM icon generation for all characters | 
 | 3 | Center character in container | Container centered, not content | Center Three.js camera target, not CSS container |
 | 4 | Preview head-box auto-sizing | Camera bounds not computed from VRM | Apply same auto-fit logic as main avatar |
 | 5 | Ryuk not looking at camera | Saccade/lookAt misconfigured | Check lookAt target setup, ensure saccade points to camera |
@@ -62,7 +62,7 @@ Fix order by dependency (foundational first):
 | # | Bug | Fix |
 |---|-----|-----|
 | 8 | Unified settings cards | Remove section headers and per-section save buttons, all settings in single grid |
-| 9 | Persistent audio toggles | Save mic/speaker toggle state to settings.json via API |
+| 9 | Persistent audio toggles | Save/load mic/speaker toggle state to/from settings.json via API |
 | 10 | Thinking on/off toggle | Add thinking mode toggle card in settings, persist to settings.json |
 | 11 | Font size in settings | Wire font-size input to `--font-size` CSS variable on `:root` |
 | 12 | Message action buttons | Add copy/edit/regenerate/speak buttons on message hover with proper event handlers |
@@ -71,7 +71,7 @@ Fix order by dependency (foundational first):
 
 | # | Bug | Fix |
 |---|-----|-----|
-| 13 | Error deletes prompt too | On error response, remove both error message and preceding user prompt from chat DOM |
+| 13 | Error deletes prompt too | On error response, remove both error message and preceding user prompt from chat DOM, set message input to the last failed prompt, make sure it's not saved to history too |
 
 ---
 
@@ -86,6 +86,8 @@ For each of the 13 fixes:
 2. Run via puppeteer or browser console
 3. Mark fix as verified
 4. Move to next
+
+if you're not sure about how somethings is done, u can peak to ../cloned/amica (a similar working foss poject)
 
 After all 13: full manual pass by user.
 
