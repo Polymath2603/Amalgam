@@ -75,8 +75,7 @@ export class AvatarRenderer {
         this._animationQueue = [];
 
         
-        this._lookAtTarget = new THREE.Object3D();
-        this._lookAtTarget.position.set(0, 1.4, 2); 
+        this._lookAtFallback = false;
 
         
         this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -141,6 +140,12 @@ export class AvatarRenderer {
             this.vrm = null;
             this.ready = false;
         }
+        
+        if (this._saccadeTarget) {
+            this.camera.remove(this._saccadeTarget);
+            this._saccadeTarget = null;
+        }
+        this._lookAtFallback = false;
         this._mixer = null;
         this._idleAction = null;
         this._currentAction = null;
@@ -200,10 +205,14 @@ export class AvatarRenderer {
 
                 
                 
+                this._saccadeTarget = new THREE.Object3D();
+                this._saccadeTarget.position.set(0, 0, -1);
+                this.camera.add(this._saccadeTarget);
                 if (vrm.lookAt) {
-                    this._saccadeTarget = new THREE.Object3D();
-                    this.camera.add(this._saccadeTarget);
                     vrm.lookAt.target = this._saccadeTarget;
+                } else if (vrm.humanoid) {
+                    console.warn('[Avatar] No VRM lookAt system, using head bone fallback');
+                    this._lookAtFallback = true;
                 }
 
                 
@@ -442,6 +451,9 @@ export class AvatarRenderer {
             }
 
             
+            this._applyLookAtFallback();
+
+            
             this.vrm.update(delta);
         }
 
@@ -475,8 +487,6 @@ export class AvatarRenderer {
     }
 
     _updateSaccade(delta) {
-        if (!this.vrm?.lookAt) return;
-
         this._saccadeTimer += delta;
 
         
@@ -498,9 +508,31 @@ export class AvatarRenderer {
             this._saccadeTarget.position.set(
                 this._yawDamped * 0.1,
                 this._pitchDamped * 0.1,
-                0
+                -1 
             );
         }
+    }
+
+    
+    _applyLookAtFallback() {
+        if (!this._lookAtFallback || !this.vrm?.humanoid || !this._saccadeTarget) return;
+
+        const head = this.vrm.humanoid.getNormalizedBoneNode('head');
+        if (!head) return;
+
+        
+        const animatedQuat = head.quaternion.clone();
+
+        
+        const targetPos = new THREE.Vector3();
+        this._saccadeTarget.getWorldPosition(targetPos);
+
+        
+        head.lookAt(targetPos);
+        const lookAtQuat = head.quaternion.clone();
+
+        
+        head.quaternion.copy(animatedQuat).slerp(lookAtQuat, 0.25);
     }
 
     setEmotion(emotion) {
