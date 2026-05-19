@@ -382,16 +382,19 @@ export class AvatarRenderer {
                 
                 const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
                 const camOffsetZ = isRotated ? camZ : -camZ;
-                this.camera.position.set(center.x, midY, headPos.z + camOffsetZ);
-                this.camera.lookAt(center.x, midY, headPos.z);
+                
+                const px = this.preview ? 0 : center.x;
+                this.camera.position.set(px, midY, headPos.z + camOffsetZ);
+                this.camera.lookAt(px, midY, headPos.z);
             } else {
                 const previewTargetY = box.max.y - size.y * 0.15;
                 const previewHeight = Math.max(size.y * 0.3, 0.15);
                 const camZ = (previewHeight / 2) / Math.tan(fov / 2) * 1.3;
                 const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
                 const camOffsetZ = isRotated ? Math.max(camZ, 0.5) : -Math.max(camZ, 0.5);
-                this.camera.position.set(center.x, previewTargetY, center.z + camOffsetZ);
-                this.camera.lookAt(center.x, previewTargetY, center.z);
+                const px = this.preview ? 0 : center.x;
+                this.camera.position.set(px, previewTargetY, center.z + camOffsetZ);
+                this.camera.lookAt(px, previewTargetY, center.z);
             }
         } else {
             const camZ = (upperHeight / 2) / Math.tan(fov / 2) * 1.3;

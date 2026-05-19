@@ -734,17 +734,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.classList.add('active');
                 setCharacterAvatar(charName);
                 
-                if (c.model_url) {
-                    if (avatarRenderer) avatarRenderer.loadVRM(c.model_url);
-                    if (avatarPreviewRenderer) avatarPreviewRenderer.loadVRM(c.model_url);
-                    _vrmPath = c.model_url;
-                    
-                    await api('/api/settings/set', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ key: 'avatar.model_path', value: c.model_url.replace(/^\
-                    });
-                }
+                
+                const vrmPath = c.model_url || '/characters/default/model.vrm';
+                if (avatarRenderer) avatarRenderer.loadVRM(vrmPath);
+                if (avatarPreviewRenderer) avatarPreviewRenderer.loadVRM(vrmPath);
+                _vrmPath = vrmPath;
+                
+                await api('/api/settings/set', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'avatar.model_path', value: vrmPath.replace(/^\
+                });
                 showToast(`Switched to ${c.name || id}`);
             });
             grid.appendChild(card);
