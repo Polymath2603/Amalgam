@@ -165,14 +165,14 @@ export class AvatarRenderer {
 
         
         const timeout = setTimeout(() => {
-            console.warn(`VRM load timeout for ${loadPath}`);
+            console.warn(`VRM load timeout for ${loadPath} (30s)`);
             if (!isFallback) {
                 console.warn('Falling back to default VRM');
                 abandoned = true;
                 this.vrmPath = '/characters/default/model.vrm';
                 this._loadVRM();
             }
-        }, 15000);
+        }, 30000);
 
         loader.load(
             loadPath,
@@ -262,7 +262,8 @@ export class AvatarRenderer {
                     console.warn('VRMA animations not available, using procedural idle:', e);
                 }
 
-                console.log('VRM loaded:', vrm.meta?.title || 'Unknown');
+                console.log('VRM loaded:', vrm.meta?.title || 'Unknown', '| Path:', loadPath);
+                console.log('VRM meta version:', vrm.meta?.metaVersion, '| Expressions:', this._allExpressionNames?.length || 0);
             },
             () => {},
             (error) => {
@@ -348,7 +349,12 @@ export class AvatarRenderer {
         });
         
         if (box.isEmpty()) box.setFromObject(vrm.scene);
-        if (box.isEmpty()) return;
+        if (box.isEmpty()) {
+            console.warn('[Avatar] Empty bounding box, using default camera position');
+            this.camera.position.set(0, 1.3, this.preview ? 1.2 : 3.2);
+            this.camera.lookAt(0, 1.2, 0);
+            return;
+        }
 
         const size = new THREE.Vector3();
         const center = new THREE.Vector3();
