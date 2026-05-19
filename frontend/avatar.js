@@ -192,8 +192,8 @@ export class AvatarRenderer {
                 }
 
                 VRMUtils.removeUnnecessaryVertices(gltf.scene);
-                VRMUtils.combineSkeletons(gltf.scene);
-                VRMUtils.combineMorphs(vrm);
+                try { VRMUtils.combineSkeletons(gltf.scene); } catch(e) { console.warn('[Avatar] combineSkeletons failed:', e.message); }
+                try { VRMUtils.combineMorphs(vrm); } catch(e) { console.warn('[Avatar] combineMorphs failed:', e.message); }
 
                 
                 if (vrm.meta?.metaVersion === '0') {
@@ -221,8 +221,10 @@ export class AvatarRenderer {
                     const { expressionMap, presetExpressionMap } = vrm.expressionManager;
                     const customExpressions = Object.keys(expressionMap).filter(k => !(k in presetExpressionMap));
                     customExpressions.forEach(name => {
-                        const expr = expressionMap[name];
-                        if (expr) vrm.expressionManager.registerExpression(expr);
+                        try {
+                            const expr = expressionMap[name];
+                            if (expr) vrm.expressionManager.registerExpression(expr);
+                        } catch(e) { console.warn(`[Avatar] Failed to register expression "${name}":`, e.message); }
                     });
                     
                     const presetNames = Object.keys(presetExpressionMap || {});
