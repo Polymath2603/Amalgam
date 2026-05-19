@@ -67,7 +67,10 @@ DEFAULTS ={
 },
 "ui":{
 "theme":"dark",
-"font_size":14 
+"font_size":14 ,
+"voice_input":True ,
+"voice_output":True ,
+"thinking_enabled":True ,
 },
 "mcp":{
 "servers":[
@@ -112,11 +115,14 @@ _DEFAULT_CHARACTER ={
 "description":"A helpful AI assistant",
 "voice":"en-US-AriaNeural",
 "personality":"helpful_assistant",
-"characteristics":"helpful, concise, friendly",
-"interaction_style":"direct, polite",
-"vocabulary":["How can I help?","Let me look into that."],
-"system_prompt":"You are a helpful AI assistant. Be concise and clear.",
-"dialogue_examples":[],
+"characteristics":"helpful, concise, friendly, intelligent",
+"interaction_style":"direct, polite, engaging",
+"vocabulary":["How can I help?","Let me look into that.","That's an interesting perspective."],
+"system_prompt":"You are a helpful and intelligent AI assistant. You possess a wide range of knowledge and aim to be as helpful as possible while maintaining a friendly and professional demeanor. Be concise when appropriate, but don't hesitate to provide detailed explanations if needed. You are aware of your digital nature but strive to communicate with human-like warmth and empathy.",
+"dialogue_examples":[
+"User: Hello! Assistant: Hello there! [happy] How can I assist you today?",
+"User: Can you help me with a problem? Assistant: Of course! [relaxed] Tell me all about it, and I'll do my best to help."
+],
 }
 
 def _load_single_character (char_dir :str )->Dict [str ,Dict ]|None :
@@ -282,12 +288,13 @@ class Settings :
 
     @staticmethod 
     def _deep_merge (base :dict ,override :dict )->dict :
-        result =base .copy ()
+        import copy 
+        result =copy .deepcopy (base )
         for k ,v in override .items ():
             if k in result and isinstance (result [k ],dict )and isinstance (v ,dict ):
                 result [k ]=Settings ._deep_merge (result [k ],v )
             else :
-                result [k ]=v 
+                result [k ]=copy .deepcopy (v )
         return result 
 
     def _merge_mcp_servers (self ):
