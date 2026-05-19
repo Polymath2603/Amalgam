@@ -540,7 +540,10 @@ export class AvatarRenderer {
         const em = this.vrm?.expressionManager;
 
         
+        
+        const lipSyncExprs = ['aa', 'ih', 'ou', 'ee', 'oh'];
         for (const expr of EXPRESSION_NAMES) {
+            if (this._frequencyAnalyzerActive && lipSyncExprs.includes(expr)) continue;
             this._targetExpressions[expr] = 0;
             if (em) em.setValue(expr, 0);
         }
@@ -552,7 +555,11 @@ export class AvatarRenderer {
         }
 
         
-        const blinkDelay = this._setBlinkEnabled(false);
+        
+        let blinkDelay = 0;
+        if (!this._frequencyAnalyzerActive) {
+            blinkDelay = this._setBlinkEnabled(false);
+        }
         const target = EMOTION_TO_EXPRESSION[emotion];
         console.log(`[Avatar] setEmotion: ${emotion} → target=${target}, blinkDelay=${blinkDelay.toFixed(2)}s, hasEM=${!!em}, names=${(this._allExpressionNames || EXPRESSION_NAMES).join(',')}`);
         if (target && em) {
