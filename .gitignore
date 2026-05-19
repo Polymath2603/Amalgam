@@ -1,10 +1,34 @@
-checkpoints_v2/
-processed
-user_data/
-node_modules/
-docs/superpowers/
-.openclaude/
-characters/
-!characters/default/*
+# Characters (all except default)
+characters/**
+!characters/default/
+!characters/default/**
+
+# Python
 *.pyc
 __pycache__/
+
+# Private/user data
+user_data/
+checkpoints_v2/
+processed/
+
+# Environment / secrets
+.env
+.env.*
+
+# Node
+node_modules/
+
+# Docs (generated)
+docs/superpowers/
+
+# OpenClaude
+.openclaude/
+
+# Logs
+*.log
+
+# Temp/test/scratch files
+test_*.py
+console
+bugs
