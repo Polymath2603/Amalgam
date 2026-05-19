@@ -57,6 +57,7 @@
                 <div class="chat-container">
                     <!-- Chat Header with Avatar Preview + Voice Controls -->
                     <div class="chat-header">
+                        <div class="chat-header-left"></div>
                         <div class="chat-avatar" id="chat-avatar">
                             <div class="avatar-preview" id="avatar-preview"></div>
                             <div class="chat-avatar-info">
@@ -192,12 +193,23 @@
                             </div>
                         </div>
 
+                        <!-- Thinking Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">lightbulb</span> Thinking</h3>
+                            <div class="form-row toggle-row">
+                                <label>Show thinking process</label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="thinking-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- Instructions Section -->
                         <div class="settings-card">
                             <h3><span class="material-icons-round">psychology</span> Additional Instructions</h3>
                             <p class="help-text">Added on top of the character's personality. Leave empty for default.</p>
                             <textarea id="custom-system-prompt" rows="3" placeholder="Extra instructions to add to every conversation..."></textarea>
-                            <button class="btn btn-primary btn-card" id="save-system-prompt">Save Instructions</button>
                         </div>
 
                         <!-- Data Section -->
@@ -208,197 +220,215 @@
                                 <input type="text" id="vault-path" placeholder="user_data/vault">
                             </div>
                         </div>
-                    </div>
-
-                    <button class="btn btn-primary" id="save-settings">Save Settings</button>
-
-                    <!-- ═══ PROVIDERS ═══ -->
-                    <div class="settings-section-header">
-                        <h2><span class="material-icons-round">cloud</span> Providers</h2>
-                    </div>
-
-                    <div class="provider-tabs">
-                        <button class="provider-tab active" data-provider="gemini">
-                            <span class="provider-dot gemini"></span> Gemini
-                        </button>
-                        <button class="provider-tab" data-provider="ollama">
-                            <span class="provider-dot ollama"></span> Ollama
-                        </button>
-                        <button class="provider-tab" data-provider="openrouter">
-                            <span class="provider-dot openrouter"></span> OpenRouter
-                        </button>
-                        <button class="provider-tab" data-provider="zai">
-                            <span class="provider-dot zai"></span> Z.AI
-                        </button>
-                        <button class="provider-tab" data-provider="siliconflow">
-                            <span class="provider-dot siliconflow"></span> SiliconFlow
-                        </button>
-                        <button class="provider-tab" data-provider="groq">
-                            <span class="provider-dot groq"></span> Groq
-                        </button>
-                        <button class="provider-tab" data-provider="chatgpt">
-                            <span class="provider-dot chatgpt"></span> ChatGPT
-                        </button>
-                    </div>
-
-                    <!-- Gemini Config -->
-                    <div class="provider-panel active" id="panel-gemini">
-                        <div class="form-row">
-                            <label>API Key</label>
-                            <div class="input-with-action">
-                                <input type="password" id="gemini-api-key" placeholder="AIza...">
-                                <button class="icon-btn" id="toggle-gemini-key">
-                                    <span class="material-icons-round">visibility_off</span>
-                                </button>
+                        <!-- Gemini Provider -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">auto_awesome</span> Gemini</h3>
+                            <div class="form-row toggle-row">
+                                <label>Active</label>
+                                <label class="toggle">
+                                    <input type="checkbox" class="provider-active" data-provider="gemini" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row">
+                                <label>API Key</label>
+                                <div class="input-with-action">
+                                    <input type="password" id="gemini-api-key" placeholder="AIza...">
+                                    <button class="icon-btn" id="toggle-gemini-key">
+                                        <span class="material-icons-round">visibility_off</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label>Base URL</label>
+                                <input type="text" id="gemini-base-url">
+                            </div>
+                            <div class="form-row">
+                                <label>Model</label>
+                                <div class="input-with-action">
+                                    <select id="gemini-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-gemini-models">Fetch</button>
+                                </div>
                             </div>
                         </div>
-                        <div class="form-row">
-                            <label>Base URL</label>
-                            <input type="text" id="gemini-base-url">
+
+                        <!-- Ollama Provider -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">dns</span> Ollama</h3>
+                            <div class="form-row toggle-row">
+                                <label>Active</label>
+                                <label class="toggle">
+                                    <input type="checkbox" class="provider-active" data-provider="ollama">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row">
+                                <label>Base URL</label>
+                                <input type="text" id="ollama-url" placeholder="http://localhost:11434">
+                            </div>
+                            <div class="form-row">
+                                <label>Model</label>
+                                <div class="input-with-action">
+                                    <select id="ollama-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-ollama-models">Fetch</button>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-row">
-                            <label>Model</label>
-                            <div class="input-with-action">
-                                <select id="gemini-model"><option value="">Select model...</option></select>
-                                <button class="btn btn-sm" id="fetch-gemini-models">Fetch</button>
+
+                        <!-- OpenRouter Provider -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">lan</span> OpenRouter</h3>
+                            <div class="form-row toggle-row">
+                                <label>Active</label>
+                                <label class="toggle">
+                                    <input type="checkbox" class="provider-active" data-provider="openrouter">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row">
+                                <label>API Key</label>
+                                <div class="input-with-action">
+                                    <input type="password" id="openrouter-api-key" placeholder="sk-or-...">
+                                    <button class="icon-btn" id="toggle-openrouter-key">
+                                        <span class="material-icons-round">visibility_off</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label>Model</label>
+                                <div class="input-with-action">
+                                    <select id="openrouter-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-openrouter-models">Fetch</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Z.AI Provider -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">smart_toy</span> Z.AI</h3>
+                            <div class="form-row toggle-row">
+                                <label>Active</label>
+                                <label class="toggle">
+                                    <input type="checkbox" class="provider-active" data-provider="zai">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row">
+                                <label>API Key</label>
+                                <div class="input-with-action">
+                                    <input type="password" id="zai-api-key" placeholder="API key...">
+                                    <button class="icon-btn" id="toggle-zai-key">
+                                        <span class="material-icons-round">visibility_off</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label>Model</label>
+                                <div class="input-with-action">
+                                    <select id="zai-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-zai-models">Fetch</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SiliconFlow Provider -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">cloud</span> SiliconFlow</h3>
+                            <div class="form-row toggle-row">
+                                <label>Active</label>
+                                <label class="toggle">
+                                    <input type="checkbox" class="provider-active" data-provider="siliconflow">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row">
+                                <label>API Key</label>
+                                <div class="input-with-action">
+                                    <input type="password" id="siliconflow-api-key" placeholder="sk-...">
+                                    <button class="icon-btn" id="toggle-siliconflow-key">
+                                        <span class="material-icons-round">visibility_off</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label>Model</label>
+                                <div class="input-with-action">
+                                    <select id="siliconflow-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-siliconflow-models">Fetch</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Groq Provider -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">flash_on</span> Groq</h3>
+                            <div class="form-row toggle-row">
+                                <label>Active</label>
+                                <label class="toggle">
+                                    <input type="checkbox" class="provider-active" data-provider="groq">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row">
+                                <label>API Key</label>
+                                <div class="input-with-action">
+                                    <input type="password" id="groq-api-key" placeholder="gsk_...">
+                                    <button class="icon-btn" id="toggle-groq-key">
+                                        <span class="material-icons-round">visibility_off</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label>Model</label>
+                                <div class="input-with-action">
+                                    <select id="groq-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-groq-models">Fetch</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ChatGPT Provider -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">forum</span> ChatGPT</h3>
+                            <div class="form-row toggle-row">
+                                <label>Active</label>
+                                <label class="toggle">
+                                    <input type="checkbox" class="provider-active" data-provider="chatgpt">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row">
+                                <label>API Key</label>
+                                <div class="input-with-action">
+                                    <input type="password" id="chatgpt-api-key" placeholder="sk-...">
+                                    <button class="icon-btn" id="toggle-chatgpt-key">
+                                        <span class="material-icons-round">visibility_off</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label>Model</label>
+                                <div class="input-with-action">
+                                    <select id="chatgpt-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-chatgpt-models">Fetch</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- MCP Tools -->
+                        <div class="settings-card mcp-card">
+                            <h3><span class="material-icons-round">extension</span> Tools</h3>
+                            <div class="mcp-toggle-list" id="mcp-toggle-list">
+                                <p class="muted">Loading...</p>
+                            </div>
+                            <h4 class="tools-label">Available Tools</h4>
+                            <div class="tools-grid" id="tools-grid">
+                                <p class="muted">Loading...</p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Ollama Config -->
-                    <div class="provider-panel" id="panel-ollama">
-                        <div class="form-row">
-                            <label>Base URL</label>
-                            <input type="text" id="ollama-url" placeholder="http://localhost:11434">
-                        </div>
-                        <div class="form-row">
-                            <label>Model</label>
-                            <div class="input-with-action">
-                                <select id="ollama-model"><option value="">Select model...</option></select>
-                                <button class="btn btn-sm" id="fetch-ollama-models">Fetch</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- OpenRouter Config -->
-                    <div class="provider-panel" id="panel-openrouter">
-                        <div class="form-row">
-                            <label>API Key</label>
-                            <div class="input-with-action">
-                                <input type="password" id="openrouter-api-key" placeholder="sk-or-...">
-                                <button class="icon-btn" id="toggle-openrouter-key">
-                                    <span class="material-icons-round">visibility_off</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label>Model</label>
-                            <div class="input-with-action">
-                                <select id="openrouter-model"><option value="">Select model...</option></select>
-                                <button class="btn btn-sm" id="fetch-openrouter-models">Fetch</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Z.AI Config -->
-                    <div class="provider-panel" id="panel-zai">
-                        <div class="form-row">
-                            <label>API Key</label>
-                            <div class="input-with-action">
-                                <input type="password" id="zai-api-key" placeholder="API key...">
-                                <button class="icon-btn" id="toggle-zai-key">
-                                    <span class="material-icons-round">visibility_off</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label>Model</label>
-                            <div class="input-with-action">
-                                <select id="zai-model"><option value="">Select model...</option></select>
-                                <button class="btn btn-sm" id="fetch-zai-models">Fetch</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- SiliconFlow Config -->
-                    <div class="provider-panel" id="panel-siliconflow">
-                        <div class="form-row">
-                            <label>API Key</label>
-                            <div class="input-with-action">
-                                <input type="password" id="siliconflow-api-key" placeholder="sk-...">
-                                <button class="icon-btn" id="toggle-siliconflow-key">
-                                    <span class="material-icons-round">visibility_off</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label>Model</label>
-                            <div class="input-with-action">
-                                <select id="siliconflow-model"><option value="">Select model...</option></select>
-                                <button class="btn btn-sm" id="fetch-siliconflow-models">Fetch</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Groq Config -->
-                    <div class="provider-panel" id="panel-groq">
-                        <div class="form-row">
-                            <label>API Key</label>
-                            <div class="input-with-action">
-                                <input type="password" id="groq-api-key" placeholder="gsk_...">
-                                <button class="icon-btn" id="toggle-groq-key">
-                                    <span class="material-icons-round">visibility_off</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label>Model</label>
-                            <div class="input-with-action">
-                                <select id="groq-model"><option value="">Select model...</option></select>
-                                <button class="btn btn-sm" id="fetch-groq-models">Fetch</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- ChatGPT Config -->
-                    <div class="provider-panel" id="panel-chatgpt">
-                        <div class="form-row">
-                            <label>API Key</label>
-                            <div class="input-with-action">
-                                <input type="password" id="chatgpt-api-key" placeholder="sk-...">
-                                <button class="icon-btn" id="toggle-chatgpt-key">
-                                    <span class="material-icons-round">visibility_off</span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <label>Model</label>
-                            <div class="input-with-action">
-                                <select id="chatgpt-model"><option value="">Select model...</option></select>
-                                <button class="btn btn-sm" id="fetch-chatgpt-models">Fetch</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button class="btn btn-primary" id="save-providers">Save Provider</button>
-
-                    <!-- ═══ MCP / TOOLS ═══ -->
-                    <div class="settings-section-header">
-                        <h2><span class="material-icons-round">extension</span> Tools</h2>
-                    </div>
-
-                    <div class="mcp-toggle-list" id="mcp-toggle-list">
-                        <p class="muted">Loading...</p>
-                    </div>
-
-                    <div class="tools-section" id="tools-section">
-                        <h3>Available Tools</h3>
-                        <div class="tools-grid" id="tools-grid">
-                            <p class="muted">Loading...</p>
-                        </div>
-                    </div>
-
-                    <button class="btn btn-primary" id="save-mcp">Save & Restart</button>
+                    <button class="btn btn-primary" id="save-all-settings">Save All Settings</button>
                 </div>
             </section>
         </main>
