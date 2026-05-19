@@ -391,26 +391,34 @@ export class AvatarRenderer {
                 const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
                 const camOffsetZ = isRotated ? camZ : -camZ;
                 
-                const px = this.preview ? 0 : center.x;
-                this.camera.position.set(px, midY, headPos.z + camOffsetZ);
-                this.camera.lookAt(px, midY, headPos.z);
+                this.camera.position.set(headPos.x, midY, headPos.z + camOffsetZ);
+                this.camera.lookAt(headPos.x, midY, headPos.z);
             } else {
                 const previewTargetY = box.max.y - size.y * 0.15;
                 const previewHeight = Math.max(size.y * 0.3, 0.15);
                 const camZ = (previewHeight / 2) / Math.tan(fov / 2) * 1.3;
                 const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
                 const camOffsetZ = isRotated ? Math.max(camZ, 0.5) : -Math.max(camZ, 0.5);
-                const px = this.preview ? 0 : center.x;
-                this.camera.position.set(px, previewTargetY, center.z + camOffsetZ);
-                this.camera.lookAt(px, previewTargetY, center.z);
+                this.camera.position.set(center.x, previewTargetY, center.z + camOffsetZ);
+                this.camera.lookAt(center.x, previewTargetY, center.z);
             }
         } else {
             const camZ = (upperHeight / 2) / Math.tan(fov / 2) * 1.3;
             const finalZ = Math.min(Math.max(camZ, 1.5), 10);
             const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
             const camOffsetZ = isRotated ? finalZ : -finalZ;
-            this.camera.position.set(center.x, center.y, center.z + camOffsetZ);
-            this.camera.lookAt(center);
+            
+            const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+            let targetX = center.x, targetY = center.y, targetZ = center.z;
+            if (hips) {
+                const hipsPos = new THREE.Vector3();
+                hips.getWorldPosition(hipsPos);
+                targetX = hipsPos.x;
+                targetY = hipsPos.y + upperHeight * 0.3; 
+                targetZ = hipsPos.z;
+            }
+            this.camera.position.set(targetX, targetY, targetZ + camOffsetZ);
+            this.camera.lookAt(targetX, targetY, targetZ);
         }
 
         this.camera.updateProjectionMatrix();
@@ -569,26 +577,12 @@ export class AvatarRenderer {
 
         
         
-        let blinkDelay = 0;
-        if (!this._frequencyAnalyzerActive) {
-            blinkDelay = this._setBlinkEnabled(false);
-        }
         const target = EMOTION_TO_EXPRESSION[emotion];
-        console.log(`[Avatar] setEmotion: ${emotion} → target=${target}, blinkDelay=${blinkDelay.toFixed(2)}s, hasEM=${!!em}, names=${(this._allExpressionNames || EXPRESSION_NAMES).join(',')}`);
         if (target && em) {
             const value = emotion === 'surprised' ? 0.5 : 1.0;
-            const apply = () => {
-                if (this.currentEmotion !== emotion) return;
-                this._targetExpressions[target] = value;
-                
-                em.setValue(target, value);
-                console.log(`[Avatar] Expression set: ${target}=${value}, getValue=${em.getValue(target)}`);
-            };
-            if (blinkDelay > 0) {
-                setTimeout(apply, blinkDelay * 1000);
-            } else {
-                apply();
-            }
+            if (this.currentEmotion !== emotion) return;
+            this._targetExpressions[target] = value;
+            em.setValue(target, value);
         }
     }
 
