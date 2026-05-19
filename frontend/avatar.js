@@ -387,8 +387,8 @@ export class AvatarRenderer {
             const finalZ = Math.min(Math.max(camZ, 1.5), 10);
             const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
             const camOffsetZ = isRotated ? finalZ : -finalZ;
-            this.camera.position.set(center.x, targetY, center.z + camOffsetZ);
-            this.camera.lookAt(center.x, targetY, center.z);
+            this.camera.position.set(center.x, center.y, center.z + camOffsetZ);
+            this.camera.lookAt(center);
         }
 
         this.camera.updateProjectionMatrix();
