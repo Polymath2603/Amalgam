@@ -165,14 +165,14 @@ export class AvatarRenderer {
 
         
         const timeout = setTimeout(() => {
-            console.warn(`VRM load timeout for ${loadPath} (30s)`);
+            console.warn(`VRM load timeout for ${loadPath} (60s)`);
             if (!isFallback) {
                 console.warn('Falling back to default VRM');
                 abandoned = true;
                 this.vrmPath = '/characters/default/model.vrm';
                 this._loadVRM();
             }
-        }, 30000);
+        }, 60000);
 
         loader.load(
             loadPath,
