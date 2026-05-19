@@ -155,12 +155,14 @@ export class AvatarRenderer {
 
         const loadPath = this.vrmPath;
         const isFallback = loadPath === '/characters/default/model.vrm';
+        let abandoned = false;
 
         
         const timeout = setTimeout(() => {
             console.warn(`VRM load timeout for ${loadPath}`);
             if (!isFallback) {
                 console.warn('Falling back to default VRM');
+                abandoned = true;
                 this.vrmPath = '/characters/default/model.vrm';
                 this._loadVRM();
             }
@@ -169,6 +171,7 @@ export class AvatarRenderer {
         loader.load(
             loadPath,
             async (gltf) => {
+                if (abandoned) return;
                 clearTimeout(timeout);
 
                 const vrm = gltf.userData.vrm;
@@ -252,6 +255,7 @@ export class AvatarRenderer {
             },
             () => {},
             (error) => {
+                if (abandoned) return;
                 clearTimeout(timeout);
                 console.error(`VRM load error for ${loadPath}:`, error);
                 if (!isFallback) {
@@ -415,7 +419,7 @@ export class AvatarRenderer {
             const em = this.vrm.expressionManager;
             if (em) {
                 for (const expr of (this._allExpressionNames || EXPRESSION_NAMES)) {
-                    if (expr === 'aa' || expr === 'ih' || expr === 'ou' || expr === 'ee') continue; 
+                    if (expr === 'aa' || expr === 'ih' || expr === 'ou' || expr === 'ee' || expr === 'oh') continue; 
                     const current = em.getValue(expr) || 0;
                     const target = this._targetExpressions[expr] || 0;
                     if (target > 0 && Math.abs(current - target) > 0.01) {
