@@ -126,21 +126,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function switchProviderTab(providerId) {
-        document.querySelectorAll('.provider-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.provider-panel').forEach(p => p.classList.remove('active'));
-        const tab = document.querySelector(`.provider-tab[data-provider="${providerId}"]`);
-        const panel = document.getElementById(`panel-${providerId}`);
-        if (tab && panel) {
-            tab.classList.add('active');
-            panel.classList.add('active');
-        }
-    }
-
     
     const _hash = window.location.hash.replace('#', '').split('/');
     switchTab(_hash[0] || 'chat');
-    if (_hash[0] === 'settings' && _hash[1]) switchProviderTab(_hash[1]);
 
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => {
@@ -153,14 +141,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('hashchange', () => {
         const h = window.location.hash.replace('#', '').split('/');
         switchTab(h[0] || 'chat');
-        if (h[0] === 'settings' && h[1]) switchProviderTab(h[1]);
     });
 
     
-    document.querySelectorAll('.provider-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            switchProviderTab(tab.dataset.provider);
-            window.location.hash = `settings/${tab.dataset.provider}`;
+    document.querySelectorAll('.provider-active').forEach(cb => {
+        cb.addEventListener('change', () => {
+            if (cb.checked) {
+                document.querySelectorAll('.provider-active').forEach(other => {
+                    if (other !== cb) other.checked = false;
+                });
+            }
         });
     });
 
@@ -600,9 +590,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function applySettings(d) {
         
-        const hashProvider = window.location.hash.replace('#', '').split('/')[1];
-        const active = hashProvider || d.provider?.active || 'gemini';
-        switchProviderTab(active);
+        const active = d.provider?.active || 'gemini';
+        document.querySelectorAll('.provider-active').forEach(cb => {
+            cb.checked = cb.dataset.provider === active;
+        });
         document.getElementById('gemini-api-key').value = d.provider?.gemini?.api_key || '';
         document.getElementById('gemini-base-url').value = d.provider?.gemini?.base_url || '';
         document.getElementById('ollama-url').value = d.provider?.ollama?.base_url || '';
@@ -813,32 +804,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    document.getElementById('save-mcp').addEventListener('click', async () => {
-        const items = document.querySelectorAll('.mcp-item');
+    
+    document.getElementById('save-all-settings').addEventListener('click', async () => {
         
-        items.forEach(item => {
+        document.querySelectorAll('.mcp-item').forEach(item => {
             const name = item.querySelector('.mcp-enabled').dataset.name;
             const enabled = item.querySelector('.mcp-enabled').checked;
             const s = mcpServersCache.find(s => s.name === name);
             if (s) s.enabled = enabled;
         });
-        await api('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mcp: { servers: mcpServersCache } })
-        });
-        showToast('Tool settings saved. Restart to apply.');
-    });
 
-    
-    document.getElementById('save-providers').addEventListener('click', async () => {
-        const active = document.querySelector('.provider-tab.active')?.dataset.provider || 'gemini';
-        await api('/api/settings', {
+        const activeProvider = document.querySelector('.provider-active:checked')?.dataset?.provider || 'gemini';
+        const result = await api('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                voice: {
+                    engine: document.getElementById('tts-engine').value,
+                    lipsync_enabled: document.getElementById('lipsync-toggle').checked
+                },
+                ui: {
+                    theme: document.getElementById('theme-select').value,
+                    font_size: parseInt(document.getElementById('font-size-range').value)
+                },
+                vault: { path: document.getElementById('vault-path').value },
+                character: { system_prompt: document.getElementById('custom-system-prompt').value },
                 provider: {
-                    active,
+                    active: activeProvider,
                     gemini: {
                         api_key: document.getElementById('gemini-api-key').value,
                         model: document.getElementById('gemini-model').value,
@@ -873,39 +865,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         model: document.getElementById('chatgpt-model').value,
                         base_url: 'https:
                     }
-                }
-            })
-        });
-        showToast('Provider saved');
-    });
-
-    document.getElementById('save-system-prompt').addEventListener('click', async () => {
-        await api('/api/settings/set', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: 'character.system_prompt', value: document.getElementById('custom-system-prompt').value })
-        });
-        showToast('Instructions saved');
-    });
-
-    document.getElementById('save-settings').addEventListener('click', async () => {
-        const result = await api('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                voice: {
-                    engine: document.getElementById('tts-engine').value,
-                    lipsync_enabled: document.getElementById('lipsync-toggle').checked
                 },
-                ui: {
-                    theme: document.getElementById('theme-select').value,
-                    font_size: parseInt(document.getElementById('font-size-range').value)
-                },
-                vault: { path: document.getElementById('vault-path').value }
+                mcp: { servers: mcpServersCache }
             })
         });
         if (result) {
-            showToast('Settings saved');
+            showToast('All settings saved');
         } else {
             showToast('Failed to save settings', 'danger');
         }
