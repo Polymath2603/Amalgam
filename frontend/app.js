@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const settings = await fetch('/api/settings').then(r => r.json());
         _vrmPath = settings?.avatar?.model_path
             ? `/${settings.avatar.model_path}`
-            : '/user_data/avatars/avatar.vrm';
+            : '/characters/default/model.vrm';
 
         
         if (avatarPreview) {
