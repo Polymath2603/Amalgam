@@ -145,15 +145,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     
-    document.querySelectorAll('.provider-active').forEach(cb => {
-        cb.addEventListener('change', () => {
-            if (cb.checked) {
-                document.querySelectorAll('.provider-active').forEach(other => {
-                    if (other !== cb) other.checked = false;
-                });
-            }
+    const providerSelect = document.getElementById('provider-select');
+    function showProviderSection(name) {
+        document.querySelectorAll('.provider-section').forEach(s => {
+            const isActive = s.dataset.provider === name;
+            s.classList.toggle('active', isActive);
+            s.style.display = isActive ? '' : 'none';
         });
-    });
+    }
+    providerSelect.addEventListener('change', () => showProviderSection(providerSelect.value));
+    showProviderSection(providerSelect.value);
 
     
     function connectWS() {
@@ -164,8 +165,9 @@ document.addEventListener('DOMContentLoaded', () => {
             statusDot.className = 'status-dot online';
             statusText.textContent = 'Connected';
             
-            if (voiceOutputEnabled && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'command', command: 'voice_output_on' }));
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+                ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
             }
         };
         ws.onclose = () => {
@@ -611,6 +613,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const settings = await api('/api/settings');
         if (settings) applySettings(settings);
         await loadCharacters();
+        
+        try {
+            const session = await api('/api/memory/session/current');
+            if (session?.messages?.length) {
+                const chatMessages = document.getElementById('chat-messages');
+                chatMessages.innerHTML = '';
+                session.messages.forEach(m => {
+                    const div = document.createElement('div');
+                    div.className = `msg msg-${m.role}`;
+                    div.innerHTML = `<div class="msg-body">${escHtml(m.content)}</div>`;
+                    chatMessages.appendChild(div);
+                });
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        } catch (e) {
+            console.warn('Failed to load chat session:', e);
+        }
     }
 
     function applyTheme(theme) {
@@ -648,9 +667,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function applySettings(d) {
         
         const active = d.provider?.active || 'gemini';
-        document.querySelectorAll('.provider-active').forEach(cb => {
-            cb.checked = cb.dataset.provider === active;
-        });
+        providerSelect.value = active;
+        showProviderSection(active);
         document.getElementById('gemini-api-key').value = d.provider?.gemini?.api_key || '';
         document.getElementById('gemini-base-url').value = d.provider?.gemini?.base_url || '';
         document.getElementById('ollama-url').value = d.provider?.ollama?.base_url || '';
@@ -685,6 +703,11 @@ document.addEventListener('DOMContentLoaded', () => {
         voiceOutputToggle.classList.toggle('active', voiceOutputEnabled);
         if (voiceInputToggleSettings) voiceInputToggleSettings.checked = voiceInputEnabled;
         if (voiceOutputToggleSettings) voiceOutputToggleSettings.checked = voiceOutputEnabled;
+        
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+            ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
+        }
 
         
         const thinkingEnabled = d.ui?.thinking_enabled ?? true;
@@ -873,7 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (s) s.enabled = enabled;
         });
 
-        const activeProvider = document.querySelector('.provider-active:checked')?.dataset?.provider || 'gemini';
+        const activeProvider = providerSelect.value;
         const result = await api('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -884,7 +907,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 ui: {
                     theme: document.getElementById('theme-select').value,
-                    font_size: parseInt(document.getElementById('font-size-range').value)
+                    font_size: parseInt(document.getElementById('font-size-range').value),
+                    voice_input: voiceInputEnabled,
+                    voice_output: voiceOutputEnabled
                 },
                 vault: { path: document.getElementById('vault-path').value },
                 character: { system_prompt: document.getElementById('custom-system-prompt').value },

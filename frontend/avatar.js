@@ -391,17 +391,32 @@ export class AvatarRenderer {
         if (this.preview) {
             
             const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
-            if (headBone) {
-                
+            const neckBone = vrm.humanoid?.getNormalizedBoneNode('neck');
+
+            if (headBone && neckBone) {
                 vrm.update(0);
                 vrm.scene.updateMatrixWorld(true);
-                
+
                 const headPos = new THREE.Vector3();
+                const neckPos = new THREE.Vector3();
                 headBone.getWorldPosition(headPos);
+                neckBone.getWorldPosition(neckPos);
+
                 
+                const headTop = headPos.y + (headPos.y - neckPos.y) * 1.5;
+                const headBottom = neckPos.y;
+                const midY = (headTop + headBottom) / 2;
+                const headHeight = headTop - headBottom;
+
                 
-                this.camera.position.set(headPos.x, headPos.y, headPos.z + 0.6);
-                this.camera.lookAt(headPos.x, headPos.y, headPos.z);
+                const dist = (headHeight * 1.0) / Math.tan(fov / 2) * 1.2;
+
+                
+                const headWidth = (headPos.y - neckPos.y) * 1.5;
+                const offsetX = headWidth * 1.5;
+
+                this.camera.position.set(headPos.x - offsetX, midY, headPos.z + dist);
+                this.camera.lookAt(headPos.x - offsetX, midY, headPos.z);
             } else {
                 this.camera.position.set(hipsPos.x, hipsPos.y + 0.5, hipsPos.z + 1.2);
                 this.camera.lookAt(hipsPos.x, hipsPos.y + 0.3, hipsPos.z);
@@ -409,14 +424,22 @@ export class AvatarRenderer {
         } else {
             
             const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
+            const neckBone = vrm.humanoid?.getNormalizedBoneNode('neck');
             const targetPos = new THREE.Vector3();
             if (headBone) headBone.getWorldPosition(targetPos);
             else targetPos.copy(hipsPos).y += upperHeight;
 
+            let offsetX = 0;
+            if (headBone && neckBone) {
+                const neckPos = new THREE.Vector3();
+                neckBone.getWorldPosition(neckPos);
+                offsetX = (targetPos.y - neckPos.y) * 2.0;
+            }
+
             
             const dist = Math.max(size.y * 1.5, 1.5);
-            this.camera.position.set(targetPos.x, targetPos.y, targetPos.z + dist);
-            this.camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
+            this.camera.position.set(targetPos.x - offsetX, targetPos.y, targetPos.z + dist);
+            this.camera.lookAt(targetPos.x - offsetX, targetPos.y, targetPos.z);
         }
 
         this.camera.updateProjectionMatrix();

@@ -498,6 +498,12 @@ async def clear_memory ():
     memory ().start_session ()
     return {"status":"ok"}
 
+@app .get ("/api/memory/session/current")
+async def get_current_session ():
+    sid =memory ().get_current_session ()
+    messages =memory ().get_session_messages (sid )
+    return {"session_id":sid ,"messages":messages }
+
 @app .post ("/api/memory/new-session")
 async def new_session ():
     sid =memory ().start_session ()
@@ -534,18 +540,18 @@ async def ws_chat (websocket :WebSocket ):
                     if voice_pipeline is None :
                         loop =asyncio .get_event_loop ()
                         def on_transcription (text ):
-                            """Callback from VoicePipeline thread — safely send to websocket."""
+                            """Callback from VoicePipeline thread — fire-and-forget to websocket."""
                             try :
-                                future =asyncio .run_coroutine_threadsafe (
+                                asyncio .run_coroutine_threadsafe (
                                 websocket .send_json ({"type":"user_message_from_voice","text":text }),
                                 loop 
                                 )
-                                future .result (timeout =5 )
                             except Exception as e :
                                 logger .warning (f"Voice transcription send failed: {e }")
                         voice_pipeline =VoicePipeline (agent_callback =on_transcription )
                     if voice_task is None or voice_task .done ():
-
+                        if voice_task and voice_task .exception ():
+                            logger .error (f"Previous voice task failed: {voice_task .exception ()}")
                         voice_task =asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
                     await websocket .send_json ({"type":"voice_state","state":"recording"})
                     logger .info ("Voice input started")
@@ -666,22 +672,37 @@ async def ws_chat (websocket :WebSocket ):
 
                         if isinstance (item ,tuple )and item [0 ]=='__emotion__':
                             current_emotion =item [1 ]
-                            await websocket .send_json ({"type":"emotion","emotion":current_emotion })
+                            try :
+                                await websocket .send_json ({"type":"emotion","emotion":current_emotion })
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
                             continue 
 
                         if isinstance (item ,tuple )and item [0 ]=='__thinking__':
-                            await websocket .send_json ({"type":"thinking","text":item [1 ]})
+                            try :
+                                await websocket .send_json ({"type":"thinking","text":item [1 ]})
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
                             continue 
 
                         token =item 
                         full_response +=token 
                         sentence_buffer +=token 
-                        await websocket .send_json ({
-                        "type":"chat_append",
-                        "role":"assistant",
-                        "text":token ,
-                        "finished":False 
-                        })
+                        try :
+                            await websocket .send_json ({
+                            "type":"chat_append",
+                            "role":"assistant",
+                            "text":token ,
+                            "finished":False 
+                            })
+                        except WebSocketDisconnect :
+                            raise 
+                        except Exception :
+                            pass 
 
 
 
@@ -694,17 +715,32 @@ async def ws_chat (websocket :WebSocket ):
                                 complete =parts [0 ].strip ()
                                 sentence_buffer =' '.join (parts [1 :])
                                 if complete :
-                                    await websocket .send_json ({"type":"voice_state","state":"speaking"})
+                                    try :
+                                        await websocket .send_json ({"type":"voice_state","state":"speaking"})
+                                    except WebSocketDisconnect :
+                                        raise 
+                                    except Exception :
+                                        pass 
                                     task =asyncio .create_task (synthesize_and_send (complete ,sentence_idx ,current_stream ))
                                     tts_tasks .append (task )
                                     sentence_idx +=1 
 
 
-                    await websocket .send_json ({"type":"viseme","value":0.0 })
+                    try :
+                        await websocket .send_json ({"type":"viseme","value":0.0 })
+                    except WebSocketDisconnect :
+                        raise 
+                    except Exception :
+                        pass 
 
 
                     if voice_output_enabled and sentence_buffer .strip ():
-                        await websocket .send_json ({"type":"voice_state","state":"speaking"})
+                        try :
+                            await websocket .send_json ({"type":"voice_state","state":"speaking"})
+                        except WebSocketDisconnect :
+                            raise 
+                        except Exception :
+                            pass 
                         task =asyncio .create_task (synthesize_and_send (sentence_buffer .strip (),sentence_idx ,current_stream ))
                         tts_tasks .append (task )
                         sentence_idx +=1 
@@ -740,13 +776,18 @@ async def ws_chat (websocket :WebSocket ):
                     "error":True 
                     })
                 else :
-                    await websocket .send_json ({"type":"emotion","emotion":"neutral"})
-                    await websocket .send_json ({
-                    "type":"chat_append",
-                    "role":"assistant",
-                    "text":"",
-                    "finished":True 
-                    })
+                    try :
+                        await websocket .send_json ({"type":"emotion","emotion":"neutral"})
+                        await websocket .send_json ({
+                        "type":"chat_append",
+                        "role":"assistant",
+                        "text":"",
+                        "finished":True 
+                        })
+                    except WebSocketDisconnect :
+                        raise 
+                    except Exception :
+                        pass 
 
     except WebSocketDisconnect :
         logger .info ("Chat WebSocket disconnected")
