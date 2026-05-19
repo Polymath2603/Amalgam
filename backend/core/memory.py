@@ -183,13 +183,15 @@ class Memory :
         self .cursor .execute ('SELECT COUNT(*) FROM conversations WHERE session_id = ?',(session_id ,))
         count =self .cursor .fetchone ()[0 ]
 
-        if count >30 :
+
+        if count >40 :
             self .summarizing =True 
             try :
                 logger .info ("Auto-summarizing older memories...")
 
+
                 self .cursor .execute (
-                'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT 20',
+                'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT 25',
                 (session_id ,)
                 )
                 rows =self .cursor .fetchall ()

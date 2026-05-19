@@ -47,17 +47,21 @@ loader.register(p => new VRMLoaderPlugin(p));
 window.__vrmReady = false;
 
 loader.load(modelUrl, (gltf) => {
+    console.log('GLTF loaded');
     const vrm = gltf.userData.vrm;
-    if (!vrm) { console.error('No VRM data'); return; }
+    if (!vrm) { console.error('No VRM data'); window.__vrmError = true; window.__vrmReady = true; return; }
+    console.log('VRM data parsed');
     VRMUtils.removeUnnecessaryVertices(gltf.scene);
     VRMUtils.combineSkeletons(gltf.scene);
     VRMUtils.combineMorphs(vrm);
+    console.log('VRM processed');
     // Fix rotation for VRM0 models only
     if (vrm.meta?.metaVersion === '0') {
         vrm.scene.rotation.y = Math.PI;
     }
     gltf.scene.traverse(o => { o.frustumCulled = false; });
     scene.add(vrm.scene);
+    console.log('VRM added to scene');
 
     // Relaxed pose
     const h = vrm.humanoid;
@@ -71,36 +75,44 @@ loader.load(modelUrl, (gltf) => {
     }
 
     // Portrait camera — compute framing from actual VRM bone positions
-    vrm.update(0);
+    vrm.update(0.01); // Give it a tiny bit of time for initial state
     vrm.scene.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(vrm.scene);
-    const center = box.getCenter(new THREE.Vector3());
+
     const headBone = h?.getNormalizedBoneNode('head');
     const neckBone = h?.getNormalizedBoneNode('neck');
+    const fov = camera.fov * (Math.PI / 180);
+
     if (headBone && neckBone) {
         const headPos = new THREE.Vector3();
         const neckPos = new THREE.Vector3();
         headBone.getWorldPosition(headPos);
         neckBone.getWorldPosition(neckPos);
-        const headTop = headPos.y + 0.1;
-        const headBottom = neckPos.y - 0.02;
-        const headHeight = headTop - headBottom;
-        const fov = camera.fov * (Math.PI / 180);
-        const dist = (headHeight * 1.3) / Math.tan(fov / 2);
+
+        // Calculate a box around the head area
+        // Head top is roughly above head center, head bottom is neck
+        const headTop = headPos.y + (headPos.y - neckPos.y) * 1.5;
+        const headBottom = neckPos.y;
         const midY = (headTop + headBottom) / 2;
-        // Camera faces front of model: VRM0 rotated → faces +z, VRM1 → faces -z
-        const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
-        const camOffsetZ = isRotated ? dist : -dist;
-        camera.position.set(center.x, midY, center.z + camOffsetZ);
-        camera.lookAt(center.x, midY, center.z);
+        const headHeight = headTop - headBottom;
+
+        // Determine distance to frame the head height
+        const dist = (headHeight * 1.0) / Math.tan(fov / 2);
+
+        // Camera faces front: both VRM0 (rotated by PI) and VRM1 face +Z
+        const camOffsetZ = dist;
+
+        camera.position.set(headPos.x, midY, headPos.z + camOffsetZ);
+        camera.lookAt(headPos.x, midY, headPos.z);
     } else {
+        // Fallback for models with missing head/neck bones
+        const box = new THREE.Box3().setFromObject(vrm.scene);
         const size = box.getSize(new THREE.Vector3());
-        const fov = camera.fov * (Math.PI / 180);
-        const dist = (size.y * 0.2) / Math.tan(fov / 2);
-        const isRotated2 = Math.abs(vrm.scene.rotation.y) > 0.1;
-        const camOffsetZ2 = isRotated2 ? dist * 1.1 : -dist * 1.1;
-        camera.position.set(center.x, center.y + size.y * 0.3, center.z + camOffsetZ2);
-        camera.lookAt(center.x, center.y + size.y * 0.3, center.z);
+        const center = box.getCenter(new THREE.Vector3());
+        const dist = (size.y * 0.25) / Math.tan(fov / 2);
+        const camOffsetZ = dist;
+        const fallbackY = box.max.y - size.y * 0.1;
+        camera.position.set(center.x, fallbackY, center.z + camOffsetZ);
+        camera.lookAt(center.x, fallbackY, center.z);
     }
 
     // Look at camera
@@ -108,16 +120,20 @@ loader.load(modelUrl, (gltf) => {
     camera.add(target);
     if (vrm.lookAt) vrm.lookAt.target = target;
 
-    // Set happy expression for a pleasant icon
+    // Set happy expression
     if (vrm.expressionManager) {
         vrm.expressionManager.setValue('happy', 0.6);
     }
 
     vrm.update(0);
+    console.log('Rendering basic view');
     renderer.render(scene, camera);
+    console.log('Render complete');
     window.__vrmReady = true;
-}, undefined, (err) => {
+    }, undefined, (err) => {
+
     console.error('VRM load error:', err?.message || err);
+    window.__vrmError = true;
     window.__vrmReady = true; // Signal done even on error
 });
 </script>

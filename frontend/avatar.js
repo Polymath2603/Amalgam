@@ -180,9 +180,10 @@ export class AvatarRenderer {
                 if (abandoned) return;
                 clearTimeout(timeout);
 
+                console.log(`[Avatar] Model loaded successfully: ${loadPath}`);
                 const vrm = gltf.userData.vrm;
                 if (!vrm) {
-                    console.warn('No VRM data in loaded file');
+                    console.error(`[Avatar] Loaded file but no VRM data found in: ${loadPath}`);
                     if (!isFallback) {
                         console.warn('Falling back to default VRM');
                         this.vrmPath = '/characters/default/model.vrm';
@@ -202,6 +203,18 @@ export class AvatarRenderer {
                 vrm.scene.traverse((obj) => { obj.frustumCulled = false; });
 
                 this.vrm = vrm;
+                
+                
+                vrm.update(0);
+                vrm.scene.updateMatrixWorld(true);
+                
+                
+                try {
+                    this._fitCameraToModel(vrm);
+                } catch(e) {
+                    console.error('[Avatar] Camera fit failed:', e);
+                }
+
                 this.scene.add(vrm.scene);
 
                 
@@ -247,7 +260,7 @@ export class AvatarRenderer {
                 try {
                     this._fitCameraToModel(vrm);
                 } catch(e) {
-                    console.warn('Camera fit failed, using default position:', e);
+                    console.error('[Avatar] Camera fit failed:', e);
                 }
 
                 this.ready = true;
@@ -368,57 +381,42 @@ export class AvatarRenderer {
 
         
         const upperHeight = Math.max(size.y * 0.6, 0.3);
-        const targetY = box.max.y - upperHeight / 2;
         const fov = this.camera.fov * (Math.PI / 180);
+
+        const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+        const hipsPos = new THREE.Vector3();
+        if (hips) hips.getWorldPosition(hipsPos);
+        else hipsPos.copy(center);
 
         if (this.preview) {
             
             const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
-            const neckBone = vrm.humanoid?.getNormalizedBoneNode('neck');
-            if (headBone && neckBone) {
+            if (headBone) {
+                
                 vrm.update(0);
                 vrm.scene.updateMatrixWorld(true);
+                
                 const headPos = new THREE.Vector3();
-                const neckPos = new THREE.Vector3();
                 headBone.getWorldPosition(headPos);
-                neckBone.getWorldPosition(neckPos);
-                const headTop = headPos.y + 0.1;
-                const headBottom = neckPos.y - 0.02;
-                const headHeight = headTop - headBottom;
-                const camZ = (headHeight * 0.65) / Math.tan(fov / 2);
-                const midY = (headTop + headBottom) / 2;
                 
-                const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
-                const camOffsetZ = isRotated ? camZ : -camZ;
                 
-                this.camera.position.set(headPos.x, midY, headPos.z + camOffsetZ);
-                this.camera.lookAt(headPos.x, midY, headPos.z);
+                this.camera.position.set(headPos.x, headPos.y, headPos.z + 0.6);
+                this.camera.lookAt(headPos.x, headPos.y, headPos.z);
             } else {
-                const previewTargetY = box.max.y - size.y * 0.15;
-                const previewHeight = Math.max(size.y * 0.3, 0.15);
-                const camZ = (previewHeight / 2) / Math.tan(fov / 2) * 1.3;
-                const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
-                const camOffsetZ = isRotated ? Math.max(camZ, 0.5) : -Math.max(camZ, 0.5);
-                this.camera.position.set(center.x, previewTargetY, center.z + camOffsetZ);
-                this.camera.lookAt(center.x, previewTargetY, center.z);
+                this.camera.position.set(hipsPos.x, hipsPos.y + 0.5, hipsPos.z + 1.2);
+                this.camera.lookAt(hipsPos.x, hipsPos.y + 0.3, hipsPos.z);
             }
         } else {
-            const camZ = (upperHeight / 2) / Math.tan(fov / 2) * 1.3;
-            const finalZ = Math.min(Math.max(camZ, 1.5), 10);
-            const isRotated = Math.abs(vrm.scene.rotation.y) > 0.1;
-            const camOffsetZ = isRotated ? finalZ : -finalZ;
             
-            const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
-            let targetX = center.x, targetY = center.y, targetZ = center.z;
-            if (hips) {
-                const hipsPos = new THREE.Vector3();
-                hips.getWorldPosition(hipsPos);
-                targetX = hipsPos.x;
-                targetY = hipsPos.y + upperHeight * 0.3; 
-                targetZ = hipsPos.z;
-            }
-            this.camera.position.set(targetX, targetY, targetZ + camOffsetZ);
-            this.camera.lookAt(targetX, targetY, targetZ);
+            const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
+            const targetPos = new THREE.Vector3();
+            if (headBone) headBone.getWorldPosition(targetPos);
+            else targetPos.copy(hipsPos).y += upperHeight;
+
+            
+            const dist = Math.max(size.y * 1.5, 1.5);
+            this.camera.position.set(targetPos.x, targetPos.y, targetPos.z + dist);
+            this.camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
         }
 
         this.camera.updateProjectionMatrix();

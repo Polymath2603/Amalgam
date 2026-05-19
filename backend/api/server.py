@@ -200,11 +200,18 @@ def _generate_missing_icons_sync ():
         logger .info (f"Generated {generated } character icon(s)")
 
 
+async def _delayed_startup_tasks ():
+    try :
+        await asyncio .sleep (2.0 )
+        await _generate_missing_icons ()
+    except Exception as e :
+        logger .error (f"Error in delayed startup tasks: {e }")
+
+
 @app .on_event ("startup")
 async def startup ():
     logger .info ("Starting Amalgam backend...")
-
-    await _generate_missing_icons ()
+    asyncio .create_task (_delayed_startup_tasks ())
 
     memory ().start_session ()
 
@@ -356,27 +363,50 @@ async def get_provider_models (provider :str ):
 @app .post ("/api/icons/regenerate")
 async def regenerate_icons ():
     """Regenerate character icons. Tries VRM renderer (Node.js + Chrome) first,
-    falls back to letter-based PNG icons."""
+    then fills in letter-based icons for any characters VRM couldn't handle."""
     import shutil 
+    project_root =os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ ))))
+    vrm_output =""
+    vrm_ok =False 
+
+
+    char_dirs =sorted ([
+    d for d in os .listdir (CHARACTERS_DIR )
+    if os .path .isdir (os .path .join (CHARACTERS_DIR ,d ))
+    ])
+    for char_dir in char_dirs :
+        icon_path =os .path .join (CHARACTERS_DIR ,char_dir ,"icon.png")
+        if os .path .exists (icon_path ):
+            os .remove (icon_path )
+
 
     node =shutil .which ("node")
-    vrm_script =os .path .join (os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ )))),"scripts","generate-icons-vrm.js")
+    vrm_script =os .path .join (project_root ,"scripts","generate-icons-vrm.js")
     if node and os .path .exists (vrm_script ):
         try :
+            logger .info ("Running VRM icon generation...")
             proc =await asyncio .create_subprocess_exec (
             node ,vrm_script ,"--all",
             stdout =asyncio .subprocess .PIPE ,
             stderr =asyncio .subprocess .PIPE ,
-            cwd =os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ ))))
+            cwd =project_root 
             )
             stdout ,stderr =await asyncio .wait_for (proc .communicate (),timeout =300 )
-            output =stdout .decode ()+stderr .decode ()
-            return {"status":"ok","method":"vrm","output":output }
+            vrm_output =stdout .decode ()+stderr .decode ()
+            vrm_ok =proc .returncode ==0 
+            logger .info (f"VRM icon gen result (ok={vrm_ok }): {vrm_output }")
         except Exception as e :
-            logger .warning (f"VRM icon generation failed: {e }")
+            logger .error (f"VRM icon generation crashed: {e }")
+
+
 
     _generate_missing_icons_sync ()
-    return {"status":"ok","method":"letter","message":"Generated letter icons (install Node.js + Chrome for VRM-quality icons)"}
+
+    return {
+    "status":"ok",
+    "method":"vrm+letter"if vrm_ok else "letter",
+    "vrm_output":vrm_output if vrm_output else None ,
+    }
 
 
 
@@ -515,9 +545,8 @@ async def ws_chat (websocket :WebSocket ):
                                 logger .warning (f"Voice transcription send failed: {e }")
                         voice_pipeline =VoicePipeline (agent_callback =on_transcription )
                     if voice_task is None or voice_task .done ():
-                        voice_task =asyncio .create_task (
-                        asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
-                        )
+
+                        voice_task =asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
                     await websocket .send_json ({"type":"voice_state","state":"recording"})
                     logger .info ("Voice input started")
                 elif cmd =="voice_input_off":

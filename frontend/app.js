@@ -447,11 +447,16 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const voiceInputToggle = document.getElementById('voice-input-toggle');
     const voiceOutputToggle = document.getElementById('voice-output-toggle');
+    const voiceInputToggleSettings = document.getElementById('voice-input-toggle-settings');
+    const voiceOutputToggleSettings = document.getElementById('voice-output-toggle-settings');
 
     voiceInputToggle.addEventListener('click', () => {
         voiceInputEnabled = !voiceInputEnabled;
         voiceInputToggle.querySelector('.material-icons-round').textContent = voiceInputEnabled ? 'mic' : 'mic_off';
         voiceInputToggle.classList.toggle('active', voiceInputEnabled);
+        if (voiceInputToggleSettings) {
+            voiceInputToggleSettings.checked = voiceInputEnabled;
+        }
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
         }
@@ -467,6 +472,9 @@ document.addEventListener('DOMContentLoaded', () => {
         voiceOutputEnabled = !voiceOutputEnabled;
         voiceOutputToggle.querySelector('.material-icons-round').textContent = voiceOutputEnabled ? 'volume_up' : 'volume_off';
         voiceOutputToggle.classList.toggle('active', voiceOutputEnabled);
+        if (voiceOutputToggleSettings) {
+            voiceOutputToggleSettings.checked = voiceOutputEnabled;
+        }
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
         }
@@ -477,6 +485,40 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         showToast(voiceOutputEnabled ? 'Voice output on' : 'Voice output off');
     });
+
+    if (voiceInputToggleSettings) {
+        voiceInputToggleSettings.addEventListener('change', () => {
+            voiceInputEnabled = voiceInputToggleSettings.checked;
+            voiceInputToggle.querySelector('.material-icons-round').textContent = voiceInputEnabled ? 'mic' : 'mic_off';
+            voiceInputToggle.classList.toggle('active', voiceInputEnabled);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+            }
+            fetch('/api/settings/set', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'ui.voice_input', value: voiceInputEnabled })
+            });
+            showToast(voiceInputEnabled ? 'Voice input on' : 'Voice input off');
+        });
+    }
+
+    if (voiceOutputToggleSettings) {
+        voiceOutputToggleSettings.addEventListener('change', () => {
+            voiceOutputEnabled = voiceOutputToggleSettings.checked;
+            voiceOutputToggle.querySelector('.material-icons-round').textContent = voiceOutputEnabled ? 'volume_up' : 'volume_off';
+            voiceOutputToggle.classList.toggle('active', voiceOutputEnabled);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
+            }
+            fetch('/api/settings/set', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'ui.voice_output', value: voiceOutputEnabled })
+            });
+            showToast(voiceOutputEnabled ? 'Voice output on' : 'Voice output off');
+        });
+    }
 
     function updateVoiceState(state) {
         const bars = document.getElementById('voice-bars');
@@ -641,6 +683,8 @@ document.addEventListener('DOMContentLoaded', () => {
         voiceInputToggle.classList.toggle('active', voiceInputEnabled);
         voiceOutputToggle.querySelector('.material-icons-round').textContent = voiceOutputEnabled ? 'volume_up' : 'volume_off';
         voiceOutputToggle.classList.toggle('active', voiceOutputEnabled);
+        if (voiceInputToggleSettings) voiceInputToggleSettings.checked = voiceInputEnabled;
+        if (voiceOutputToggleSettings) voiceOutputToggleSettings.checked = voiceOutputEnabled;
 
         
         const thinkingEnabled = d.ui?.thinking_enabled ?? true;

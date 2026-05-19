@@ -62,71 +62,74 @@ class Agent :
             tool_block =""
             in_tool_block =False 
 
-            async for token in self .llm .stream (messages ):
-                if not tool_detected and "```tool"in full_response +token :
-                    in_tool_block =True 
-                    tool_detected =True 
+            try :
+                async for token in self .llm .stream (messages ):
+                    if not tool_detected and "```tool"in full_response +token :
+                        in_tool_block =True 
+                        tool_detected =True 
 
-                if in_tool_block :
-                    tool_block +=token 
-                    if "```\n"in tool_block [7 :]or tool_block .endswith ("```"):
-                        try :
-                            start_idx =tool_block .find ("{")
-                            end_idx =tool_block .rfind ("}")+1 
-                            if start_idx !=-1 and end_idx !=-1 :
-                                tool_call =json .loads (tool_block [start_idx :end_idx ])
-                                name =tool_call .get ("name")
-                                args =tool_call .get ("arguments",{})
+                    if in_tool_block :
+                        tool_block +=token 
+                        if "```\n"in tool_block [7 :]or tool_block .endswith ("```"):
+                            try :
+                                start_idx =tool_block .find ("{")
+                                end_idx =tool_block .rfind ("}")+1 
+                                if start_idx !=-1 and end_idx !=-1 :
+                                    tool_call =json .loads (tool_block [start_idx :end_idx ])
+                                    name =tool_call .get ("name")
+                                    args =tool_call .get ("arguments",{})
 
-                                yield f"\n[Calling tool: {name }]\n"
+                                    yield f"\n[Calling tool: {name }]\n"
 
-                                result ="No MCP client"
-                                if self .mcp_client :
-                                    result =await self .mcp_client .call_tool (name ,args )
+                                    result ="No MCP client"
+                                    if self .mcp_client :
+                                        result =await self .mcp_client .call_tool (name ,args )
 
-                                current_input =f"Tool result for {name }: {result }"
-                                await self .memory .add_turn ("assistant",full_response )
-                                await self .memory .add_turn ("system",current_input )
+                                    current_input =f"Tool result for {name }: {result }"
+                                    await self .memory .add_turn ("assistant",full_response )
+                                    await self .memory .add_turn ("system",current_input )
+                                    break 
+                            except Exception as e :
+                                yield f"\n[Error parsing tool call: {e }]\n"
+                                current_input =f"Tool parse error: {e }"
                                 break 
-                        except Exception as e :
-                            yield f"\n[Error parsing tool call: {e }]\n"
-                            current_input =f"Tool parse error: {e }"
-                            break 
-                else :
-                    full_response +=token 
+                    else :
+                        full_response +=token 
 
 
-                    in_think ='<think>'in full_response and '</think>'not in full_response 
-                    if in_think :
-                        continue 
+                        in_think ='<think>'in full_response and '</think>'not in full_response 
+                        if in_think :
+                            continue 
 
 
-                    think_match =THINK_RE .search (full_response )
-                    if think_match :
-                        yield ('__thinking__',think_match .group (1 ).strip ())
-                        full_response =THINK_RE .sub ('',full_response )
-                        clean_yielded =0 
+                        think_match =THINK_RE .search (full_response )
+                        if think_match :
+                            yield ('__thinking__',think_match .group (1 ).strip ())
+                            full_response =THINK_RE .sub ('',full_response )
+                            clean_yielded =0 
 
 
-                    for m in EMOTION_RE .finditer (full_response ):
-                        yield ('__emotion__',m .group (1 ))
-                    full_response =EMOTION_RE .sub ('',full_response )
+                        for m in EMOTION_RE .finditer (full_response ):
+                            yield ('__emotion__',m .group (1 ))
+                        full_response =EMOTION_RE .sub ('',full_response )
 
 
-                    if len (full_response )>clean_yielded :
-                        chunk =full_response [clean_yielded :]
+                        if len (full_response )>clean_yielded :
+                            chunk =full_response [clean_yielded :]
 
-                        incomplete =re .search (r'\[[a-zA-Z]*$',chunk )
-                        if incomplete :
-                            yield chunk [:incomplete .start ()]
+                            incomplete =re .search (r'\[[a-zA-Z]*$',chunk )
+                            if incomplete :
+                                yield chunk [:incomplete .start ()]
 
 
-                        else :
-                            yield chunk 
-                            clean_yielded =len (full_response )
+                            else :
+                                yield chunk 
+                                clean_yielded =len (full_response )
+            finally :
+                if not in_tool_block and full_response .strip ():
+                    await self .memory .add_turn ("assistant",full_response .strip ())
 
             if not in_tool_block :
-                await self .memory .add_turn ("assistant",full_response .strip ())
                 return 
 
         if iterations >=5 :

@@ -26,8 +26,9 @@ class VoicePipeline :
         """Blocking listen loop for background thread. Monitors mic via sounddevice."""
         try :
             import sounddevice as sd 
+            import queue 
         except ImportError :
-            logger .warning ("sounddevice not installed. Voice input unavailable.")
+            logger .warning ("sounddevice or queue not installed. Voice input unavailable.")
             return 
 
         self ._ensure_models ()
@@ -35,55 +36,74 @@ class VoicePipeline :
         logger .info ("VoicePipeline: Listening for speech...")
 
 
-        audio_queue =bytearray ()
-        recording =bytearray ()
-        is_recording =False 
-        silence_frames =0 
+        audio_q =queue .Queue ()
 
         def audio_callback (indata ,frames ,time ,status ):
-            audio_queue .extend (bytes (indata ))
+            if status :
+                logger .warning (f"Audio input status: {status }")
+            audio_q .put (bytes (indata ))
+
 
         stream =sd .RawInputStream (
         samplerate =16000 ,blocksize =480 ,dtype ='int16',channels =1 ,
         callback =audio_callback 
         )
 
+        recording =bytearray ()
+        is_recording =False 
+        silence_frames =0 
+
+
+        FRAME_SIZE =960 
+
         try :
             with stream :
                 while self ._listening :
-                    if len (audio_queue )<960 :
-                        sd .sleep (30 )
+                    try :
+
+                        chunk =audio_q .get (timeout =0.1 )
+                    except queue .Empty :
                         continue 
 
 
-                    chunk =bytes (audio_queue )
-                    audio_queue .clear ()
 
-                    samples =np .frombuffer (chunk ,dtype =np .int16 ).astype (np .float32 )/32768.0 
-                    energy =np .sqrt (np .mean (samples **2 ))
+                    for i in range (0 ,len (chunk ),FRAME_SIZE ):
+                        frame =chunk [i :i +FRAME_SIZE ]
+                        if len (frame )<FRAME_SIZE :
+                            continue 
 
-                    if energy >0.01 :
-                        if not is_recording :
-                            is_recording =True 
-                            recording =bytearray ()
+                        is_speech =self ._vad .process (frame )
+
+
+                        samples =np .frombuffer (frame ,dtype =np .int16 ).astype (np .float32 )/32768.0 
+                        energy =np .sqrt (np .mean (samples **2 ))
+
+
+                        speech_detected =is_speech or (energy >0.1 )
+
+                        if speech_detected :
+                            if not is_recording :
+                                is_recording =True 
+                                recording =bytearray ()
+                                silence_frames =0 
+                                logger .info ("VoicePipeline: Speech detected")
+                            recording .extend (frame )
                             silence_frames =0 
-                            logger .info ("VoicePipeline: Speech detected")
-                        recording .extend (chunk )
-                        silence_frames =0 
-                    elif is_recording :
-                        recording .extend (chunk )
-                        silence_frames +=1 
-                        if silence_frames >33 :
-                            is_recording =False 
-                            silence_frames =0 
+                        elif is_recording :
+                            recording .extend (frame )
+                            silence_frames +=1 
 
-                            audio_data =np .frombuffer (bytes (recording ),dtype =np .int16 ).astype (np .float32 )/32768.0 
-                            if len (audio_data )>8000 :
-                                logger .info ("VoicePipeline: Transcribing...")
-                                text =self ._stt .transcribe (audio_data )
-                                if text and self .agent_callback :
-                                    self .agent_callback (text )
-                            recording =bytearray ()
+                            if silence_frames >33 :
+                                is_recording =False 
+                                silence_frames =0 
+
+                                audio_data =np .frombuffer (bytes (recording ),dtype =np .int16 ).astype (np .float32 )/32768.0 
+                                if len (audio_data )>8000 :
+                                    logger .info (f"VoicePipeline: Transcribing {len (audio_data )/16000 :.1f}s of audio...")
+                                    text =self ._stt .transcribe (audio_data )
+                                    if text and self .agent_callback :
+                                        self .agent_callback (text )
+                                recording =bytearray ()
         except Exception as e :
             logger .error (f"VoicePipeline error: {e }")
         finally :

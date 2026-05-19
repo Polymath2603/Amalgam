@@ -1,5 +1,10 @@
 checkpoints_v2/
+processed
 user_data/
 node_modules/
+docs/superpowers/
+.openclaude/
+characters/
+!characters/default/*
 *.pyc
 __pycache__/
