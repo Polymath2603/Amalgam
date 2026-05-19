@@ -312,8 +312,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 else if (emotion === 'victory') avatarRenderer.playAnimation('/static/animations/dance.vrma');
             }
         } else if (data.type === 'thinking') {
-            
-            if (data.text) {
+            const thinkingEnabled = document.getElementById('thinking-toggle')?.checked ?? true;
+            if (thinkingEnabled && data.text) {
                 const body = currentAssistantMessage?.querySelector('.msg-body');
                 if (body) {
                     const thinkEl = document.createElement('div');
@@ -635,6 +635,17 @@ document.addEventListener('DOMContentLoaded', () => {
         voiceInputToggle.classList.toggle('active', voiceInputEnabled);
         voiceOutputToggle.querySelector('.material-icons-round').textContent = voiceOutputEnabled ? 'volume_up' : 'volume_off';
         voiceOutputToggle.classList.toggle('active', voiceOutputEnabled);
+
+        
+        const thinkingEnabled = d.ui?.thinking_enabled ?? true;
+        document.getElementById('thinking-toggle').checked = thinkingEnabled;
+        document.getElementById('thinking-toggle').onchange = async function() {
+            await fetch('/api/settings/set', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ key: 'ui.thinking_enabled', value: this.checked })
+            });
+        };
 
         
         const theme = d.ui?.theme || 'dark';
