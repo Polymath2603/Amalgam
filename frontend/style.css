@@ -153,12 +153,37 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 
 .chat-messages { flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
 
-.msg { max-width: 80%; padding: 0.6rem 0.9rem; border-radius: var(--radius); font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.msg { position: relative; max-width: 80%; padding: 0.6rem 0.9rem; border-radius: var(--radius); font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .msg-user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 2px; }
 .msg-assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
 .msg-system { align-self: center; background: transparent; color: var(--text-muted); font-size: 0.8rem; font-style: italic; }
 .msg-assistant.msg-error { background: #2d1b1b; border-color: #5c3333; color: #e57373; }
 .thinking-bubble { margin-top: 0.5rem; padding: 0.4rem 0.6rem; background: var(--bg-hover); border-radius: 6px; font-size: 0.75rem; color: var(--text-muted); font-style: italic; border-left: 2px solid var(--accent); }
+
+.msg-actions {
+    display: none;
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    gap: 0.25rem;
+}
+.msg:hover .msg-actions { display: flex; }
+.msg-action {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+}
+.msg-action:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+    border-color: var(--accent);
+}
+.msg-action .material-icons-round { font-size: 16px; }
 
 
 .history-panel {

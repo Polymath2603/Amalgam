@@ -333,11 +333,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const div = document.createElement('div');
         div.className = `msg msg-${role}`;
-        div.innerHTML = `<div class="msg-body">${escHtml(text)}</div>`;
+        div.innerHTML = `
+            <div class="msg-body">${escHtml(text)}</div>
+            <div class="msg-actions">
+                <button class="msg-action" data-action="copy" title="Copy">
+                    <span class="material-icons-round">content_copy</span>
+                </button>
+                ${role === 'user' ? `
+                    <button class="msg-action" data-action="edit" title="Edit">
+                        <span class="material-icons-round">edit</span>
+                    </button>
+                ` : ''}
+                ${role === 'assistant' ? `
+                    <button class="msg-action" data-action="regenerate" title="Regenerate">
+                        <span class="material-icons-round">refresh</span>
+                    </button>
+                    <button class="msg-action" data-action="speak" title="Speak">
+                        <span class="material-icons-round">volume_up</span>
+                    </button>
+                ` : ''}
+            </div>
+        `;
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
         return div;
     }
+
+    chatMessages.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.msg-action');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        const msg = btn.closest('.msg');
+        const body = msg.querySelector('.msg-body')?.textContent || '';
+
+        if (action === 'copy') {
+            await navigator.clipboard.writeText(body);
+            showToast('Copied to clipboard', 'success');
+        } else if (action === 'edit') {
+            chatInput.value = body;
+            chatInput.focus();
+        } else if (action === 'regenerate') {
+            const userMsg = msg.previousElementSibling;
+            if (userMsg?.classList.contains('msg-user')) {
+                const text = userMsg.querySelector('.msg-body')?.textContent;
+                msg.remove();
+                userMsg.remove();
+                if (text && ws?.readyState === WebSocket.OPEN) {
+                    addMessage('user', text);
+                    ws.send(JSON.stringify({ type: 'user_message', text }));
+                }
+            }
+        } else if (action === 'speak') {
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'command', command: 'speak', text: body }));
+            }
+        }
+    });
 
     function clearErrors() {
         chatMessages.querySelectorAll('.msg-assistant.msg-error').forEach(el => el.remove());
@@ -399,6 +450,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
         }
+        fetch('/api/settings/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'ui.voice_input', value: voiceInputEnabled })
+        });
         showToast(voiceInputEnabled ? 'Voice input on' : 'Voice input off');
     });
 
@@ -409,6 +465,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
         }
+        fetch('/api/settings/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'ui.voice_output', value: voiceOutputEnabled })
+        });
         showToast(voiceOutputEnabled ? 'Voice output on' : 'Voice output off');
     });
 
@@ -568,11 +629,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (engineEl) engineEl.value = d.voice?.engine || 'edge-tts';
 
         
+        voiceInputEnabled = d.ui?.voice_input ?? true;
+        voiceOutputEnabled = d.ui?.voice_output ?? true;
+        voiceInputToggle.querySelector('.material-icons-round').textContent = voiceInputEnabled ? 'mic' : 'mic_off';
+        voiceInputToggle.classList.toggle('active', voiceInputEnabled);
+        voiceOutputToggle.querySelector('.material-icons-round').textContent = voiceOutputEnabled ? 'volume_up' : 'volume_off';
+        voiceOutputToggle.classList.toggle('active', voiceOutputEnabled);
+
+        
         const theme = d.ui?.theme || 'dark';
         document.getElementById('theme-select').value = theme;
         applyTheme(theme);
         const fsEl = document.getElementById('font-size-range');
-        if (fsEl) { fsEl.value = d.ui?.font_size || 14; document.getElementById('font-size-val').textContent = `${d.ui?.font_size || 14}px`; }
+        if (fsEl) {
+            const fs = d.ui?.font_size || 14;
+            fsEl.value = fs;
+            document.getElementById('font-size-val').textContent = `${fs}px`;
+            document.documentElement.style.setProperty('--font-size', fs + 'px');
+        }
 
         document.getElementById('vault-path').value = d.vault?.path || 'user_data/vault';
 
@@ -997,6 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('font-size-range').addEventListener('input', e => {
         document.getElementById('font-size-val').textContent = `${e.target.value}px`;
+        document.documentElement.style.setProperty('--font-size', e.target.value + 'px');
     });
 
     
