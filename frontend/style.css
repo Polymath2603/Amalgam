@@ -345,32 +345,16 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .toggle input:checked + .toggle-slider::before { transform: translateX(18px); background: #fff; }
 
 
-.provider-tabs { display: flex; gap: 0.5rem; padding: 0 1.5rem; }
-.provider-tab {
-    padding: 0.5rem 1rem; border-radius: var(--radius-sm); background: var(--bg-card);
-    border: 1px solid var(--border); color: var(--text-muted); cursor: pointer;
-    font-size: 0.85rem; font-weight: 500; font-family: var(--font); display: flex; align-items: center; gap: 0.5rem;
-    transition: all 0.15s;
-}
-.provider-tab:hover { border-color: var(--accent); }
-.provider-tab.active { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
-.provider-dot { width: 8px; height: 8px; border-radius: 50%; }
-.provider-dot.gemini { background: #4285f4; }
-.provider-dot.ollama { background: #fff; }
-.provider-dot.openrouter { background: #6366f1; }
-.provider-dot.zai { background: #10b981; }
-.provider-dot.siliconflow { background: #f97316; }
-.provider-dot.groq { background: #f55036; }
-.provider-dot.chatgpt { background: #10a37f; }
-
-.provider-panel { display: none; padding: 1rem 1.5rem; }
-.provider-panel.active { display: block; }
+.mcp-card { grid-column: 1 / -1; }
+.mcp-card .mcp-toggle-list { padding: 0; }
+.tools-label { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.5rem; }
+.mcp-card .tools-grid { padding: 0; }
 
 
-.mcp-toggle-list { padding: 0 1.5rem; }
+.mcp-toggle-list { padding: 0; }
 .mcp-item {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--border);
+    padding: 0.75rem 1rem; background: var(--bg-input); border: 1px solid var(--border);
     border-radius: var(--radius-sm); margin-bottom: 0.5rem; transition: opacity 0.2s;
 }
 .mcp-item.disabled { opacity: 0.5; }
@@ -381,14 +365,10 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .mcp-item-info strong { font-size: 0.85rem; }
 .mcp-item-info .muted { font-size: 0.75rem; display: block; }
 
-.tools-section { padding: 0.75rem 1.5rem; }
-.tools-section h3 { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; }
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem; }
-.tool-card { padding: 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.tool-card { padding: 0.75rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .tool-card strong { font-size: 0.85rem; display: block; margin-bottom: 0.25rem; }
 .tool-card p { font-size: 0.75rem; color: var(--text-muted); }
-
-.btn-card { margin-top: 0.75rem; }
 
 
 .settings-scroll { height: 100%; overflow-y: auto; padding-bottom: 5rem; }
@@ -401,16 +381,6 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .settings-card:hover { border-color: var(--accent); }
 .settings-card h3 { font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 0.6rem; color: var(--text); }
 .settings-card h3 .material-icons-round { font-size: 1.25rem; }
-.settings-section-header {
-    margin: 2rem 1.5rem 1rem; padding-top: 1.5rem;
-    border-top: 1px solid var(--border);
-}
-.settings-section-header h2 {
-    font-size: 1.1rem; font-weight: 700;
-    display: flex; align-items: center; gap: 0.6rem;
-    letter-spacing: -0.01em;
-}
-.settings-section-header h2 .material-icons-round { font-size: 1.4rem; color: var(--accent); }
 
 
 .color-swatches { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
@@ -442,7 +412,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .icon-btn:hover { color: var(--text); }
 
 .panel-section .btn-primary { margin-top: 0.75rem; }
-#save-providers, #save-mcp, #save-settings { margin: 1rem 1.5rem; }
+#save-all-settings { margin: 1rem 1.5rem; }
 
 
 .toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 1000; }
