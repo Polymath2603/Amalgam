@@ -145,14 +145,9 @@ def main ():
         icon_path =os .path .join (char_path ,"icon.png")
 
 
+
         if os .path .exists (icon_path ):
             print (f"  Skipping {char_dir } (icon.png exists)")
-            continue 
-
-
-        vrm_path =os .path .join (char_path ,"model.vrm")
-        if os .path .exists (vrm_path ):
-            print (f"  Skipping {char_dir } (has model.vrm, use generate-icons-vrm.js)")
             continue 
 
 
