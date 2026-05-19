@@ -13,13 +13,13 @@ const EMOTION_TO_EXPRESSION = {
     sad:        'sad',
     relaxed:    'relaxed',
     surprised:  'surprised',
-    thinking:   null,
+    thinking:   'relaxed',
     speaking:   'happy',
     listening:  null,
-    confused:   'sad',
+    confused:   'surprised',
     shy:        'relaxed',
     jealous:    'angry',
-    bored:      'sad',
+    bored:      'relaxed',
     suspicious: 'angry',
     victory:    'happy',
     sleep:      'relaxed',
@@ -153,12 +153,32 @@ export class AvatarRenderer {
         loader.crossOrigin = 'anonymous';
         loader.register((parser) => new VRMLoaderPlugin(parser));
 
+        const loadPath = this.vrmPath;
+        const isFallback = loadPath === '/characters/default/model.vrm';
+
+        
+        const timeout = setTimeout(() => {
+            console.warn(`VRM load timeout for ${loadPath}`);
+            if (!isFallback) {
+                console.warn('Falling back to default VRM');
+                this.vrmPath = '/characters/default/model.vrm';
+                this._loadVRM();
+            }
+        }, 15000);
+
         loader.load(
-            this.vrmPath,
+            loadPath,
             async (gltf) => {
+                clearTimeout(timeout);
+
                 const vrm = gltf.userData.vrm;
                 if (!vrm) {
                     console.warn('No VRM data in loaded file');
+                    if (!isFallback) {
+                        console.warn('Falling back to default VRM');
+                        this.vrmPath = '/characters/default/model.vrm';
+                        this._loadVRM();
+                    }
                     return;
                 }
 
@@ -232,7 +252,13 @@ export class AvatarRenderer {
             },
             () => {},
             (error) => {
-                console.warn('VRM load error:', error?.message || error);
+                clearTimeout(timeout);
+                console.error(`VRM load error for ${loadPath}:`, error);
+                if (!isFallback) {
+                    console.warn('Falling back to default VRM');
+                    this.vrmPath = '/characters/default/model.vrm';
+                    this._loadVRM();
+                }
             }
         );
     }
@@ -370,9 +396,13 @@ export class AvatarRenderer {
 
         if (this.vrm) {
             
-            
-            
-            if (!this._frequencyAnalyzerActive) {
+            if (this._frequencyAnalyzerActive) {
+                const visemeFrame = this.updateLipSync();
+                if (visemeFrame) {
+                    this.setViseme(visemeFrame);
+                }
+            } else {
+                
                 const lipSyncScale = this.currentEmotion === 'neutral' ? 0.5 : 0.25;
                 this.vrm.expressionManager?.setValue('aa', this.mouthValue * lipSyncScale);
             }
@@ -525,11 +555,15 @@ export class AvatarRenderer {
         const intensity = visemeFrame.intensity;
 
         
-        const lipSyncScale = this.currentEmotion === 'neutral' ? 0.5 : 0.25;
+        
+        const lipSyncScale = this.currentEmotion === 'neutral' ? 1.0 : 0.6;
+        
+        
         em.setValue('aa', shape.open * intensity * lipSyncScale);
-        em.setValue('ih', (1 - shape.width) * intensity * 0.3 * lipSyncScale);
+        em.setValue('ih', (1 - shape.width) * 0.5 * intensity * lipSyncScale);
         em.setValue('ou', shape.round * intensity * lipSyncScale);
-        em.setValue('ee', shape.width * intensity * 0.3 * lipSyncScale);
+        em.setValue('ee', shape.width * 0.5 * intensity * lipSyncScale);
+        em.setValue('oh', (shape.open * 0.5 + shape.round * 0.5) * intensity * lipSyncScale);
     }
 
     
