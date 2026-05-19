@@ -61,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let ws = null;
     let currentAssistantMessage = null;
+    let lastUserMessage = null;
     let voiceInputEnabled = false;
     let voiceOutputEnabled = false;
     let mcpServersCache = []; 
@@ -271,8 +272,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         currentAssistantMessage.classList.add('msg-error');
                     }
                 }
+                if (data.finished && currentAssistantMessage?.classList.contains('msg-error')) {
+                    
+                    if (lastUserMessage) {
+                        const promptText = lastUserMessage.querySelector('.msg-body')?.textContent || '';
+                        chatInput.value = promptText;
+                        lastUserMessage.remove();
+                    }
+                    currentAssistantMessage.remove();
+                    currentAssistantMessage = null;
+                    lastUserMessage = null;
+                    setStatus('ready');
+                    return;
+                }
                 if (data.finished) {
                     currentAssistantMessage = null;
+                    lastUserMessage = null;
                     if (!isPlayingTTS) {
                         setStatus('ready');
                     }
@@ -389,7 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
         clearErrors();
         flushTTSQueue();
-        addMessage('user', text);
+        lastUserMessage = addMessage('user', text);
         ws.send(JSON.stringify({ type: 'user_message', text }));
         chatInput.value = '';
         chatInput.style.height = 'auto';
