@@ -33,6 +33,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (avatarPreview) {
             avatarPreviewRenderer = new AvatarRenderer(avatarPreview, _vrmPath, { preview: true });
         }
+
+        
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                createMainAvatar();
+                observer.disconnect();
+            }
+        }, { threshold: 0.1 });
+        if (avatarContainer) observer.observe(avatarContainer);
+
     }).catch(err => {
         console.error('Avatar load failed:', err);
     });
@@ -291,8 +301,16 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(data.message || 'TTS failed', 'danger');
             setStatus('ready');
         } else if (data.type === 'emotion') {
-            if (avatarRenderer) avatarRenderer.setEmotion(data.emotion || 'neutral');
-            if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion(data.emotion || 'neutral');
+            const emotion = (data.emotion || 'neutral').toLowerCase();
+            if (avatarRenderer) avatarRenderer.setEmotion(emotion);
+            if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion(emotion);
+
+            
+            if (avatarRenderer) {
+                if (emotion === 'surprised') avatarRenderer.playAnimation('/static/animations/peaceSign.vrma');
+                else if (emotion === 'love') avatarRenderer.playAnimation('/static/animations/peaceSign.vrma');
+                else if (emotion === 'victory') avatarRenderer.playAnimation('/static/animations/dance.vrma');
+            }
         } else if (data.type === 'thinking') {
             
             if (data.text) {
@@ -366,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function setCharacterAvatar(charId, charName, iconUrl) {
+    function setCharacterAvatar(charName) {
         document.getElementById('chat-avatar-name').textContent = charName;
     }
 
@@ -432,30 +450,12 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('speaking');
 
             
-            const timeDomainData = new Float32Array(2048);
-            let animFrameId = null;
-            const animateMouth = () => {
-                if (!isPlayingTTS) return;
-
-                analyser.getFloatTimeDomainData(timeDomainData);
-                let volume = 0;
-                for (let i = 0; i < 2048; i++) {
-                    volume = Math.max(volume, Math.abs(timeDomainData[i]));
-                }
-                
-                volume = 1 / (1 + Math.exp(-45 * volume + 5));
-                if (volume < 0.1) volume = 0;
-
-                if (avatarRenderer) avatarRenderer.setMouthOpen(volume);
-                if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(volume);
-                animFrameId = requestAnimationFrame(animateMouth);
-            };
-            animFrameId = requestAnimationFrame(animateMouth);
+            if (avatarRenderer) avatarRenderer.setupFrequencyAnalyzer(ctx, analyser);
+            if (avatarPreviewRenderer) avatarPreviewRenderer.setupFrequencyAnalyzer(ctx, analyser);
 
             source.onended = () => {
                 isPlayingTTS = false;
                 currentAudioSource = null;
-                if (animFrameId) cancelAnimationFrame(animFrameId);
                 
                 if (avatarRenderer) {
                     avatarRenderer.setMouthOpen(0);
@@ -578,11 +578,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         
         const charId = d.character?.active || 'amalgam';
-        const charName = charId.charAt(0).toUpperCase() + charId.slice(1);
         
         const chars = await api('/api/characters');
-        const iconUrl = chars?.[charId]?.icon_url;
-        setCharacterAvatar(charId, charName, iconUrl);
+        const charName = chars?.[charId]?.name || (charId.charAt(0).toUpperCase() + charId.slice(1));
+        setCharacterAvatar(charName);
     }
 
     function setOpt(id, val) {
@@ -631,6 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
             `;
+            const charName = c.name || id;
             card.addEventListener('click', async () => {
                 const body = { character: { active: id } };
                 if (c.voice) body.voice = { active: c.voice };
@@ -641,7 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 grid.querySelectorAll('.char-card').forEach(el => el.classList.remove('active'));
                 card.classList.add('active');
-                setCharacterAvatar(id, c.name || id, iconUrl);
+                setCharacterAvatar(charName);
                 
                 if (c.model_url) {
                     if (avatarRenderer) avatarRenderer.loadVRM(c.model_url);

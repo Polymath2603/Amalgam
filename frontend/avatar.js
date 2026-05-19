@@ -45,6 +45,7 @@ export class AvatarRenderer {
         this.vrm = null;
         this.clock = new THREE.Clock();
         this.ready = false;
+        this._initialGreetingPlayed = false;
 
         
         this.currentEmotion = 'neutral';
@@ -253,7 +254,8 @@ export class AvatarRenderer {
                 try {
                     await this._loadIdleAnimation();
                     
-                    if (!this.preview) {
+                    if (!this.preview && !this._initialGreetingPlayed) {
+                        this._initialGreetingPlayed = true;
                         this.playAnimation('/static/animations/greeting.vrma');
                     }
                 } catch(e) {
