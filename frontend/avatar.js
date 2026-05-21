@@ -42,6 +42,10 @@ export class AvatarRenderer {
         this.container = container;
         this.vrmPath = vrmPath || '/user_data/avatars/avatar.vrm';
         this.preview = options.preview || false;
+        this.animConfig = Object.assign({
+            idle: '/static/animations/idle_loop.vrma',
+            greeting: '/static/animations/greeting.vrma',
+        }, options.animations || {});
         this.vrm = null;
         this.clock = new THREE.Clock();
         this.ready = false;
@@ -89,7 +93,7 @@ export class AvatarRenderer {
 
         
         const aspect = this.container.clientWidth / this.container.clientHeight || 1;
-        this.camera = new THREE.PerspectiveCamera(this.preview ? 20 : 25, aspect, 0.1, 20);
+        this.camera = new THREE.PerspectiveCamera(this.preview ? 18 : 25, aspect, 0.1, 20);
         if (this.preview) {
             this.camera.position.set(0, 1.5, 1.2);
             this.camera.lookAt(0, 1.5, 0);
@@ -267,12 +271,14 @@ export class AvatarRenderer {
 
                 
                 try {
-                    await this._loadIdleAnimation();
-                    
-                    if (!this.preview && !this._initialGreetingPlayed) {
-                        this._initialGreetingPlayed = true;
-                        this.playAnimation('/static/animations/greeting.vrma');
+                    if (!this.preview) {
+                        await this._loadIdleAnimation();
                     }
+                
+                
+                
+                
+                
                 } catch(e) {
                     console.warn('VRMA animations not available, using procedural idle:', e);
                 }
@@ -295,7 +301,7 @@ export class AvatarRenderer {
     }
 
     async _loadIdleAnimation() {
-        const vrmAnim = await loadVRMAnimation('/static/animations/idle_loop.vrma');
+        const vrmAnim = await loadVRMAnimation(this.animConfig.idle);
         if (!vrmAnim || !this.vrm || !this._mixer) return;
 
         const clip = vrmAnim.createAnimationClip(this.vrm);
@@ -304,12 +310,18 @@ export class AvatarRenderer {
         this._fadeToAction(this._idleAction, 0.5);
     }
 
-    async playAnimation(url) {
-        if (!this.vrm || !this._mixer || !this._idleAction) return;
+    async playAnimation(url, onComplete) {
+        if (!this.vrm || !this._mixer || !this._idleAction) {
+            if (onComplete) onComplete();
+            return;
+        }
 
         try {
             const vrmAnim = await loadVRMAnimation(url);
-            if (!vrmAnim) return;
+            if (!vrmAnim) {
+                if (onComplete) onComplete();
+                return;
+            }
 
             const clip = vrmAnim.createAnimationClip(this.vrm);
             const action = this._mixer.clipAction(clip);
@@ -319,13 +331,15 @@ export class AvatarRenderer {
             this._fadeToAction(action, 0.5);
 
             
-            const restoreIdle = () => {
-                this._mixer.removeEventListener('finished', restoreIdle);
+            const handleFinish = () => {
+                this._mixer.removeEventListener('finished', handleFinish);
                 this._fadeToAction(this._idleAction, 1);
+                if (onComplete) onComplete();
             };
-            this._mixer.addEventListener('finished', restoreIdle);
+            this._mixer.addEventListener('finished', handleFinish);
         } catch(e) {
             console.warn('Animation load failed:', url, e);
+            if (onComplete) onComplete();
         }
     }
 
@@ -388,6 +402,9 @@ export class AvatarRenderer {
         if (hips) hips.getWorldPosition(hipsPos);
         else hipsPos.copy(center);
 
+        let dist;
+        const focalPoint = new THREE.Vector3();
+
         if (this.preview) {
             
             const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
@@ -402,24 +419,30 @@ export class AvatarRenderer {
                 headBone.getWorldPosition(headPos);
                 neckBone.getWorldPosition(neckPos);
 
-                
-                const headTop = headPos.y + (headPos.y - neckPos.y) * 1.5;
-                const headBottom = neckPos.y;
-                const midY = (headTop + headBottom) / 2;
-                const headHeight = headTop - headBottom;
+                const headLen = headPos.distanceTo(neckPos);
 
                 
-                const dist = (headHeight * 1.0) / Math.tan(fov / 2) * 1.2;
+                const headBox = new THREE.Box3();
+                const halfW = headLen * 0.6;
+                const halfD = headLen * 0.6;
+                headBox.set(
+                    new THREE.Vector3(headPos.x - halfW, neckPos.y, headPos.z - halfD),
+                    new THREE.Vector3(headPos.x + halfW, headPos.y + headLen * 1.2, headPos.z + halfD)
+                );
+                const headSize = headBox.getSize(new THREE.Vector3());
+                const maxDim = Math.max(headSize.x, headSize.y, headSize.z);
 
-                
-                const headWidth = (headPos.y - neckPos.y) * 1.5;
-                const offsetX = headWidth * 1.5;
-
-                this.camera.position.set(headPos.x - offsetX, midY, headPos.z + dist);
-                this.camera.lookAt(headPos.x - offsetX, midY, headPos.z);
+                dist = maxDim / Math.tan(fov / 2);
+                const midY = neckPos.y + headSize.y * 0.45;
+                focalPoint.set(headPos.x, midY, headPos.z);
             } else {
-                this.camera.position.set(hipsPos.x, hipsPos.y + 0.5, hipsPos.z + 1.2);
-                this.camera.lookAt(hipsPos.x, hipsPos.y + 0.3, hipsPos.z);
+                
+                const sceneBox = new THREE.Box3().setFromObject(vrm.scene);
+                const sceneSize = sceneBox.getSize(new THREE.Vector3());
+                const sceneCenter = sceneBox.getCenter(new THREE.Vector3());
+                dist = (sceneSize.y * 0.25) / Math.tan(fov / 2);
+                const fallbackY = sceneBox.max.y - sceneSize.y * 0.1;
+                focalPoint.set(sceneCenter.x, fallbackY, sceneCenter.z);
             }
         } else {
             
@@ -437,12 +460,18 @@ export class AvatarRenderer {
             }
 
             
-            const dist = Math.max(size.y * 1.5, 1.5);
-            this.camera.position.set(targetPos.x - offsetX, targetPos.y, targetPos.z + dist);
-            this.camera.lookAt(targetPos.x - offsetX, targetPos.y, targetPos.z);
+            dist = Math.max(size.y * 1.5, 1.5);
+            focalPoint.set(targetPos.x - offsetX, targetPos.y, targetPos.z);
         }
 
+        this.camera.position.set(focalPoint.x, focalPoint.y, focalPoint.z + dist);
+        this.camera.lookAt(focalPoint);
         this.camera.updateProjectionMatrix();
+
+        
+        if (this._saccadeTarget) {
+            this._saccadeTarget.position.set(0, 0, 0);
+        }
     }
 
     _animate() {
@@ -550,7 +579,7 @@ export class AvatarRenderer {
             this._saccadeTarget.position.set(
                 this._yawDamped * 0.1,
                 this._pitchDamped * 0.1,
-                -1 
+                this._saccadeTarget.position.z
             );
         }
     }

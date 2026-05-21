@@ -52,7 +52,13 @@ def get_shared ():
     if _shared ["mcp"]is None :
         _shared ["mcp"]=MCPClient ()
     if _shared ["tts"]is None :
-        _shared ["tts"]=TTS (engine =_shared ["settings"].get ("voice.engine","edge-tts"))
+        engine =_shared ["settings"].get ("voice.engine","edge-tts")
+        _shared ["tts"]=TTS (engine =engine )
+
+        elevenlabs_key =_shared ["settings"].get ("voice.elevenlabs.api_key","")
+        if elevenlabs_key :
+            elevenlabs_model =_shared ["settings"].get ("voice.elevenlabs.model","eleven_multilingual_v2")
+            _shared ["tts"].configure_elevenlabs (elevenlabs_key ,elevenlabs_model )
     if _shared ["agent"]is None :
         _shared ["agent"]=Agent (
         mcp_client =_shared ["mcp"],
@@ -254,6 +260,11 @@ async def index ():
 
 
 
+CHAR_DEFAULT_ANIM =os .path .join (os .path .dirname (FRONTEND_DIR ),"characters","default","anim")
+if os .path .exists (CHAR_DEFAULT_ANIM ):
+    app .mount ("/static/animations",StaticFiles (directory =CHAR_DEFAULT_ANIM ),name ="default_animations")
+
+
 if os .path .exists (FRONTEND_DIR ):
     app .mount ("/static",StaticFiles (directory =FRONTEND_DIR ),name ="static")
 
@@ -279,7 +290,37 @@ async def get_settings ():
 async def update_settings (body :dict ):
     settings ().update_all (body )
     llm ().reload_settings ()
-    tts ().engine =settings ().get ("voice.engine","edge-tts")
+    engine =settings ().get ("voice.engine","edge-tts")
+    tts ().engine =engine 
+
+    if engine =="elevenlabs":
+        elevenlabs_key =settings ().get ("voice.elevenlabs.api_key","")
+        if elevenlabs_key :
+            elevenlabs_model =settings ().get ("voice.elevenlabs.model","eleven_multilingual_v2")
+            tts ().configure_elevenlabs (elevenlabs_key ,elevenlabs_model )
+    elif engine =="openai-tts":
+        oa_key =settings ().get ("voice.openai_tts.api_key","")
+        oa_model =settings ().get ("voice.openai_tts.model","tts-1")
+        oa_url =settings ().get ("voice.openai_tts.base_url",None )
+        if oa_key :
+            tts ().configure_openai_tts (oa_key ,oa_model ,oa_url )
+    elif engine =="alltalk":
+        url =settings ().get ("voice.alltalk.url",None )
+        lang =settings ().get ("voice.alltalk.language","en")
+        ver =settings ().get ("voice.alltalk.version","v2")
+        rv =settings ().get ("voice.alltalk.rvc_voice","")
+        rp =settings ().get ("voice.alltalk.rvc_pitch","0")
+        tts ().configure_alltalk (url ,lang ,ver ,rv ,rp )
+    elif engine =="piper":
+        url =settings ().get ("voice.piper.url",None )
+        tts ().configure_piper (url )
+    elif engine =="coqui-local":
+        url =settings ().get ("voice.coqui_local.url",None )
+        sid =settings ().get ("voice.coqui_local.speaker_id","")
+        tts ().configure_coqui (url ,sid )
+    elif engine =="kokoro":
+        url =settings ().get ("voice.kokoro.url",None )
+        tts ().configure_kokoro (url )
     agent ().update_settings (settings ())
 
 
@@ -322,6 +363,43 @@ async def get_character (character_id :str ):
 
 
 
+PROJECT_ROOT =os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ ))))
+
+
+@app .get ("/api/animations")
+async def get_animations (char_id :str =None ):
+    """Return available VRMA animation files.
+    Merges default/anim/*.vrma with per-character animations from
+    characters/<char_id>/anim/*.vrma if char_id is provided.
+    """
+    default_dir =os .path .join (PROJECT_ROOT ,"characters","default","anim")
+    animations ={"default":[],"character":[]}
+
+    if os .path .exists (default_dir ):
+        for f in sorted (os .listdir (default_dir )):
+            if f .endswith (".vrma"):
+                animations ["default"].append ({
+                "file":f ,
+                "name":f .replace (".vrma",""),
+                "url":f"/static/animations/{f }"
+                })
+
+    if char_id and char_id !="default":
+        char_anim_dir =os .path .join (PROJECT_ROOT ,"characters",char_id ,"anim")
+        if os .path .exists (char_anim_dir ):
+            for f in sorted (os .listdir (char_anim_dir )):
+                if f .endswith (".vrma"):
+                    animations ["character"].append ({
+                    "file":f ,
+                    "name":f .replace (".vrma",""),
+                    "url":f"/characters/{char_id }/anim/{f }"
+                    })
+
+    return animations 
+
+
+
+
 @app .get ("/api/voices")
 async def get_voices ():
     return BUILTIN_VOICES 
@@ -350,11 +428,13 @@ async def get_provider_models (provider :str ):
         models =await llm ().fetch_gemini_models ()
         return {"models":models }
     if provider in LLMRouter .OPENAI_COMPAT :
-
         fresh_llm =LLMRouter (settings =settings ())
         models =await fresh_llm .fetch_openai_compat_models (provider )
         await fresh_llm .close ()
         return {"models":models }
+    if provider =="claude":
+        return {"models":["claude-sonnet-4-20250514","claude-3-5-sonnet-20241022",
+        "claude-3-opus-20240229","claude-3-haiku-20240307"]}
     return JSONResponse (status_code =400 ,content ={"error":f"Unknown provider: {provider }"})
 
 
@@ -512,6 +592,50 @@ async def new_session ():
 
 
 
+async def _synthesize_now (text :str ,ws :WebSocket ):
+    """Synthesize TTS for text and send audio directly (used by speak button)."""
+    import base64 ,struct 
+    try :
+        char =settings ().get_active_character ()
+        ref_audio =None 
+        if tts ().engine =="openvoice":
+            ref_audio =char .get ("voice_ref")if char else None 
+            if not ref_audio :
+                char_dir =char .get ("_dir","")if char else ""
+                if char_dir :
+                    candidate =os .path .join (char_dir ,"ref.wav")
+                    if os .path .exists (candidate ):
+                        ref_audio =candidate 
+            if not ref_audio :
+                logger .warning ("No voice_ref for OpenVoice, skipping speak")
+                return 
+        result =await asyncio .wait_for (tts ().synthesize (text ,ref_audio =ref_audio ),timeout =60.0 )
+        audio_np ,_ ,sr =result 
+        if len (audio_np )>0 :
+            pcm =(audio_np *32767 ).astype ("int16").tobytes ()
+            data_size =len (pcm )
+            header =struct .pack (
+            '<4sI4s4sIHHIIHH4sI',
+            b'RIFF',36 +data_size ,b'WAVE',
+            b'fmt ',16 ,1 ,1 ,sr ,sr *1 *16 //8 ,
+            1 *16 //8 ,16 ,
+            b'data',data_size 
+            )
+            wav_bytes =header +pcm 
+            b64 =base64 .b64encode (wav_bytes ).decode ()
+            duration =len (audio_np )/sr 
+            await ws .send_json ({
+            "type":"tts_audio","audio":b64 ,"format":"wav",
+            "duration":round (duration ,2 ),"sentence_idx":0 ,"emotion":"neutral"
+            })
+            logger .info (f"Speak TTS: sent {duration :.2f}s audio")
+        else :
+            logger .warning ("Speak TTS: empty audio")
+    except asyncio .TimeoutError :
+        logger .error ("Speak TTS: timed out")
+    except Exception as e :
+        logger .error (f"Speak TTS error: {e }")
+
 @app .websocket ("/ws/chat")
 async def ws_chat (websocket :WebSocket ):
     await websocket .accept ()
@@ -548,7 +672,23 @@ async def ws_chat (websocket :WebSocket ):
                                 )
                             except Exception as e :
                                 logger .warning (f"Voice transcription send failed: {e }")
-                        voice_pipeline =VoicePipeline (agent_callback =on_transcription )
+                        stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
+                        voice_pipeline =VoicePipeline (agent_callback =on_transcription ,stt_engine =stt_engine )
+
+                        if stt_engine =="openai-whisper":
+                            whisper_key =settings ().get ("voice.openai_whisper.api_key","")
+                            if whisper_key :
+                                whisper_model =settings ().get ("voice.openai_whisper.model","whisper-1")
+                                voice_pipeline .configure_openai_stt (whisper_key ,whisper_model )
+                        elif stt_engine =="groq-whisper":
+                            groq_key =settings ().get ("voice.groq_whisper.api_key","")
+                            if groq_key :
+                                groq_model =settings ().get ("voice.groq_whisper.model","whisper-large-v3")
+                                groq_url =settings ().get ("voice.groq_whisper.base_url",None )
+                                voice_pipeline .configure_groq_stt (groq_key ,groq_model ,groq_url )
+                        elif stt_engine =="whispercpp":
+                            wcpp_url =settings ().get ("voice.whispercpp.url",None )
+                            voice_pipeline .configure_whispercpp_stt (wcpp_url )
                     if voice_task is None or voice_task .done ():
                         if voice_task and voice_task .exception ():
                             logger .error (f"Previous voice task failed: {voice_task .exception ()}")
@@ -564,11 +704,17 @@ async def ws_chat (websocket :WebSocket ):
                     voice_pipeline =None 
                     await websocket .send_json ({"type":"voice_state","state":"idle"})
                     logger .info ("Voice input stopped")
+                elif cmd =="speak":
+                    speak_text =data .get ("text","").strip ()
+                    if speak_text :
+                        logger .info (f"Speak command: {speak_text [:50 ]}")
+                        asyncio .create_task (_synthesize_now (speak_text ,websocket ))
                 continue 
 
             if msg_type =="user_message":
                 text =data .get ("text","").strip ()
-                if not text :
+                images =data .get ("images",None )
+                if not text and not images :
                     continue 
 
                 if text =="/clear":
@@ -610,7 +756,7 @@ async def ws_chat (websocket :WebSocket ):
                             if tts ().voice !=char_voice :
                                 tts ().voice =char_voice 
 
-                    async def synthesize_and_send (sentence_text ,idx ,stream_id ):
+                    async def synthesize_and_send (sentence_text ,idx ,stream_id ,emotion ="neutral"):
                         """TTS a single sentence and send audio over WebSocket."""
                         nonlocal sentence_idx 
                         try :
@@ -655,9 +801,10 @@ async def ws_chat (websocket :WebSocket ):
                                 "audio":b64 ,
                                 "format":"wav",
                                 "duration":round (duration ,2 ),
-                                "sentence_idx":idx 
+                                "sentence_idx":idx ,
+                                "emotion":emotion 
                                 })
-                                logger .info (f"TTS sentence {idx }: sent {duration :.2f}s audio")
+                                logger .info (f"TTS sentence {idx }: sent {duration :.2f}s audio (emotion={emotion })")
                             else :
                                 logger .warning (f"TTS sentence {idx }: empty audio")
                         except asyncio .TimeoutError :
@@ -668,7 +815,7 @@ async def ws_chat (websocket :WebSocket ):
 
                     tts_tasks =[]
 
-                    async for item in agent ().handle_user_input (text ):
+                    async for item in agent ().handle_user_input (text ,images =images ):
 
                         if isinstance (item ,tuple )and item [0 ]=='__emotion__':
                             current_emotion =item [1 ]
@@ -683,6 +830,18 @@ async def ws_chat (websocket :WebSocket ):
                         if isinstance (item ,tuple )and item [0 ]=='__thinking__':
                             try :
                                 await websocket .send_json ({"type":"thinking","text":item [1 ]})
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
+                            continue 
+
+                        if isinstance (item ,tuple )and item [0 ]=='__roleplay__':
+                            rp_text =f"*{item [1 ]}* "
+                            full_response +=rp_text 
+                            sentence_buffer +=rp_text 
+                            try :
+                                await websocket .send_json ({"type":"roleplay","text":item [1 ]})
                             except WebSocketDisconnect :
                                 raise 
                             except Exception :
@@ -721,7 +880,7 @@ async def ws_chat (websocket :WebSocket ):
                                         raise 
                                     except Exception :
                                         pass 
-                                    task =asyncio .create_task (synthesize_and_send (complete ,sentence_idx ,current_stream ))
+                                    task =asyncio .create_task (synthesize_and_send (complete ,sentence_idx ,current_stream ,current_emotion ))
                                     tts_tasks .append (task )
                                     sentence_idx +=1 
 
@@ -741,7 +900,7 @@ async def ws_chat (websocket :WebSocket ):
                             raise 
                         except Exception :
                             pass 
-                        task =asyncio .create_task (synthesize_and_send (sentence_buffer .strip (),sentence_idx ,current_stream ))
+                        task =asyncio .create_task (synthesize_and_send (sentence_buffer .strip (),sentence_idx ,current_stream ,current_emotion ))
                         tts_tasks .append (task )
                         sentence_idx +=1 
 
@@ -760,6 +919,22 @@ async def ws_chat (websocket :WebSocket ):
                         if not t .done ():
                             t .cancel ()
                     error_text =str (e )
+
+                    friendly_errors ={
+                    "content must be a string":"This provider doesn't support image input. Try a different model or remove the image.",
+                    "content must be a non-empty string":"This provider doesn't support image input. Try a different model or remove the image.",
+                    "unsupported image format":"The image format is not supported. Try a different image.",
+                    "image_url is not supported":"This provider doesn't support image input. Try a different model or remove the image.",
+                    "API key not set":"API key not configured. Go to Settings > Providers to set it.",
+                    "401":"Authentication failed. Check your API key.",
+                    "402":"Payment required. Check your account billing.",
+                    "429":"Rate limit exceeded. Please wait and try again.",
+                    "RESOURCE_EXHAUSTED":"Quota exceeded. Check your plan and billing."
+                    }
+                    for key ,msg in friendly_errors .items ():
+                        if key .lower ()in error_text .lower ():
+                            error_text =msg 
+                            break 
 
                     try :
                         import json as _json 

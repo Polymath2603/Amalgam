@@ -88,20 +88,25 @@ loader.load(modelUrl, (gltf) => {
         headBone.getWorldPosition(headPos);
         neckBone.getWorldPosition(neckPos);
 
-        // Calculate a box around the head area
-        // Head top is roughly above head center, head bottom is neck
-        const headTop = headPos.y + (headPos.y - neckPos.y) * 1.5;
-        const headBottom = neckPos.y;
-        const midY = (headTop + headBottom) / 2;
-        const headHeight = headTop - headBottom;
+        const headLen = headPos.distanceTo(neckPos);
 
-        // Determine distance to frame the head height
-        const dist = (headHeight * 1.0) / Math.tan(fov / 2);
+        // Build 3D bounding box around the head using bone positions
+        const headBox = new THREE.Box3();
+        const halfW = headLen * 0.6;
+        const halfD = headLen * 0.6;
+        headBox.set(
+            new THREE.Vector3(headPos.x - halfW, neckPos.y, headPos.z - halfD),
+            new THREE.Vector3(headPos.x + halfW, headPos.y + headLen * 1.2, headPos.z + halfD)
+        );
+        const headSize = headBox.getSize(new THREE.Vector3());
+        const maxDim = Math.max(headSize.x, headSize.y, headSize.z);
+
+        // Determine distance to frame the head using the largest 3D dimension
+        const dist = maxDim / Math.tan(fov / 2);
+        const midY = neckPos.y + headSize.y * 0.45;
 
         // Camera faces front: both VRM0 (rotated by PI) and VRM1 face +Z
-        const camOffsetZ = dist;
-
-        camera.position.set(headPos.x, midY, headPos.z + camOffsetZ);
+        camera.position.set(headPos.x, midY, headPos.z + dist);
         camera.lookAt(headPos.x, midY, headPos.z);
     } else {
         // Fallback for models with missing head/neck bones
@@ -121,9 +126,9 @@ loader.load(modelUrl, (gltf) => {
     if (vrm.lookAt) vrm.lookAt.target = target;
 
     // Set happy expression
-    if (vrm.expressionManager) {
-        vrm.expressionManager.setValue('happy', 0.6);
-    }
+    // if (vrm.expressionManager) {
+    //     vrm.expressionManager.setValue('happy', 0.6);
+    // }
 
     vrm.update(0);
     console.log('Rendering basic view');

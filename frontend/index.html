@@ -57,7 +57,6 @@
                 <div class="chat-container">
                     <!-- Chat Header with Avatar Preview + Voice Controls -->
                     <div class="chat-header">
-                        <div class="chat-header-left"></div>
                         <div class="chat-avatar" id="chat-avatar">
                             <div class="avatar-preview" id="avatar-preview"></div>
                             <div class="chat-avatar-info">
@@ -102,9 +101,19 @@
 
                     <!-- Input -->
                     <div class="chat-input-area">
+                        <button class="img-btn" id="img-btn" title="Attach image">
+                            <span class="material-icons-round">image</span>
+                        </button>
+                        <input type="file" id="img-input" accept="image/*" hidden>
                         <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
                         <button class="send-btn" id="send-btn">
                             <span class="material-icons-round">arrow_upward</span>
+                        </button>
+                    </div>
+                    <div class="img-preview" id="img-preview">
+                        <img id="img-preview-src" alt="">
+                        <button class="img-preview-remove" id="img-preview-remove">
+                            <span class="material-icons-round">close</span>
                         </button>
                     </div>
                 </div>
@@ -174,15 +183,100 @@
                             </div>
                         </div>
 
-                        <!-- Voice Section -->
+                        <!-- TTS Section -->
                         <div class="settings-card">
-                            <h3><span class="material-icons-round">record_voice_over</span> Voice</h3>
+                            <h3><span class="material-icons-round">volume_up</span> Text-to-Speech</h3>
                             <div class="form-row">
                                 <label>TTS Engine</label>
                                 <select id="tts-engine">
                                     <option value="edge-tts">Edge TTS (Cloud)</option>
                                     <option value="openvoice">OpenVoice (Local)</option>
+                                    <option value="elevenlabs">ElevenLabs (Cloud)</option>
+                                    <option value="openai-tts">OpenAI TTS (Cloud)</option>
+                                    <option value="speecht5">SpeechT5 (Local)</option>
+                                    <option value="alltalk">AllTalk (Local)</option>
+                                    <option value="piper">Piper (Local)</option>
+                                    <option value="coqui-local">Coqui Local</option>
+                                    <option value="kokoro">Kokoro (Local)</option>
                                 </select>
+                            </div>
+                            <div class="tts-section" data-tts="elevenlabs" style="display:none">
+                                <div class="form-row">
+                                    <label>ElevenLabs API Key</label>
+                                    <input type="password" id="elevenlabs-api-key" placeholder="sk_..." class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>ElevenLabs Model</label>
+                                    <input type="text" id="elevenlabs-model" value="eleven_multilingual_v2" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Voice ID</label>
+                                    <input type="text" id="elevenlabs-voice-id" value="21m00Tcm4TlvDq8ikWAM" class="text-input" placeholder="21m00Tcm4TlvDq8ikWAM">
+                                </div>
+                            </div>
+                            <div class="tts-section" data-tts="openai-tts" style="display:none">
+                                <div class="form-row">
+                                    <label>OpenAI API Key</label>
+                                    <input type="password" id="openai-tts-api-key" placeholder="sk-..." class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <input type="text" id="openai-tts-model" value="tts-1" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Voice</label>
+                                    <select id="openai-tts-voice">
+                                        <option value="alloy">Alloy</option>
+                                        <option value="echo">Echo</option>
+                                        <option value="fable">Fable</option>
+                                        <option value="onyx">Onyx</option>
+                                        <option value="nova">Nova</option>
+                                        <option value="shimmer">Shimmer</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="tts-section" data-tts="speecht5" style="display:none">
+                                <p class="help-text">SpeechT5 runs locally via Hugging Face. No configuration needed.</p>
+                            </div>
+                            <div class="tts-section" data-tts="alltalk" style="display:none">
+                                <div class="form-row">
+                                    <label>AllTalk URL</label>
+                                    <input type="text" id="alltalk-url" value="http://127.0.0.1:7851" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Voice</label>
+                                    <input type="text" id="alltalk-voice" value="female_01.wav" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Language</label>
+                                    <input type="text" id="alltalk-language" value="en" class="text-input">
+                                </div>
+                            </div>
+                            <div class="tts-section" data-tts="piper" style="display:none">
+                                <div class="form-row">
+                                    <label>Piper URL</label>
+                                    <input type="text" id="piper-url" value="http://127.0.0.1:5000" class="text-input">
+                                </div>
+                            </div>
+                            <div class="tts-section" data-tts="coqui-local" style="display:none">
+                                <div class="form-row">
+                                    <label>Coqui URL</label>
+                                    <input type="text" id="coqui-url" value="http://127.0.0.1:5002" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Speaker ID</label>
+                                    <input type="text" id="coqui-speaker-id" placeholder="default" class="text-input">
+                                </div>
+                            </div>
+                            <div class="tts-section" data-tts="kokoro" style="display:none">
+                                <div class="form-row">
+                                    <label>Kokoro URL</label>
+                                    <input type="text" id="kokoro-url" value="http://127.0.0.1:8880" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Voice</label>
+                                    <input type="text" id="kokoro-voice" value="af_heart" class="text-input">
+                                </div>
                             </div>
                             <div class="form-row toggle-row">
                                 <label>Lip-sync</label>
@@ -192,16 +286,48 @@
                                 </label>
                             </div>
                             <div class="form-row toggle-row">
-                                <label>Voice Input (Mic)</label>
-                                <label class="toggle">
-                                    <input type="checkbox" id="voice-input-toggle-settings">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                            <div class="form-row toggle-row">
                                 <label>Voice Output (Speaker)</label>
                                 <label class="toggle">
                                     <input type="checkbox" id="voice-output-toggle-settings">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- STT Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">mic</span> Speech-to-Text</h3>
+                            <div class="form-row">
+                                <label>STT Engine</label>
+                                <select id="stt-engine">
+                                    <option value="faster-whisper">Faster-Whisper (Local)</option>
+                                    <option value="openai-whisper">OpenAI Whisper (Cloud)</option>
+                                    <option value="groq-whisper">Groq Whisper (Cloud)</option>
+                                    <option value="whispercpp">Whisper.cpp (Local)</option>
+                                </select>
+                            </div>
+                            <div class="stt-section" data-stt="openai-whisper" style="display:none">
+                                <div class="form-row">
+                                    <label>OpenAI Whisper API Key</label>
+                                    <input type="password" id="openai-whisper-api-key" placeholder="sk-..." class="text-input">
+                                </div>
+                            </div>
+                            <div class="stt-section" data-stt="groq-whisper" style="display:none">
+                                <div class="form-row">
+                                    <label>Groq API Key</label>
+                                    <input type="password" id="groq-whisper-api-key" placeholder="gsk_..." class="text-input">
+                                </div>
+                            </div>
+                            <div class="stt-section" data-stt="whispercpp" style="display:none">
+                                <div class="form-row">
+                                    <label>Whisper.cpp URL</label>
+                                    <input type="text" id="whispercpp-url" value="http://127.0.0.1:8080" class="text-input">
+                                </div>
+                            </div>
+                            <div class="form-row toggle-row">
+                                <label>Voice Input (Mic)</label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="voice-input-toggle-settings">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
@@ -247,6 +373,9 @@
                                     <option value="siliconflow">SiliconFlow</option>
                                     <option value="groq">Groq</option>
                                     <option value="chatgpt">ChatGPT</option>
+                                    <option value="claude">Claude</option>
+                                    <option value="llamacpp">LlamaCpp</option>
+                                    <option value="koboldai">KoboldAI</option>
                                 </select>
                             </div>
 
@@ -386,6 +515,42 @@
                                         <select id="chatgpt-model"><option value="">Select model...</option></select>
                                         <button class="btn btn-sm" id="fetch-chatgpt-models">Fetch</button>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Claude -->
+                            <div class="provider-section" data-provider="claude" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="claude-api-key" placeholder="sk-ant-...">
+                                        <button class="icon-btn" id="toggle-claude-key">
+                                            <span class="material-icons-round">visibility_off</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <div class="input-with-action">
+                                        <select id="claude-model"><option value="">Select model...</option></select>
+                                        <button class="btn btn-sm" id="fetch-claude-models">Fetch</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- LlamaCpp -->
+                            <div class="provider-section" data-provider="llamacpp" style="display:none">
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="llamacpp-url" placeholder="http://localhost:8080">
+                                </div>
+                            </div>
+
+                            <!-- KoboldAI -->
+                            <div class="provider-section" data-provider="koboldai" style="display:none">
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="koboldai-url" placeholder="http://localhost:5001">
                                 </div>
                             </div>
                         </div>

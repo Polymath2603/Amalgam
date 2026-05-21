@@ -9,6 +9,7 @@ from typing import AsyncIterator
 
 EMOTION_RE =re .compile (r'\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)\]',re .IGNORECASE )
 THINK_RE =re .compile (r'<think>(.*?)</think>',re .DOTALL )
+ROLEPLAY_RE =re .compile (r'\*(.*?)\*')
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .llm_router import LLMRouter 
@@ -27,7 +28,7 @@ class Agent :
         self .settings =settings 
         self .context_builder .settings =settings 
 
-    async def handle_user_input (self ,text :str )->AsyncIterator [str ]:
+    async def handle_user_input (self ,text :str ,images :list =None )->AsyncIterator [str ]:
         await self .memory .add_turn ("user",text )
 
         iterations =0 
@@ -55,6 +56,14 @@ class Agent :
             summary =summary ,
             relevant =relevant 
             )
+
+
+            if images :
+                last_text =messages [-1 ]["content"]
+                content =[{"type":"text","text":last_text }]if last_text else []
+                for img in images :
+                    content .append ({"type":"image_url","image_url":{"url":img }})
+                messages [-1 ]["content"]=content 
 
             full_response =""
             clean_yielded =0 
@@ -91,6 +100,8 @@ class Agent :
                                     break 
                             except Exception as e :
                                 yield f"\n[Error parsing tool call: {e }]\n"
+                                if full_response .strip ():
+                                    await self .memory .add_turn ("assistant",full_response .strip ())
                                 current_input =f"Tool parse error: {e }"
                                 break 
                     else :
@@ -112,6 +123,17 @@ class Agent :
                         for m in EMOTION_RE .finditer (full_response ):
                             yield ('__emotion__',m .group (1 ))
                         full_response =EMOTION_RE .sub ('',full_response )
+
+
+                        roleplay_found =False 
+                        for m in ROLEPLAY_RE .finditer (full_response ):
+                            content =m .group (1 ).strip ()
+                            if content :
+                                yield ('__roleplay__',content )
+                                roleplay_found =True 
+                        if roleplay_found :
+                            full_response =ROLEPLAY_RE .sub ('',full_response )
+                            clean_yielded =0 
 
 
                         if len (full_response )>clean_yielded :

@@ -8,6 +8,18 @@ from typing import List ,Dict
 
 logger =logging .getLogger (__name__ )
 
+PROJECT_ROOT =os .path .abspath (os .path .join (os .path .dirname (__file__ ),"..",".."))
+
+
+VRM_EXPRESSIONS =["happy","angry","sad","relaxed","surprised","blink"]
+
+
+EMOTION_TAGS =[
+"happy","sad","angry","surprised","thinking","relaxed",
+"confused","shy","jealous","bored","suspicious","victory",
+"sleep","love"
+]
+
 
 class ContextBuilder :
     def __init__ (self ,settings =None ):
@@ -25,6 +37,22 @@ class ContextBuilder :
     def list_characters (self )->Dict [str ,Dict ]:
         return self ._characters 
 
+    def _get_available_animations (self ,character_id :str =None )->List [str ]:
+        """Return list of animation names (without .vrma) available for this character."""
+        names =[]
+        default_dir =os .path .join (PROJECT_ROOT ,"characters","default","anim")
+        if os .path .exists (default_dir ):
+            for f in sorted (os .listdir (default_dir )):
+                if f .endswith (".vrma"):
+                    names .append (f .replace (".vrma",""))
+        if character_id and character_id !="default":
+            char_dir =os .path .join (PROJECT_ROOT ,"characters",character_id ,"anim")
+            if os .path .exists (char_dir ):
+                for f in sorted (os .listdir (char_dir )):
+                    if f .endswith (".vrma"):
+                        names .append (f .replace (".vrma",""))
+        return names 
+
     def build (self ,tools :List [Dict ],history :List [Dict ],user_msg :str ,
     character_id :str =None ,additional_prompt :str ="",
     summary :str ="",relevant :List [Dict ]=None )->list :
@@ -35,7 +63,7 @@ class ContextBuilder :
         character =self ._characters .get (character_id ,{})
 
 
-        sys_prompt =self ._build_character_prompt (character ,additional_prompt )
+        sys_prompt =self ._build_character_prompt (character ,additional_prompt ,character_id )
 
 
         if tools :
@@ -67,7 +95,7 @@ class ContextBuilder :
 
         return messages 
 
-    def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="")->str :
+    def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",character_id :str =None )->str :
         """Build system prompt. Character personality is the base, additional_prompt is appended."""
         if not character :
             base ="You are a helpful AI assistant. Be concise and direct."
@@ -104,7 +132,7 @@ class ContextBuilder :
             base +=f"\n\n## Additional Instructions\n{additional_prompt .strip ()}\n"
 
 
-        vault_rules_path ="user_data/vault/rules.md"
+        vault_rules_path =os .path .join (PROJECT_ROOT ,"user_data/vault/rules.md")
         if os .path .exists (vault_rules_path ):
             try :
                 with open (vault_rules_path ,"r")as f :
@@ -115,11 +143,11 @@ class ContextBuilder :
                 pass 
 
 
+        emotion_list =", ".join (f"[{e }]"for e in EMOTION_TAGS )
         base +=(
         "\n\n## Emotion Expressions\n"
         "When expressing emotions, embed a tag in brackets. Use them naturally — not every message needs one.\n"
-        "Available emotions: [happy], [sad], [angry], [surprised], [thinking], [relaxed], [confused], "
-        "[shy], [jealous], [bored], [suspicious], [victory], [sleep], [love]\n"
+        f"Available emotions: {emotion_list }\n"
         "Examples:\n"
         "- \"That's wonderful! [happy] I'd love to help.\"\n"
         "- \"Hmm, let me think about that... [thinking] I believe the answer is 42.\"\n"
@@ -127,6 +155,27 @@ class ContextBuilder :
         "- \"Oh! [surprised] I didn't expect that!\"\n"
         "For reasoning models, use <think>your reasoning</think> before your response.\n"
         )
+
+
+        anims =self ._get_available_animations (character_id )
+        if anims :
+            anim_lines ="\n".join (f"  - {a }"for a in anims )
+            base +=(
+            "\n\n## Roleplay / Actions\n"
+            "Use asterisks to describe character actions, e.g., *bows*, *waves*, *nods*.\n"
+            "These trigger full-body animations on the avatar. "
+            "Only use actions from the list below — unrecognized actions will be ignored.\n"
+            f"Available animations:\n{anim_lines }\n"
+            "Use sparingly — not every line needs an action marker.\n"
+            )
+        else :
+            base +=(
+            "\n\n## Roleplay / Actions\n"
+            "Use asterisks to describe character actions or emotional gestures, e.g., "
+            "*smiles warmly*, *looks concerned*, *nods*, *waves happily*.\n"
+            "These will animate the avatar's expressions and gestures.\n"
+            "Use sparingly — not every line needs an action marker.\n"
+            )
 
         return base 
 

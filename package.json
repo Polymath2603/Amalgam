@@ -1,5 +1,8 @@
 {
   "devDependencies": {
     "puppeteer-core": "^25.0.2"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0"
   }
 }

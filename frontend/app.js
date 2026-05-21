@@ -9,13 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDot = document.getElementById('status-dot');
 
     
-    document.getElementById('tab-chat')?.addEventListener('click', (e) => {
-        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') {
-            chatInput?.focus();
-        }
-    });
-
-    
     const avatarContainer = document.getElementById('avatar-canvas');
     const avatarPreview = document.getElementById('avatar-preview');
     let _avatarModule = null;
@@ -340,6 +333,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const div = document.createElement('div');
         div.className = `msg msg-${role}`;
+        div.dataset.msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
         div.innerHTML = `
             <div class="msg-body">${escHtml(text)}</div>
             <div class="msg-actions">
@@ -378,6 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('Copied to clipboard', 'success');
         } else if (action === 'edit') {
             chatInput.value = body;
+            chatInput.dataset.editTarget = msg.dataset.msgId || '';
             chatInput.focus();
         } else if (action === 'regenerate') {
             const userMsg = msg.previousElementSibling;
@@ -406,6 +401,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
         clearErrors();
         flushTTSQueue();
+
+        
+        const editId = chatInput.dataset.editTarget;
+        if (editId) {
+            const oldMsg = chatMessages.querySelector(`[data-msg-id="${editId}"]`);
+            if (oldMsg) {
+                const next = oldMsg.nextElementSibling;
+                if (next?.classList.contains('msg-assistant')) next.remove();
+                oldMsg.remove();
+            }
+            delete chatInput.dataset.editTarget;
+        }
+
         lastUserMessage = addMessage('user', text);
         ws.send(JSON.stringify({ type: 'user_message', text }));
         chatInput.value = '';

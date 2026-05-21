@@ -6,6 +6,7 @@ characters/**
 # Python
 *.pyc
 __pycache__/
+*.egg-info/
 
 # Private/user data
 user_data/
@@ -22,8 +23,9 @@ node_modules/
 # Docs (generated)
 docs/superpowers/
 
-# OpenClaude
+# OpenClaude / opencode
 .openclaude/
+.opencode/
 
 # Logs
 *.log
@@ -32,3 +34,22 @@ docs/superpowers/
 test_*.py
 console
 bugs
+test-results/
+
+# Cloned git repos used as dependencies
+cloned/
+
+# Old monolithic modules (superseded by packages)
+backend/voice/tts.py
+backend/voice/stt.py
+
+# Obsolete animation location (moved to characters/default/anim/)
+frontend/animations/
+
+# Editor / OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store

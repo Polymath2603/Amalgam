@@ -39,7 +39,10 @@ class MCPClient :
                 cmd =server_config .get ("command")
                 args =server_config .get ("args",[])
                 env =server_config .get ("env",None )
-                await self ._connect_server (server_name ,cmd ,args ,env )
+                ok =await self ._connect_server (server_name ,cmd ,args ,env )
+                if not ok :
+                    task =asyncio .create_task (self ._reconnect (server_name ,cmd ,args ,env ))
+                    self ._reconnect_tasks [server_name ]=task 
 
     async def connect_from_settings (self ,servers :List [Dict ]):
         """Connect to MCP servers from settings config."""
@@ -51,10 +54,14 @@ class MCPClient :
             args =server_config .get ("args",[])
             env =server_config .get ("env",None )
             if name and cmd :
-                await self ._connect_server (name ,cmd ,args ,env )
+                ok =await self ._connect_server (name ,cmd ,args ,env )
+                if not ok :
+                    task =asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ))
+                    self ._reconnect_tasks [name ]=task 
 
     async def _connect_server (self ,name :str ,cmd :str ,args :List [str ],
     env :Optional [Dict [str ,str ]]=None ,timeout :float =15.0 ):
+        """Returns True on success, False on failure."""
         logger .info (f"Connecting to MCP server: {name }")
         server_env =os .environ .copy ()
         if env :
@@ -83,13 +90,14 @@ class MCPClient :
                 self .server_tool_map [tool .name ]=name 
 
             logger .info (f"Connected to {name } and discovered {len (tools_response .tools )} tools")
+            return True 
 
         except asyncio .TimeoutError :
             logger .error (f"Timeout connecting to MCP server {name } ({timeout }s)")
+            return False 
         except Exception as e :
             logger .error (f"Failed to connect to {name }: {e }")
-            task =asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ))
-            self ._reconnect_tasks [name ]=task 
+            return False 
 
     async def _reconnect (self ,name :str ,cmd :str ,args :List [str ],
     env :Optional [Dict [str ,str ]],delay =1 ):
@@ -99,7 +107,10 @@ class MCPClient :
 
         await asyncio .sleep (delay )
         logger .info (f"Attempting to reconnect to {name }...")
-        await self ._connect_server (name ,cmd ,args ,env ,timeout =10.0 )
+        ok =await self ._connect_server (name ,cmd ,args ,env ,timeout =10.0 )
+        if not ok :
+            task =asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ,delay =min (delay *2 ,16 )))
+            self ._reconnect_tasks [name ]=task 
 
     def get_tool_schema (self )->List [Dict [str ,Any ]]:
         schema =[]
