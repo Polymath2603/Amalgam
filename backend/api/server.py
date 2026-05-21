@@ -40,6 +40,13 @@ _shared ={
 }
 
 
+def _sync_emotion_tags ():
+    """Sync TTS engine's supported emotions to the agent."""
+    if _shared ["agent"]and _shared ["tts"]:
+        supported =_shared ["tts"].get_supported_emotions ()
+        _shared ["agent"].update_emotion_tags (supported if supported else _shared ["agent"]._emotion_tags )
+
+
 def get_shared ():
     if _shared ["settings"]is None :
         _shared ["settings"]=Settings ()
@@ -67,6 +74,7 @@ def get_shared ():
         context_builder =_shared ["context_builder"],
         settings =_shared ["settings"]
         )
+        _sync_emotion_tags ()
     return _shared 
 
 
@@ -321,6 +329,7 @@ async def update_settings (body :dict ):
     elif engine =="kokoro":
         url =settings ().get ("voice.kokoro.url",None )
         tts ().configure_kokoro (url )
+    _sync_emotion_tags ()
     agent ().update_settings (settings ())
 
 
@@ -340,6 +349,7 @@ async def set_setting (body :dict ):
     if key :
         settings ().set (key ,value )
         llm ().reload_settings ()
+        _sync_emotion_tags ()
         agent ().update_settings (settings ())
     return {"status":"ok"}
 
@@ -396,6 +406,18 @@ async def get_animations (char_id :str =None ):
                     })
 
     return animations 
+
+
+@app .get ("/api/emotions")
+async def get_emotions ():
+    return {"emotions":tts ().get_supported_emotions ()}
+
+
+@app .get ("/api/expressions")
+async def get_expressions (char_id :str =None ):
+    from backend .core .context_builder import VRM_EXPRESSIONS 
+    exprs =list (VRM_EXPRESSIONS )
+    return {"expressions":exprs }
 
 
 
@@ -732,7 +754,8 @@ async def ws_chat (websocket :WebSocket ):
 
 
                 await websocket .send_json ({"type":"chat_start","role":"assistant"})
-                await websocket .send_json ({"type":"emotion","emotion":"thinking"})
+                await websocket .send_json ({"type":"emotion","emotion":"neutral"})
+                await websocket .send_json ({"type":"expression","expression":"neutral"})
 
 
                 _stream_idx +=1 
@@ -821,6 +844,15 @@ async def ws_chat (websocket :WebSocket ):
                             current_emotion =item [1 ]
                             try :
                                 await websocket .send_json ({"type":"emotion","emotion":current_emotion })
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
+                            continue 
+
+                        if isinstance (item ,tuple )and item [0 ]=='__expression__':
+                            try :
+                                await websocket .send_json ({"type":"expression","expression":item [1 ]})
                             except WebSocketDisconnect :
                                 raise 
                             except Exception :
@@ -953,6 +985,7 @@ async def ws_chat (websocket :WebSocket ):
                 else :
                     try :
                         await websocket .send_json ({"type":"emotion","emotion":"neutral"})
+                        await websocket .send_json ({"type":"expression","expression":"neutral"})
                         await websocket .send_json ({
                         "type":"chat_append",
                         "role":"assistant",

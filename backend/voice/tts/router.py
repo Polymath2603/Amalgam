@@ -48,6 +48,9 @@ class TTSRouter :
         for p in self ._providers .values ():
             p .voice =val 
 
+    def get_supported_emotions (self ):
+        return self ._current ().supported_emotions 
+
     def get_openvoice_loaded (self ):
         ov =self ._providers ["openvoice"]
         return ov .get_openvoice_loaded ()

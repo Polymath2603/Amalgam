@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDot = document.getElementById('status-dot');
 
     
+    let _animationMap = {};
+
+    
     const avatarContainer = document.getElementById('avatar-canvas');
     const avatarPreview = document.getElementById('avatar-preview');
     let _avatarModule = null;
@@ -253,9 +256,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const body = currentAssistantMessage.querySelector('.msg-body');
                 
-                let cleanText = (data.text || '').replace(/\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)\]/gi, '');
+                let cleanText = (data.text || '')
+                    .replace(/\/\[\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love|excited)\]\]/gi, '')
+                    .replace(/\/\(\((happy|angry|sad|relaxed|surprised|blink)\)\)/gi, '')
+                    .replace(/\/\*\*[\s\S]+?\*\*\/?/g, '');
                 
-                cleanText = cleanText.replace(/\[(?:happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)?$/gi, '');
+                cleanText = cleanText.replace(/\/\[\[.*?\]\]/g, '');
+                cleanText = cleanText.replace(/\/\(\(.*?\)\)/g, '');
+                
+                cleanText = cleanText.replace(/\/\[\[[^\]\s]*/g, '');
+                cleanText = cleanText.replace(/\/\(\([^\)\s]*/g, '');
+                
+                cleanText = cleanText.replace(/(\/\[\[|\/\(\(|\/\*\*)[^\]\)]*$/g, '');
                 body.textContent += cleanText;
                 
                 if (!currentAssistantMessage.classList.contains('msg-error') && body.textContent.trim()) {
@@ -301,15 +313,31 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast(data.message || 'TTS failed', 'danger');
             setStatus('ready');
         } else if (data.type === 'emotion') {
+            
             const emotion = (data.emotion || 'neutral').toLowerCase();
             if (avatarRenderer) avatarRenderer.setEmotion(emotion);
             if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion(emotion);
-
+        } else if (data.type === 'expression') {
             
-            if (avatarRenderer) {
-                if (emotion === 'surprised') avatarRenderer.playAnimation('/static/animations/peaceSign.vrma');
-                else if (emotion === 'love') avatarRenderer.playAnimation('/static/animations/peaceSign.vrma');
-                else if (emotion === 'victory') avatarRenderer.playAnimation('/static/animations/dance.vrma');
+            const expr = (data.expression || 'neutral').toLowerCase();
+            if (avatarRenderer) avatarRenderer.setExpression(expr);
+            if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression(expr);
+        } else if (data.type === 'roleplay') {
+            
+            const text = data.text || '';
+            const words = text.toLowerCase().split(/\s+/);
+            let matchedUrl = null;
+            for (const word of words) {
+                if (_animationMap[word]) { matchedUrl = _animationMap[word]; break; }
+            }
+            if (!matchedUrl) {
+                
+                for (const [name, url] of Object.entries(_animationMap)) {
+                    if (text.toLowerCase().includes(name)) { matchedUrl = url; break; }
+                }
+            }
+            if (matchedUrl && avatarRenderer) {
+                avatarRenderer.playAnimation(matchedUrl);
             }
         } else if (data.type === 'thinking') {
             const thinkingEnabled = document.getElementById('thinking-toggle')?.checked ?? true;
@@ -617,10 +645,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     
+    async function fetchAnimationMap() {
+        const charId = ((await api('/api/settings'))?.character?.active) || 'amalgam';
+        const data = await api(`/api/animations?char_id=${charId}`);
+        _animationMap = {};
+        const all = [...(data?.default || []), ...(data?.character || [])];
+        for (const a of all) {
+            _animationMap[a.name.toLowerCase()] = a.url;
+        }
+    }
+
     async function init() {
         const settings = await api('/api/settings');
         if (settings) applySettings(settings);
         await loadCharacters();
+        await fetchAnimationMap();
         
         try {
             const session = await api('/api/memory/session/current');
@@ -808,7 +847,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 grid.querySelectorAll('.char-card').forEach(el => el.classList.remove('active'));
                 card.classList.add('active');
                 setCharacterAvatar(charName);
-                
+                await fetchAnimationMap();
                 
                 const vrmPath = c.model_url || '/characters/default/model.vrm';
                 if (avatarRenderer) avatarRenderer.loadVRM(vrmPath);

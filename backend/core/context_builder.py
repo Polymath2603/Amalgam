@@ -1,7 +1,3 @@
-"""
-Context Builder — assembles the system prompt from character personality, additional instructions,
-tools, and conversation context. The custom prompt is ADDITIVE, not an override.
-"""
 import os 
 import logging 
 from typing import List ,Dict 
@@ -10,14 +6,12 @@ logger =logging .getLogger (__name__ )
 
 PROJECT_ROOT =os .path .abspath (os .path .join (os .path .dirname (__file__ ),"..",".."))
 
-
 VRM_EXPRESSIONS =["happy","angry","sad","relaxed","surprised","blink"]
-
 
 EMOTION_TAGS =[
 "happy","sad","angry","surprised","thinking","relaxed",
 "confused","shy","jealous","bored","suspicious","victory",
-"sleep","love"
+"sleep","love","excited"
 ]
 
 
@@ -38,7 +32,6 @@ class ContextBuilder :
         return self ._characters 
 
     def _get_available_animations (self ,character_id :str =None )->List [str ]:
-        """Return list of animation names (without .vrma) available for this character."""
         names =[]
         default_dir =os .path .join (PROJECT_ROOT ,"characters","default","anim")
         if os .path .exists (default_dir ):
@@ -55,16 +48,16 @@ class ContextBuilder :
 
     def build (self ,tools :List [Dict ],history :List [Dict ],user_msg :str ,
     character_id :str =None ,additional_prompt :str ="",
-    summary :str ="",relevant :List [Dict ]=None )->list :
-        """Build the full message list. additional_prompt is ADDITIVE to the character's personality."""
-
+    summary :str ="",relevant :List [Dict ]=None ,
+    tts_emotions :List [str ]=None ,expression_names :List [str ]=None )->list :
         if not character_id and self .settings :
             character_id =self .settings .get ("character.active","amalgam")
         character =self ._characters .get (character_id ,{})
 
-
-        sys_prompt =self ._build_character_prompt (character ,additional_prompt ,character_id )
-
+        sys_prompt =self ._build_character_prompt (
+        character ,additional_prompt ,character_id ,
+        tts_emotions =tts_emotions ,expression_names =expression_names 
+        )
 
         if tools :
             sys_prompt +="\n\n## Available Tools\n"
@@ -77,16 +70,13 @@ class ContextBuilder :
             sys_prompt +=('\nTo use a tool, respond EXACTLY with:\n'
             '```tool\n{"name": "tool_name", "arguments": {"param": "value"}}\n```\n')
 
-
         if summary :
             sys_prompt +=f"\n\n## Previous Conversation Summary\n{summary }\n"
-
 
         if relevant :
             sys_prompt +="\n\n## Relevant Past Context\n"
             for r in relevant :
                 sys_prompt +=f"- {r ['role']}: {r ['content']}\n"
-
 
         messages =[{"role":"system","content":sys_prompt }]
         for h in history :
@@ -95,8 +85,10 @@ class ContextBuilder :
 
         return messages 
 
-    def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",character_id :str =None )->str :
-        """Build system prompt. Character personality is the base, additional_prompt is appended."""
+    def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",
+    character_id :str =None ,
+    tts_emotions :List [str ]=None ,
+    expression_names :List [str ]=None )->str :
         if not character :
             base ="You are a helpful AI assistant. Be concise and direct."
         else :
@@ -127,10 +119,8 @@ class ContextBuilder :
                 for example in dialogue_examples :
                     base +=f"- \"{example }\"\n"
 
-
         if additional_prompt and additional_prompt .strip ():
             base +=f"\n\n## Additional Instructions\n{additional_prompt .strip ()}\n"
-
 
         vault_rules_path =os .path .join (PROJECT_ROOT ,"user_data/vault/rules.md")
         if os .path .exists (vault_rules_path ):
@@ -143,17 +133,36 @@ class ContextBuilder :
                 pass 
 
 
-        emotion_list =", ".join (f"[{e }]"for e in EMOTION_TAGS )
+        emotions =tts_emotions or EMOTION_TAGS 
+        emotion_list =", ".join (f"/[[{e }]]"for e in emotions )
         base +=(
-        "\n\n## Emotion Expressions\n"
-        "When expressing emotions, embed a tag in brackets. Use them naturally — not every message needs one.\n"
+        "\n\n## Emotion (Voice Tone)\n"
+        "Use /[[emotion]] tags to control your voice's emotional tone. "
+        "These affect how your voice sounds when spoken aloud.\n"
         f"Available emotions: {emotion_list }\n"
         "Examples:\n"
-        "- \"That's wonderful! [happy] I'd love to help.\"\n"
-        "- \"Hmm, let me think about that... [thinking] I believe the answer is 42.\"\n"
-        "- \"I'm not so sure about this... [suspicious] Something seems off.\"\n"
-        "- \"Oh! [surprised] I didn't expect that!\"\n"
-        "For reasoning models, use <think>your reasoning</think> before your response.\n"
+        '- "That\'s wonderful! /[[happy]] I\'d love to help."\n'
+        '- "Hmm, let me think... /[[thinking]] I believe the answer is 42."\n'
+        '- "Oh! /[[surprised]] I didn\'t expect that!"\n'
+        "IMPORTANT: Always close tags exactly — /[[emotion]] with double brackets, no trailing letters. "
+        "Wrong: /[[happys (trailing s). Correct: /[[happy]].\n"
+        "Not every message needs one. Emotions are for voice tone only.\n"
+        )
+
+
+        expressions =expression_names or VRM_EXPRESSIONS 
+        expr_list =", ".join (f"/(({e }))"for e in expressions )
+        base +=(
+        "\n\n## Expression (Facial Expression)\n"
+        "Use /((expression)) tags to control the avatar's facial expression. "
+        "These affect the VRM model's face blend shapes.\n"
+        f"Available expressions: {expr_list }\n"
+        "Examples:\n"
+        '- "That\'s hilarious! /((happy)) I can\'t stop laughing."\n'
+        '- "This is concerning... /((sad)) We should investigate."\n'
+        "IMPORTANT: Always close tags exactly \u2014 /((expression)) with double parens, no trailing letters. "
+        "Wrong: /((happyt (trailing t). Correct: /((happy)).\n"
+        "Use independently from emotions \u2014 a happy voice could have a surprised face.\n"
         )
 
 
@@ -161,21 +170,29 @@ class ContextBuilder :
         if anims :
             anim_lines ="\n".join (f"  - {a }"for a in anims )
             base +=(
-            "\n\n## Roleplay / Actions\n"
-            "Use asterisks to describe character actions, e.g., *bows*, *waves*, *nods*.\n"
-            "These trigger full-body animations on the avatar. "
+            "\n\n## Action (Body Animation)\n"
+            'Use /**action**/ markers to trigger full-body animations on the avatar. '
             "Only use actions from the list below — unrecognized actions will be ignored.\n"
             f"Available animations:\n{anim_lines }\n"
+            "Examples:\n"
+            '- "/**bows deeply**/ Welcome to my humble abode."\n'
+            '- "/**waves happily**/ Good to see you again!"\n'
+            '- "I need to think about this. /**paces thoughtfully**/ Give me a moment."\n'
             "Use sparingly — not every line needs an action marker.\n"
             )
         else :
             base +=(
-            "\n\n## Roleplay / Actions\n"
-            "Use asterisks to describe character actions or emotional gestures, e.g., "
-            "*smiles warmly*, *looks concerned*, *nods*, *waves happily*.\n"
-            "These will animate the avatar's expressions and gestures.\n"
+            "\n\n## Action (Body Animation)\n"
+            'Use /**action**/ markers to describe character actions, e.g., '
+            "/**nods**/, /**waves happily**/, /**looks concerned**/.\n"
+            "These will animate the avatar.\n"
             "Use sparingly — not every line needs an action marker.\n"
             )
+
+
+        base +=(
+        "\nFor reasoning models, use <think>your reasoning</think> before your response.\n"
+        )
 
         return base 
 

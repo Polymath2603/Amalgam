@@ -1,30 +1,57 @@
-"""
-Agent — handles user input, manages conversation loop with tool detection.
-Uses message-based prompting for proper multi-turn conversations.
-"""
 import json 
 import re 
 import asyncio 
 from typing import AsyncIterator 
 
-EMOTION_RE =re .compile (r'\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love)\]',re .IGNORECASE )
-THINK_RE =re .compile (r'<think>(.*?)</think>',re .DOTALL )
-ROLEPLAY_RE =re .compile (r'\*(.*?)\*')
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .llm_router import LLMRouter 
 
 
+DEFAULT_EMOTION_TAGS =[
+"happy","sad","angry","surprised","thinking","relaxed",
+"confused","shy","jealous","bored","suspicious","victory",
+"sleep","love","excited"
+]
+DEFAULT_EXPRESSION_NAMES =["happy","angry","sad","relaxed","surprised","blink"]
+
+
+def _build_emotion_re (tags ):
+    return re .compile (r'/\[\[('+'|'.join (re .escape (t )for t in tags )+r')\]\]',re .IGNORECASE )
+
+def _build_expression_re (names ):
+    return re .compile (r'/\(\(('+'|'.join (re .escape (n )for n in names )+r')\)\)',re .IGNORECASE )
+
+ACTION_RE =re .compile (r'/\*\*(.+?)\*\*/',re .DOTALL )
+THINK_RE =re .compile (r'<think>(.*?)</think>',re .DOTALL )
+
+
 class Agent :
-    def __init__ (self ,mcp_client =None ,llm =None ,memory =None ,context_builder =None ,settings =None ):
+    def __init__ (self ,mcp_client =None ,llm =None ,memory =None ,context_builder =None ,settings =None ,
+    emotion_tags =None ,expression_names =None ):
         self .settings =settings 
         self .llm =llm or LLMRouter (settings =settings )
         self .memory =memory or Memory (llm_router =self .llm )
         self .context_builder =context_builder or ContextBuilder (settings =settings )
         self .mcp_client =mcp_client 
 
+        self ._emotion_tags =emotion_tags or DEFAULT_EMOTION_TAGS 
+        self ._expression_names =expression_names or DEFAULT_EXPRESSION_NAMES 
+        self ._build_regexes ()
+
+    def _build_regexes (self ):
+        self ._emotion_re =_build_emotion_re (self ._emotion_tags )
+        self ._expression_re =_build_expression_re (self ._expression_names )
+
+    def update_emotion_tags (self ,tags ):
+        self ._emotion_tags =tags 
+        self ._build_regexes ()
+
+    def update_expression_names (self ,names ):
+        self ._expression_names =names 
+        self ._build_regexes ()
+
     def update_settings (self ,settings ):
-        """Update settings reference for all components."""
         self .settings =settings 
         self .context_builder .settings =settings 
 
@@ -41,22 +68,21 @@ class Agent :
             summary =self .memory .get_summary ()
             relevant =await self .memory .get_relevant (current_input )
 
-
             character_id =None 
             additional_prompt =""
             if self .settings :
                 character_id =self .settings .get ("character.active","amalgam")
                 additional_prompt =self .settings .get ("character.system_prompt","")
 
-
             messages =self .context_builder .build (
             tools ,history ,current_input ,
             character_id =character_id ,
             additional_prompt =additional_prompt ,
             summary =summary ,
-            relevant =relevant 
+            relevant =relevant ,
+            tts_emotions =self ._emotion_tags ,
+            expression_names =self ._expression_names ,
             )
-
 
             if images :
                 last_text =messages [-1 ]["content"]
@@ -120,30 +146,47 @@ class Agent :
                             clean_yielded =0 
 
 
-                        for m in EMOTION_RE .finditer (full_response ):
+                        for m in self ._emotion_re .finditer (full_response ):
                             yield ('__emotion__',m .group (1 ))
-                        full_response =EMOTION_RE .sub ('',full_response )
+                        full_response =self ._emotion_re .sub ('',full_response )
 
 
-                        roleplay_found =False 
-                        for m in ROLEPLAY_RE .finditer (full_response ):
+                        for m in self ._expression_re .finditer (full_response ):
+                            yield ('__expression__',m .group (1 ))
+                        full_response =self ._expression_re .sub ('',full_response )
+
+
+                        action_found =False 
+                        for m in ACTION_RE .finditer (full_response ):
                             content =m .group (1 ).strip ()
                             if content :
                                 yield ('__roleplay__',content )
-                                roleplay_found =True 
-                        if roleplay_found :
-                            full_response =ROLEPLAY_RE .sub ('',full_response )
+                                action_found =True 
+                        if action_found :
+                            full_response =ACTION_RE .sub ('',full_response )
                             clean_yielded =0 
+
+
+                        full_response =re .sub (r'/\[\[.*?\]\]','',full_response )
+                        full_response =re .sub (r'/\(\(.*?\)\)','',full_response )
+
+                        full_response =re .sub (r'/\[\[[^\]\s]*','',full_response )
+                        full_response =re .sub (r'/\(\([^\)\s]*','',full_response )
 
 
                         if len (full_response )>clean_yielded :
                             chunk =full_response [clean_yielded :]
 
-                            incomplete =re .search (r'\[[a-zA-Z]*$',chunk )
-                            if incomplete :
-                                yield chunk [:incomplete .start ()]
-
-
+                            incomplete_emotion =re .search (r'/\[\[[^\[\]]*$',chunk )
+                            incomplete_expr =re .search (r'/\(\([^()]*$',chunk )
+                            incomplete_action =re .search (r'/\*\*[^*]*$',chunk )
+                            starts =[]
+                            for m in [incomplete_emotion ,incomplete_expr ,incomplete_action ]:
+                                if m :
+                                    starts .append (m .start ())
+                            if starts :
+                                cutoff =min (starts )
+                                yield chunk [:cutoff ]
                             else :
                                 yield chunk 
                                 clean_yielded =len (full_response )

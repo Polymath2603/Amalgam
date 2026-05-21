@@ -4,6 +4,8 @@ import numpy as np
 
 
 class TTSProvider :
+    supported_emotions =[]
+
     def __init__ (self ,voice ="en-US-AriaNeural"):
         self .voice =voice 
 

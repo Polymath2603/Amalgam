@@ -24,6 +24,7 @@ const EMOTION_TO_EXPRESSION = {
     victory:    'happy',
     sleep:      'relaxed',
     love:       'happy',
+    excited:    'surprised',
 };
 
 const EXPRESSION_NAMES = ['happy', 'angry', 'sad', 'relaxed', 'surprised'];
@@ -257,10 +258,6 @@ export class AvatarRenderer {
                 this._mixer = new THREE.AnimationMixer(vrm.scene);
 
                 
-                const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
-                this._baseHipsY = hips ? hips.position.y : 0;
-
-                
                 try {
                     this._fitCameraToModel(vrm);
                 } catch(e) {
@@ -305,6 +302,10 @@ export class AvatarRenderer {
         if (!vrmAnim || !this.vrm || !this._mixer) return;
 
         const clip = vrmAnim.createAnimationClip(this.vrm);
+        clip.tracks = clip.tracks.filter(t => {
+            const lower = t.name.toLowerCase();
+            return !lower.includes('head') && !lower.includes('neck') && !lower.includes('eye') && !lower.includes('hip');
+        });
         this._idleAction = this._mixer.clipAction(clip);
         this._idleAction.loop = THREE.LoopRepeat;
         this._fadeToAction(this._idleAction, 0.5);
@@ -324,6 +325,10 @@ export class AvatarRenderer {
             }
 
             const clip = vrmAnim.createAnimationClip(this.vrm);
+            clip.tracks = clip.tracks.filter(t => {
+                const lower = t.name.toLowerCase();
+                return !lower.includes('head') && !lower.includes('neck') && !lower.includes('eye') && !lower.includes('hip');
+            });
             const action = this._mixer.clipAction(clip);
             action.clampWhenFinished = true;
             action.loop = THREE.LoopOnce;
@@ -374,6 +379,12 @@ export class AvatarRenderer {
             bb.getSize(localSize);
             if (localSize.x < 0.01 || localSize.y < 0.01 || localSize.z < 0.01) return;
             const worldBB = bb.clone().applyMatrix4(obj.matrixWorld);
+            if (isNaN(worldBB.min.x) || isNaN(worldBB.min.y) || isNaN(worldBB.min.z) ||
+                isNaN(worldBB.max.x) || isNaN(worldBB.max.y) || isNaN(worldBB.max.z) ||
+                !isFinite(worldBB.min.x) || !isFinite(worldBB.min.y) || !isFinite(worldBB.min.z) ||
+                !isFinite(worldBB.max.x) || !isFinite(worldBB.max.y) || !isFinite(worldBB.max.z)) {
+                return;
+            }
             box.union(worldBB);
         });
         
@@ -446,22 +457,13 @@ export class AvatarRenderer {
             }
         } else {
             
-            const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
-            const neckBone = vrm.humanoid?.getNormalizedBoneNode('neck');
-            const targetPos = new THREE.Vector3();
-            if (headBone) headBone.getWorldPosition(targetPos);
-            else targetPos.copy(hipsPos).y += upperHeight;
-
-            let offsetX = 0;
-            if (headBone && neckBone) {
-                const neckPos = new THREE.Vector3();
-                neckBone.getWorldPosition(neckPos);
-                offsetX = (targetPos.y - neckPos.y) * 2.0;
-            }
-
-            
-            dist = Math.max(size.y * 1.5, 1.5);
-            focalPoint.set(targetPos.x - offsetX, targetPos.y, targetPos.z);
+            const sceneBox = new THREE.Box3().setFromObject(vrm.scene);
+            const sc = sceneBox.getCenter(new THREE.Vector3());
+            const ss = sceneBox.getSize(new THREE.Vector3());
+            const cx = hips ? hipsPos.x : sc.x;
+            const cz = hips ? hipsPos.z : sc.z;
+            dist = 3;
+            focalPoint.set(cx, sc.y + ss.y * 0.15, cz);
         }
 
         this.camera.position.set(focalPoint.x, focalPoint.y, focalPoint.z + dist);
