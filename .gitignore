@@ -20,34 +20,11 @@ processed/
 # Node
 node_modules/
 
-# Docs (generated)
-docs/superpowers/
-
 # OpenClaude / opencode
 .openclaude/
-.opencode/
 
 # Logs
 *.log
-
-# Temp/test/scratch files
-test_*.py
-console
-bugs
-test-results/
-
-# Cloned git repos used as dependencies
-cloned/
-
-# Old monolithic modules (superseded by packages)
-backend/voice/tts.py
-backend/voice/stt.py
-
-# Obsolete animation location (moved to characters/default/anim/)
-frontend/animations/
-
-# Legacy single-file frontend scripts (moved to frontend/js/, frontend/css/)
-frontend/style-old.css
 
 # BVH→VRMA conversion tool (one-off use)
 scripts/
