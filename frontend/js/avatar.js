@@ -627,6 +627,20 @@ export class AvatarRenderer {
         }
     }
 
+    setExpression(name) {
+        const em = this.vrm?.expressionManager;
+        if (!em) return;
+        for (const expr of EXPRESSION_NAMES) {
+            this._targetExpressions[expr] = 0;
+            em.setValue(expr, 0);
+        }
+        if (name === 'neutral' || !name) return;
+        if (EXPRESSION_NAMES.includes(name)) {
+            this._targetExpressions[name] = 1.0;
+            em.setValue(name, 1.0);
+        }
+    }
+
     setMouthOpen(value) {
         this.mouthValue = Math.min(1, Math.max(0, value));
     }
