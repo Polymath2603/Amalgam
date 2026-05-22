@@ -2,6 +2,7 @@
 Designed to run in a background thread via run_in_executor.
 Supports pluggable STT engines via STTRouter.
 """
+import concurrent .futures 
 import numpy as np 
 import logging 
 
@@ -16,6 +17,7 @@ class VoicePipeline :
         self ._listening =False 
         self ._vad =None 
         self ._stt =STTRouter (engine =stt_engine )
+        self ._stt_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="stt")
 
     def configure_openai_stt (self ,api_key :str ,model :str ="whisper-1"):
         self ._stt .configure_openai (api_key ,model )
@@ -29,7 +31,7 @@ class VoicePipeline :
     def _ensure_models (self ):
         if self ._vad is None :
             from backend .voice .vad import VAD 
-            self ._vad =VAD ()
+            self ._vad =VAD (mode =2 )
 
     def listen_loop (self ):
         """Blocking listen loop for background thread. Monitors mic via sounddevice."""
@@ -77,7 +79,7 @@ class VoicePipeline :
                         is_speech =self ._vad .process (frame )
                         samples =np .frombuffer (frame ,dtype =np .int16 ).astype (np .float32 )/32768.0 
                         energy =np .sqrt (np .mean (samples **2 ))
-                        speech_detected =is_speech or (energy >0.1 )
+                        speech_detected =is_speech or (energy >0.02 )
 
                         if speech_detected :
                             if not is_recording :
@@ -97,9 +99,11 @@ class VoicePipeline :
                                 audio_data =np .frombuffer (bytes (recording ),dtype =np .int16 ).astype (np .float32 )/32768.0 
                                 if len (audio_data )>8000 :
                                     logger .info (f"VoicePipeline: Transcribing {len (audio_data )/16000 :.1f}s of audio...")
-                                    text =self ._stt .transcribe (audio_data )
-                                    if text and self .agent_callback :
-                                        self .agent_callback (text )
+
+                                    future =self ._stt_executor .submit (self ._stt .transcribe ,audio_data )
+                                    future .add_done_callback (
+                                    lambda f :self .agent_callback (f .result ())if f .result ()and self .agent_callback else None 
+                                    )
                                 recording =bytearray ()
         except Exception as e :
             logger .error (f"VoicePipeline error: {e }")
@@ -109,3 +113,4 @@ class VoicePipeline :
 
     def stop_listening (self ):
         self ._listening =False 
+        self ._stt_executor .shutdown (wait =False )

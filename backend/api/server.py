@@ -686,13 +686,13 @@ async def ws_chat (websocket :WebSocket ):
                     await websocket .send_json ({"type":"voice_state","state":"idle"})
                 elif cmd =="voice_input_on":
                     if voice_pipeline is None :
-                        loop =asyncio .get_event_loop ()
+                        _main_loop =asyncio .get_running_loop ()
                         def on_transcription (text ):
                             """Callback from VoicePipeline thread — fire-and-forget to websocket."""
                             try :
                                 asyncio .run_coroutine_threadsafe (
                                 websocket .send_json ({"type":"user_message_from_voice","text":text }),
-                                loop 
+                                _main_loop 
                                 )
                             except Exception as e :
                                 logger .warning (f"Voice transcription send failed: {e }")
