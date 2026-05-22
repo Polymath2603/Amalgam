@@ -303,19 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     currentAssistantMessage.classList.add('msg-error');
                 }
                 const body = currentAssistantMessage.querySelector('.msg-body');
-                
-                let cleanText = (data.text || '')
-                    .replace(/\/\[\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love|excited)\]\]/gi, '')
-                    .replace(/\/\(\((happy|angry|sad|relaxed|surprised|blink)\)\)/gi, '')
-                    .replace(/\/\*\*[\s\S]+?\*\*\/?/g, '');
-                
-                cleanText = cleanText.replace(/\/\[\[.*?\]\]/g, '');
-                cleanText = cleanText.replace(/\/\(\(.*?\)\)/g, '');
-                
-                cleanText = cleanText.replace(/\/\[\[[^\]\s]*/g, '');
-                cleanText = cleanText.replace(/\/\(\([^\)\s]*/g, '');
-                
-                cleanText = cleanText.replace(/(\/\[\[|\/\(\(|\/\*\*)[^\]\)]*$/g, '');
+                let cleanText = stripMarkers(data.text);
                 _appendStreamText(body, cleanText);
                 
                 const pending = _streamBuffer.get(body);
@@ -421,6 +409,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     
+    function stripMarkers(text) {
+        return (text || '')
+            .replace(/\/\[\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love|excited)\]\]/gi, '')
+            .replace(/\/\(\((happy|angry|sad|relaxed|surprised|blink)\)\)/gi, '')
+            .replace(/\/\*\*[\s\S]+?\*\*\/?/g, '')
+            .replace(/\/\[\[.*?\]\]/g, '')
+            .replace(/\/\(\(.*?\)\)/g, '')
+            .replace(/\[\[.*?\]\]/g, '')
+            .replace(/\(\(.*?\)\)/g, '')
+            .replace(/\/\[\[[^\]\s]*/g, '')
+            .replace(/\/\(\([^\)\s]*/g, '')
+            .replace(/\[\[[^\]\s]*/g, '')
+            .replace(/\(\([^\)\s]*/g, '')
+            .replace(/(\/\[\[|\/\(\(|\/\*\*|\[\[|\(\()[^\]\)]*$/g, '');
+    }
+
     function addMessage(role, text) {
         
         const welcome = chatMessages.querySelector('.welcome-message');
@@ -760,7 +764,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 session.messages.forEach(m => {
                     const div = document.createElement('div');
                     div.className = `msg msg-${m.role}`;
-                    div.innerHTML = `<div class="msg-body">${escHtml(m.content)}</div>`;
+                    div.innerHTML = `<div class="msg-body">${escHtml(stripMarkers(m.content))}</div>`;
                     chatMessages.appendChild(div);
                 });
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1289,7 +1293,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         msgs.messages.forEach(m => {
                             const div = document.createElement('div');
                             div.className = `msg msg-${m.role}`;
-                            div.innerHTML = `<div class="msg-body">${escHtml(m.content)}</div>`;
+                            div.innerHTML = `<div class="msg-body">${escHtml(stripMarkers(m.content))}</div>`;
                             chatMessages.appendChild(div);
                         });
                         chatMessages.scrollTop = chatMessages.scrollHeight;

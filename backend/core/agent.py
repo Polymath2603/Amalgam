@@ -170,8 +170,14 @@ class Agent :
                         full_response =re .sub (r'/\[\[.*?\]\]','',full_response )
                         full_response =re .sub (r'/\(\(.*?\)\)','',full_response )
 
+                        full_response =re .sub (r'\[\[.*?\]\]','',full_response )
+                        full_response =re .sub (r'\(\(.*?\)\)','',full_response )
+
                         full_response =re .sub (r'/\[\[[^\]\s]*','',full_response )
                         full_response =re .sub (r'/\(\([^\)\s]*','',full_response )
+
+                        full_response =re .sub (r'\[\[[^\]\s]*','',full_response )
+                        full_response =re .sub (r'\(\([^\)\s]*','',full_response )
 
 
                         if len (full_response )>clean_yielded :
