@@ -67,6 +67,10 @@ class Memory :
         self ._current_session =uuid .uuid4 ().hex [:12 ]
         return self ._current_session 
 
+    def set_current_session (self ,session_id :str ):
+        """Manually set the current session ID."""
+        self ._current_session =session_id 
+
     def get_current_session (self )->str :
         """Get or create the current session ID."""
         if not self ._current_session :

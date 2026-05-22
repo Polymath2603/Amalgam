@@ -589,12 +589,16 @@ async def list_vault_files ():
 @app .get ("/api/memory/sessions")
 async def get_sessions ():
     sessions =memory ().get_sessions ()
-    return {"sessions":sessions }
+    return {"sessions":sessions ,"current":memory ().get_current_session ()}
 
 @app .get ("/api/memory/session/{session_id}")
 async def get_session_messages (session_id :str ):
+    if session_id =="current":
+        session_id =memory ().get_current_session ()
+    else :
+        memory ().set_current_session (session_id )
     messages =memory ().get_session_messages (session_id )
-    return {"messages":messages }
+    return {"messages":messages ,"session_id":session_id }
 
 @app .delete ("/api/memory/session/{session_id}")
 async def delete_session (session_id :str ):
@@ -608,15 +612,15 @@ async def clear_memory ():
     return {"status":"ok"}
 
 @app .get ("/api/memory/session/current")
-async def get_current_session ():
+async def get_current_session_messages ():
     sid =memory ().get_current_session ()
     messages =memory ().get_session_messages (sid )
     return {"session_id":sid ,"messages":messages }
 
 @app .post ("/api/memory/new-session")
-async def new_session ():
+async def create_new_session ():
     sid =memory ().start_session ()
-    return {"session_id":sid }
+    return {"session_id":sid ,"status":"ok"}
 
 
 

@@ -259,9 +259,7 @@ export class AvatarRenderer {
                 this.ready = true;
 
                 try {
-                    if (!this.preview) {
-                        await this._loadIdleAnimation();
-                    }
+                    await this._loadIdleAnimation();
                 } catch(e) {
                     console.warn('VRMA animations not available, using procedural idle:', e);
                 }
@@ -286,10 +284,7 @@ export class AvatarRenderer {
         if (!vrmAnim || !this.vrm || !this._mixer) return;
 
         const clip = vrmAnim.createAnimationClip(this.vrm);
-        clip.tracks = clip.tracks.filter(t => {
-            const lower = t.name.toLowerCase();
-            return !lower.includes('head') && !lower.includes('neck') && !lower.includes('eye') && !lower.includes('hip');
-        });
+        
         this._idleAction = this._mixer.clipAction(clip);
         this._idleAction.loop = THREE.LoopRepeat;
         this._fadeToAction(this._idleAction, 0.5);
@@ -309,10 +304,7 @@ export class AvatarRenderer {
             }
 
             const clip = vrmAnim.createAnimationClip(this.vrm);
-            clip.tracks = clip.tracks.filter(t => {
-                const lower = t.name.toLowerCase();
-                return !lower.includes('head') && !lower.includes('neck') && !lower.includes('eye') && !lower.includes('hip');
-            });
+            
             const action = this._mixer.clipAction(clip);
             action.clampWhenFinished = true;
             action.loop = THREE.LoopOnce;

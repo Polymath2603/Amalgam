@@ -935,12 +935,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (settings) { applySettings(settings); markSettingsClean(); }
         await loadCharacters();
         await fetchAnimationMap();
+
+        
+        const hashId = location.hash.replace('#', '');
+        const loadId = hashId || 'current';
+
         
         const chatMessages = document.getElementById('chat-messages');
         chatMessages.innerHTML = '<div class="msg msg-system" style="text-align:center;color:var(--muted);padding:2rem"><span class="material-icons-round" style="font-size:1.5rem;display:block;margin-bottom:0.5rem">hourglass_top</span>Loading conversation...</div>';
         updateSessionButtons();
         try {
-            const session = await api('/api/memory/session/current');
+            const session = await api(`/api/memory/session/${loadId}`);
             chatMessages.innerHTML = '';
             if (session?.messages?.length) {
                 _sessionHasMessages = true;
@@ -951,6 +956,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     chatMessages.appendChild(div);
                 });
                 chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+            if (session?.session_id) {
+                location.hash = session.session_id;
             }
             updateSessionButtons();
         } catch (e) {
@@ -1657,7 +1665,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const historyList = document.getElementById('history-list');
 
     document.getElementById('new-chat-btn').addEventListener('click', async () => {
-        await api('/api/memory/new-session', { method: 'POST' });
+        const res = await api('/api/memory/new-session', { method: 'POST' });
+        if (res?.session_id) location.hash = res.session_id;
         document.getElementById('chat-messages').innerHTML = '';
         _sessionHasMessages = false;
         updateSessionButtons();
@@ -1678,7 +1687,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('new-session-btn').addEventListener('click', async () => {
-        await api('/api/memory/new-session', { method: 'POST' });
+        const res = await api('/api/memory/new-session', { method: 'POST' });
+        if (res?.session_id) location.hash = res.session_id;
         document.getElementById('chat-messages').innerHTML = '';
         _sessionHasMessages = false;
         updateSessionButtons();
@@ -1689,6 +1699,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clear-all-history').addEventListener('click', async () => {
         if (!confirm('Clear all conversation history?')) return;
         await api('/api/memory/clear', { method: 'POST' });
+        location.hash = '';
         document.getElementById('chat-messages').innerHTML = '';
         historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center">No conversations yet</div>';
         updateHistoryToggle();
@@ -1737,15 +1748,23 @@ document.addEventListener('DOMContentLoaded', () => {
                             chatMessages.appendChild(div);
                         });
                         chatMessages.scrollTop = chatMessages.scrollHeight;
-                        _sessionHasMessages = true;
+                        _sessionHasMessages = msgs.messages.length > 0;
+                        location.hash = session.id;
                         updateSessionButtons();
                     }
                     historyPanel.classList.remove('open');
                 });
                 item.querySelector('.history-delete').addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    if (!confirm('Delete this conversation?')) return;
                     await api(`/api/memory/session/${session.id}`, { method: 'DELETE' });
                     item.remove();
+                    if (location.hash.replace('#', '') === session.id) {
+                        location.hash = '';
+                        document.getElementById('chat-messages').innerHTML = '';
+                        _sessionHasMessages = false;
+                        updateSessionButtons();
+                    }
                     updateHistoryToggle();
                 });
                 
