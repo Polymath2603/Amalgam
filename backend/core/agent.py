@@ -211,6 +211,7 @@ class Agent :
                         remaining =re .sub (r'/ [a-zA-Z]+','',remaining )
                         remaining =re .sub (r'[a-zA-Z]*\]\]','',remaining )
                         remaining =re .sub (r'[a-zA-Z]*\)\)','',remaining )
+                        remaining =re .sub (r'\s*/\s*$','',remaining )
                         remaining =remaining .strip ()
                         if remaining :
                             yield remaining 
