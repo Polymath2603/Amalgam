@@ -463,6 +463,28 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/[a-zA-Z]*\)\)/g, '');
     }
 
+    function getMessageHtml(role, text) {
+        return `<div class="msg-body">${escHtml(text)}</div>` +
+            `<div class="msg-actions">` +
+                `<button class="msg-action" data-action="copy" title="Copy">` +
+                    `<span class="material-icons-round">content_copy</span>` +
+                `</button>` +
+                `${role === 'user' ? `
+                    <button class="msg-action" data-action="edit" title="Edit">
+                        <span class="material-icons-round">edit</span>
+                    </button>
+                ` : ''}` +
+                `${role === 'assistant' ? `
+                    <button class="msg-action" data-action="regenerate" title="Regenerate">
+                        <span class="material-icons-round">refresh</span>
+                    </button>
+                    <button class="msg-action" data-action="speak" title="Speak">
+                        <span class="material-icons-round">volume_up</span>
+                    </button>
+                ` : ''}` +
+            `</div>`;
+    }
+
     function addMessage(role, text) {
         
         const welcome = chatMessages.querySelector('.welcome-message');
@@ -471,27 +493,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const div = document.createElement('div');
         div.className = `msg msg-${role}`;
         div.dataset.msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-        div.innerHTML = `
-            <div class="msg-body">${escHtml(text)}</div>
-            <div class="msg-actions">
-                <button class="msg-action" data-action="copy" title="Copy">
-                    <span class="material-icons-round">content_copy</span>
-                </button>
-                ${role === 'user' ? `
-                    <button class="msg-action" data-action="edit" title="Edit">
-                        <span class="material-icons-round">edit</span>
-                    </button>
-                ` : ''}
-                ${role === 'assistant' ? `
-                    <button class="msg-action" data-action="regenerate" title="Regenerate">
-                        <span class="material-icons-round">refresh</span>
-                    </button>
-                    <button class="msg-action" data-action="speak" title="Speak">
-                        <span class="material-icons-round">volume_up</span>
-                    </button>
-                ` : ''}
-            </div>
-        `;
+        div.innerHTML = getMessageHtml(role, text);
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
         if (!_sessionHasMessages) {
@@ -945,7 +947,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 session.messages.forEach(m => {
                     const div = document.createElement('div');
                     div.className = `msg msg-${m.role}`;
-                    div.innerHTML = `<div class="msg-body">${escHtml(stripMarkers(m.content))}</div>`;
+                    div.innerHTML = getMessageHtml(m.role, stripMarkers(m.content));
                     chatMessages.appendChild(div);
                 });
                 chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1248,6 +1250,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     statusIcon.textContent = isEnabled ? 'check_circle' : 'cancel';
                     statusIcon.className = `material-icons-round mcp-status-icon ${isEnabled ? 'online' : 'offline'}`;
                     item.classList.toggle('disabled', !isEnabled);
+
+                    
+                    const server = mcpServersCache.find(srv => srv.name === s.name);
+                    if (server) server.enabled = isEnabled;
+                    markSettingsDirty();
                 });
                 list.appendChild(item);
             });
@@ -1279,6 +1286,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     
     let _settingsSnapshot = {};
+    let _mcpSnapshot = '';
     function _settingsFields() {
         return Array.from(document.querySelectorAll('#tab-settings input, #tab-settings select, #tab-settings textarea')).filter(el => el.id);
     }
@@ -1288,14 +1296,23 @@ document.addEventListener('DOMContentLoaded', () => {
             _settingsSnapshot[el.id] = el.type === 'checkbox' ? el.checked : el.value;
         });
     }
+    function _mcpState() {
+        return (mcpServersCache || []).map(s => `${s.name}:${s.enabled !== false}`).join('|');
+    }
     function isSettingsDirty() {
-        return _settingsFields().some(el => {
+        const fieldsDirty = _settingsFields().some(el => {
             const cur = el.type === 'checkbox' ? el.checked : el.value;
             return cur !== _settingsSnapshot[el.id];
         });
+        const mcpDirty = _mcpSnapshot !== _mcpState();
+        return fieldsDirty || mcpDirty;
     }
     function markSettingsDirty() { document.getElementById('save-all-settings').disabled = !isSettingsDirty(); }
-    function markSettingsClean() { captureSettingsSnapshot(); document.getElementById('save-all-settings').disabled = true; }
+    function markSettingsClean() {
+        captureSettingsSnapshot();
+        _mcpSnapshot = _mcpState();
+        document.getElementById('save-all-settings').disabled = true;
+    }
     document.querySelectorAll('#tab-settings input, #tab-settings select, #tab-settings textarea').forEach(el => {
         el.addEventListener('change', markSettingsDirty);
         el.addEventListener('input', markSettingsDirty);
@@ -1716,7 +1733,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         msgs.messages.forEach(m => {
                             const div = document.createElement('div');
                             div.className = `msg msg-${m.role}`;
-                            div.innerHTML = `<div class="msg-body">${escHtml(stripMarkers(m.content))}</div>`;
+                            div.innerHTML = getMessageHtml(m.role, stripMarkers(m.content));
                             chatMessages.appendChild(div);
                         });
                         chatMessages.scrollTop = chatMessages.scrollHeight;
