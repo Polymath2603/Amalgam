@@ -627,9 +627,11 @@ async def _synthesize_now (text :str ,ws :WebSocket ):
             if not ref_audio :
                 char_dir =char .get ("_dir","")if char else ""
                 if char_dir :
-                    candidate =os .path .join (char_dir ,"ref.wav")
-                    if os .path .exists (candidate ):
-                        ref_audio =candidate 
+                    for name in ("voice.pth","voice.wav"):
+                        candidate =os .path .join (char_dir ,name )
+                        if os .path .exists (candidate ):
+                            ref_audio =candidate 
+                            break 
             if not ref_audio :
                 logger .warning ("No voice_ref for OpenVoice, skipping speak")
                 return 
@@ -796,9 +798,11 @@ async def ws_chat (websocket :WebSocket ):
                                 if not ref_audio :
                                     char_dir =char .get ("_dir","")if char else ""
                                     if char_dir :
-                                        candidate =os .path .join (char_dir ,"ref.wav")
-                                        if os .path .exists (candidate ):
-                                            ref_audio =candidate 
+                                        for name in ("voice.pth","voice.wav"):
+                                            candidate =os .path .join (char_dir ,name )
+                                            if os .path .exists (candidate ):
+                                                ref_audio =candidate 
+                                                break 
                                 if not ref_audio :
                                     logger .warning ("No voice_ref for OpenVoice, skipping TTS")
                                     return 
@@ -1023,11 +1027,13 @@ async def tts_preview (body :dict ):
         if not ref_audio :
             char_dir =char .get ("_dir","")if char else ""
             if char_dir :
-                candidate =os .path .join (char_dir ,"ref.wav")
-                if os .path .exists (candidate ):
-                    ref_audio =candidate 
+                for name in ("voice.pth","voice.wav"):
+                    candidate =os .path .join (char_dir ,name )
+                    if os .path .exists (candidate ):
+                        ref_audio =candidate 
+                        break 
         if not ref_audio :
-            return {"audio":None ,"error":"No voice_ref set. Place a ref.wav in the character directory."}
+            return {"audio":None ,"error":"No voice_ref set. Place a voice.pth or voice.wav in the character directory."}
         temp_tts =TTS (engine ="openvoice")
         audio ,_ ,sr =await temp_tts .synthesize (text ,ref_audio =ref_audio )
     else :

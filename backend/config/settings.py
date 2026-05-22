@@ -189,13 +189,17 @@ def _load_single_character (char_dir :str )->Dict [str ,Dict ]|None :
 
         icon_path =os .path .join (CHARACTERS_DIR ,char_dir ,"icon.png")
         model_path =os .path .join (CHARACTERS_DIR ,char_dir ,"model.vrm")
-        ref_wav_path =os .path .join (CHARACTERS_DIR ,char_dir ,"ref.wav")
         char_data ["_dir"]=os .path .join (CHARACTERS_DIR ,char_dir )
         char_data ["icon_url"]=f"/characters/{char_id }/icon.png"if os .path .exists (icon_path )else "/static/icons/logo.png"
         char_data ["model_url"]=f"/characters/{char_id }/model.vrm"if os .path .exists (model_path )else ""
 
-        if not char_data .get ("voice_ref")and os .path .exists (ref_wav_path ):
-            char_data ["voice_ref"]=ref_wav_path 
+        if not char_data .get ("voice_ref"):
+            voice_pth =os .path .join (CHARACTERS_DIR ,char_dir ,"voice.pth")
+            voice_wav =os .path .join (CHARACTERS_DIR ,char_dir ,"voice.wav")
+            if os .path .exists (voice_pth ):
+                char_data ["voice_ref"]=voice_pth 
+            elif os .path .exists (voice_wav ):
+                char_data ["voice_ref"]=voice_wav 
         return {char_id :char_data }
     except Exception as e :
         logger .error (f"Failed to load character from {index_path }: {e }")

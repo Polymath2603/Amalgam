@@ -112,6 +112,12 @@ class OpenVoiceEngine :
             ref_audio_path ,self ._converter ,vad =True 
             )
 
+            pth_path =ref_audio_path .rsplit ('.',1 )[0 ]+'.pth'
+            try :
+                self ._torch .save (target_se ,pth_path )
+            except Exception as e :
+                logger .warning (f"Failed to cache speaker embedding to {pth_path }: {e }")
+
         self ._speaker_cache [ref_audio_path ]=target_se 
         return target_se 
 
