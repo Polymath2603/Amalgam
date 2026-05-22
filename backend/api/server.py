@@ -388,9 +388,10 @@ async def get_animations (char_id :str =None ):
     if os .path .exists (default_dir ):
         for f in sorted (os .listdir (default_dir )):
             if f .endswith (".vrma"):
+                name =f .replace (".vrma","").replace (".bvh","")
                 animations ["default"].append ({
                 "file":f ,
-                "name":f .replace (".vrma",""),
+                "name":name ,
                 "url":f"/static/animations/{f }"
                 })
 
@@ -399,9 +400,10 @@ async def get_animations (char_id :str =None ):
         if os .path .exists (char_anim_dir ):
             for f in sorted (os .listdir (char_anim_dir )):
                 if f .endswith (".vrma"):
+                    name =f .replace (".vrma","").replace (".bvh","")
                     animations ["character"].append ({
                     "file":f ,
-                    "name":f .replace (".vrma",""),
+                    "name":name ,
                     "url":f"/characters/{char_id }/anim/{f }"
                     })
 
