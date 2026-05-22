@@ -67,8 +67,8 @@ class OllamaProvider (LLMProvider ):
             )
             if response .status_code ==200 :
                 return response .json ().get ("embedding",[])
-        except Exception :
-            pass 
+        except Exception as e :
+            logger .warning ("Ollama embedding request failed: %s",e )
         return []
 
     async def fetch_models (self )->List [str ]:
@@ -76,8 +76,8 @@ class OllamaProvider (LLMProvider ):
             response =await self ._client .get (f"{self ._url }/api/tags",timeout =5.0 )
             if response .status_code ==200 :
                 return [m ["name"]for m in response .json ().get ("models",[])]
-        except Exception :
-            pass 
+        except Exception as e :
+            logger .warning ("Ollama fetch models failed: %s",e )
         return []
 
     async def close (self ):

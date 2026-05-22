@@ -51,37 +51,37 @@
         <!-- Main Content -->
         <main class="content">
 
+            <!-- Shared Header — visible on all tabs -->
+            <div class="chat-header" id="global-header">
+                <div class="chat-avatar" id="chat-avatar">
+                    <div class="avatar-preview" id="avatar-preview"></div>
+                    <div class="chat-avatar-info">
+                        <span class="chat-avatar-name" id="chat-avatar-name">Loading...</span>
+                        <span class="chat-avatar-status" id="chat-avatar-status">Ready</span>
+                    </div>
+                </div>
+                <div class="chat-controls">
+                    <button class="icon-toggle" id="voice-input-toggle" title="Toggle voice input (mic)">
+                        <span class="material-icons-round">mic_off</span>
+                    </button>
+                    <button class="icon-toggle" id="voice-output-toggle" title="Toggle voice output (speaker)">
+                        <span class="material-icons-round">volume_off</span>
+                    </button>
+                    <div class="voice-bars" id="voice-bars">
+                        <span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                    <button class="icon-toggle" id="new-chat-btn" title="New conversation">
+                        <span class="material-icons-round">add</span>
+                    </button>
+                    <button class="icon-toggle" id="history-toggle" title="Conversation history">
+                        <span class="material-icons-round">history</span>
+                    </button>
+                </div>
+            </div>
+
             <!-- ═══ CHAT TAB ═══ -->
             <section class="tab-panel active" id="tab-chat">
                 <div class="chat-container">
-                    <!-- Chat Header with Avatar Preview + Voice Controls -->
-                    <div class="chat-header">
-                        <div class="chat-avatar" id="chat-avatar">
-                            <div class="avatar-preview" id="avatar-preview"></div>
-                            <div class="chat-avatar-info">
-                                <span class="chat-avatar-name" id="chat-avatar-name">Aria</span>
-                                <span class="chat-avatar-status" id="chat-avatar-status">Ready</span>
-                            </div>
-                        </div>
-                        <div class="chat-controls">
-                            <button class="icon-toggle" id="voice-input-toggle" title="Toggle voice input (mic)">
-                                <span class="material-icons-round">mic_off</span>
-                            </button>
-                            <button class="icon-toggle" id="voice-output-toggle" title="Toggle voice output (speaker)">
-                                <span class="material-icons-round">volume_off</span>
-                            </button>
-                            <div class="voice-bars" id="voice-bars">
-                                <span></span><span></span><span></span><span></span><span></span>
-                            </div>
-                            <button class="icon-toggle" id="new-chat-btn" title="New conversation">
-                                <span class="material-icons-round">add</span>
-                            </button>
-                            <button class="icon-toggle" id="history-toggle" title="Conversation history" style="display:none">
-                                <span class="material-icons-round">history</span>
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- History Panel (hidden by default) -->
                     <div class="history-panel" id="history-panel">
                         <div class="history-header">
@@ -105,7 +105,7 @@
                         </button>
                         <input type="file" id="img-input" accept="image/*" hidden>
                         <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
-                        <button class="send-btn" id="send-btn">
+                        <button type="button" class="send-btn" id="send-btn">
                             <span class="material-icons-round">arrow_upward</span>
                         </button>
                     </div>
@@ -185,6 +185,268 @@
                             </div>
                         </div>
 
+                        <!-- Provider Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">cloud</span> Provider</h3>
+                            <div class="form-row">
+                                <label>Active Provider</label>
+                                <select id="provider-select">
+                                    <option value="gemini">Gemini</option>
+                                    <option value="ollama">Ollama</option>
+                                    <option value="openrouter">OpenRouter</option>
+                                    <option value="zai">Z.AI</option>
+                                    <option value="siliconflow">SiliconFlow</option>
+                                    <option value="groq">Groq</option>
+                                    <option value="chatgpt">ChatGPT</option>
+                                    <option value="claude">Claude</option>
+                                    <option value="llamacpp">LlamaCpp</option>
+                                    <option value="koboldai">KoboldAI</option>
+                                </select>
+                            </div>
+
+                            <div class="provider-section" data-provider="gemini" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="gemini-api-key" placeholder="AIza..." class="text-input">
+                                        <button class="icon-btn" id="toggle-gemini-key"><span class="material-icons-round">visibility_off</span></button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="gemini-base-url" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="gemini-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-gemini-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="ollama" style="display:none">
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="ollama-url" placeholder="http://localhost:11434" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="ollama-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-ollama-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="openrouter" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="openrouter-api-key" placeholder="sk-or-..." class="text-input">
+                                        <button class="icon-btn" id="toggle-openrouter-key"><span class="material-icons-round">visibility_off</span></button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="openrouter-base-url" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="openrouter-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-openrouter-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="zai" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="zai-api-key" placeholder="API key..." class="text-input">
+                                        <button class="icon-btn" id="toggle-zai-key"><span class="material-icons-round">visibility_off</span></button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="zai-base-url" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="zai-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-zai-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="siliconflow" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="siliconflow-api-key" placeholder="sk-..." class="text-input">
+                                        <button class="icon-btn" id="toggle-siliconflow-key"><span class="material-icons-round">visibility_off</span></button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="siliconflow-base-url" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="siliconflow-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-siliconflow-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="groq" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="groq-api-key" placeholder="gsk_..." class="text-input">
+                                        <button class="icon-btn" id="toggle-groq-key"><span class="material-icons-round">visibility_off</span></button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="groq-base-url" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="groq-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-groq-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="chatgpt" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="chatgpt-api-key" placeholder="sk-..." class="text-input">
+                                        <button class="icon-btn" id="toggle-chatgpt-key"><span class="material-icons-round">visibility_off</span></button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="chatgpt-base-url" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="chatgpt-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-chatgpt-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="claude" style="display:none">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <div class="input-with-action">
+                                        <input type="password" id="claude-api-key" placeholder="sk-ant-..." class="text-input">
+                                        <button class="icon-btn" id="toggle-claude-key"><span class="material-icons-round">visibility_off</span></button>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="claude-base-url" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <select id="claude-model"><option value="">Select model...</option></select>
+                                    <button class="btn btn-sm" id="fetch-claude-models" style="margin-left:0.5rem">Fetch</button>
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="llamacpp" style="display:none">
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="llamacpp-url" placeholder="http://localhost:8080" class="text-input">
+                                </div>
+                            </div>
+
+                            <div class="provider-section" data-provider="koboldai" style="display:none">
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="koboldai-url" placeholder="http://localhost:5001" class="text-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Thinking Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">lightbulb</span> Thinking</h3>
+                            <div class="form-row toggle-row">
+                                <label>Show thinking process</label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="thinking-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- STT Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">mic</span> Speech-to-Text</h3>
+                            <div class="form-row">
+                                <label>STT Engine</label>
+                                <select id="stt-engine">
+                                    <option value="browser">Browser (Web Speech API)</option>
+                                    <option value="faster-whisper">Faster-Whisper (Local)</option>
+                                    <option value="openai-whisper">OpenAI Whisper (Cloud)</option>
+                                    <option value="groq-whisper">Groq Whisper (Cloud)</option>
+                                    <option value="whispercpp">Whisper.cpp (Local)</option>
+                                </select>
+                            </div>
+                            <div class="stt-section" data-stt="faster-whisper">
+                                <div class="form-row">
+                                    <label>Model Size</label>
+                                    <select id="faster-whisper-model">
+                                        <option value="tiny">Tiny</option>
+                                        <option value="base" selected>Base</option>
+                                        <option value="small">Small</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="large">Large</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="stt-section" data-stt="openai-whisper">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <input type="password" id="openai-whisper-api-key" placeholder="sk-..." class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <input type="text" id="openai-whisper-model" value="whisper-1" class="text-input">
+                                </div>
+                            </div>
+                            <div class="stt-section" data-stt="groq-whisper">
+                                <div class="form-row">
+                                    <label>API Key</label>
+                                    <input type="password" id="groq-whisper-api-key" placeholder="gsk_..." class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Model</label>
+                                    <input type="text" id="groq-whisper-model" value="whisper-large-v3" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>Base URL</label>
+                                    <input type="text" id="groq-whisper-base-url" value="https://api.groq.com/openai/v1" class="text-input">
+                                </div>
+                            </div>
+                            <div class="stt-section" data-stt="whispercpp">
+                                <div class="form-row">
+                                    <label>Whisper.cpp URL</label>
+                                    <input type="text" id="whispercpp-url" value="http://127.0.0.1:8080" class="text-input">
+                                </div>
+                            </div>
+                            <div class="form-row toggle-row">
+                                <label>Voice Input (Mic)</label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="voice-input-toggle-settings">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="form-row toggle-row">
+                                <label>Voice Output (Speaker)</label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="voice-output-toggle-settings">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- TTS Section -->
                         <div class="settings-card">
                             <h3><span class="material-icons-round">volume_up</span> Text-to-Speech</h3>
@@ -253,6 +515,21 @@
                                     <label>Language</label>
                                     <input type="text" id="alltalk-language" value="en" class="text-input">
                                 </div>
+                                <div class="form-row">
+                                    <label>Version</label>
+                                    <select id="alltalk-version">
+                                        <option value="v2">v2</option>
+                                        <option value="v1">v1</option>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <label>RVC Voice</label>
+                                    <input type="text" id="alltalk-rvc-voice" placeholder="disabled" class="text-input">
+                                </div>
+                                <div class="form-row">
+                                    <label>RVC Pitch</label>
+                                    <input type="text" id="alltalk-rvc-pitch" value="0" class="text-input">
+                                </div>
                             </div>
                             <div class="tts-section" data-tts="piper">
                                 <div class="form-row">
@@ -287,278 +564,35 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                            <div class="form-row toggle-row">
-                                <label>Voice Output (Speaker)</label>
-                                <label class="toggle">
-                                    <input type="checkbox" id="voice-output-toggle-settings">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
                         </div>
 
-                        <!-- STT Section -->
+                        <!-- Advanced Section -->
                         <div class="settings-card">
-                            <h3><span class="material-icons-round">mic</span> Speech-to-Text</h3>
-                            <div class="form-row">
-                                <label>STT Engine</label>
-                                <select id="stt-engine">
-                                    <option value="faster-whisper">Faster-Whisper (Local)</option>
-                                    <option value="openai-whisper">OpenAI Whisper (Cloud)</option>
-                                    <option value="groq-whisper">Groq Whisper (Cloud)</option>
-                                    <option value="whispercpp">Whisper.cpp (Local)</option>
-                                </select>
-                            </div>
-                            <div class="stt-section" data-stt="openai-whisper">
-                                <div class="form-row">
-                                    <label>OpenAI Whisper API Key</label>
-                                    <input type="password" id="openai-whisper-api-key" placeholder="sk-..." class="text-input">
-                                </div>
-                            </div>
-                            <div class="stt-section" data-stt="groq-whisper">
-                                <div class="form-row">
-                                    <label>Groq API Key</label>
-                                    <input type="password" id="groq-whisper-api-key" placeholder="gsk_..." class="text-input">
-                                </div>
-                            </div>
-                            <div class="stt-section" data-stt="whispercpp">
-                                <div class="form-row">
-                                    <label>Whisper.cpp URL</label>
-                                    <input type="text" id="whispercpp-url" value="http://127.0.0.1:8080" class="text-input">
-                                </div>
-                            </div>
-                            <div class="form-row toggle-row">
-                                <label>Voice Input (Mic)</label>
-                                <label class="toggle">
-                                    <input type="checkbox" id="voice-input-toggle-settings">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Thinking Section -->
-                        <div class="settings-card">
-                            <h3><span class="material-icons-round">lightbulb</span> Thinking</h3>
-                            <div class="form-row toggle-row">
-                                <label>Show thinking process</label>
-                                <label class="toggle">
-                                    <input type="checkbox" id="thinking-toggle" checked>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Instructions Section -->
-                        <div class="settings-card">
-                            <h3><span class="material-icons-round">psychology</span> Additional Instructions</h3>
-                            <p class="help-text">Added on top of the character's personality. Leave empty for default.</p>
-                            <textarea id="custom-system-prompt" rows="3" placeholder="Extra instructions to add to every conversation..."></textarea>
-                        </div>
-
-                        <!-- Data Section -->
-                        <div class="settings-card">
-                            <h3><span class="material-icons-round">storage</span> Data</h3>
+                            <h3><span class="material-icons-round">tune</span> Advanced</h3>
                             <div class="form-row">
                                 <label>Vault Path</label>
-                                <input type="text" id="vault-path" placeholder="user_data/vault">
+                                <input type="text" id="vault-path" placeholder="user_data/vault" class="text-input">
                             </div>
-                        </div>
-                        <!-- Provider -->
-                        <div class="settings-card">
-                            <h3><span class="material-icons-round">cloud</span> Provider</h3>
                             <div class="form-row">
-                                <label>Active Provider</label>
-                                <select id="provider-select">
-                                    <option value="gemini">Gemini</option>
-                                    <option value="ollama">Ollama</option>
-                                    <option value="openrouter">OpenRouter</option>
-                                    <option value="zai">Z.AI</option>
-                                    <option value="siliconflow">SiliconFlow</option>
-                                    <option value="groq">Groq</option>
-                                    <option value="chatgpt">ChatGPT</option>
-                                    <option value="claude">Claude</option>
-                                    <option value="llamacpp">LlamaCpp</option>
-                                    <option value="koboldai">KoboldAI</option>
+                                <label>VAD Mode</label>
+                                <select id="vad-mode">
+                                    <option value="0">0 - Disabled</option>
+                                    <option value="1">1 - Aggressive</option>
+                                    <option value="2" selected>2 - Default</option>
+                                    <option value="3">3 - Gentle</option>
                                 </select>
                             </div>
-
-                            <!-- Gemini -->
-                            <div class="provider-section" data-provider="gemini" style="display:none">
-                                <div class="form-row">
-                                    <label>API Key</label>
-                                    <div class="input-with-action">
-                                        <input type="password" id="gemini-api-key" placeholder="AIza...">
-                                        <button class="icon-btn" id="toggle-gemini-key">
-                                            <span class="material-icons-round">visibility_off</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <label>Base URL</label>
-                                    <input type="text" id="gemini-base-url">
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="gemini-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-gemini-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Ollama -->
-                            <div class="provider-section" data-provider="ollama" style="display:none">
-                                <div class="form-row">
-                                    <label>Base URL</label>
-                                    <input type="text" id="ollama-url" placeholder="http://localhost:11434">
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="ollama-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-ollama-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- OpenRouter -->
-                            <div class="provider-section" data-provider="openrouter" style="display:none">
-                                <div class="form-row">
-                                    <label>API Key</label>
-                                    <div class="input-with-action">
-                                        <input type="password" id="openrouter-api-key" placeholder="sk-or-...">
-                                        <button class="icon-btn" id="toggle-openrouter-key">
-                                            <span class="material-icons-round">visibility_off</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="openrouter-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-openrouter-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Z.AI -->
-                            <div class="provider-section" data-provider="zai" style="display:none">
-                                <div class="form-row">
-                                    <label>API Key</label>
-                                    <div class="input-with-action">
-                                        <input type="password" id="zai-api-key" placeholder="API key...">
-                                        <button class="icon-btn" id="toggle-zai-key">
-                                            <span class="material-icons-round">visibility_off</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="zai-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-zai-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- SiliconFlow -->
-                            <div class="provider-section" data-provider="siliconflow" style="display:none">
-                                <div class="form-row">
-                                    <label>API Key</label>
-                                    <div class="input-with-action">
-                                        <input type="password" id="siliconflow-api-key" placeholder="sk-...">
-                                        <button class="icon-btn" id="toggle-siliconflow-key">
-                                            <span class="material-icons-round">visibility_off</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="siliconflow-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-siliconflow-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Groq -->
-                            <div class="provider-section" data-provider="groq" style="display:none">
-                                <div class="form-row">
-                                    <label>API Key</label>
-                                    <div class="input-with-action">
-                                        <input type="password" id="groq-api-key" placeholder="gsk_...">
-                                        <button class="icon-btn" id="toggle-groq-key">
-                                            <span class="material-icons-round">visibility_off</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="groq-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-groq-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- ChatGPT -->
-                            <div class="provider-section" data-provider="chatgpt" style="display:none">
-                                <div class="form-row">
-                                    <label>API Key</label>
-                                    <div class="input-with-action">
-                                        <input type="password" id="chatgpt-api-key" placeholder="sk-...">
-                                        <button class="icon-btn" id="toggle-chatgpt-key">
-                                            <span class="material-icons-round">visibility_off</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="chatgpt-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-chatgpt-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Claude -->
-                            <div class="provider-section" data-provider="claude" style="display:none">
-                                <div class="form-row">
-                                    <label>API Key</label>
-                                    <div class="input-with-action">
-                                        <input type="password" id="claude-api-key" placeholder="sk-ant-...">
-                                        <button class="icon-btn" id="toggle-claude-key">
-                                            <span class="material-icons-round">visibility_off</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <label>Model</label>
-                                    <div class="input-with-action">
-                                        <select id="claude-model"><option value="">Select model...</option></select>
-                                        <button class="btn btn-sm" id="fetch-claude-models">Fetch</button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- LlamaCpp -->
-                            <div class="provider-section" data-provider="llamacpp" style="display:none">
-                                <div class="form-row">
-                                    <label>Base URL</label>
-                                    <input type="text" id="llamacpp-url" placeholder="http://localhost:8080">
-                                </div>
-                            </div>
-
-                            <!-- KoboldAI -->
-                            <div class="provider-section" data-provider="koboldai" style="display:none">
-                                <div class="form-row">
-                                    <label>Base URL</label>
-                                    <input type="text" id="koboldai-url" placeholder="http://localhost:5001">
+                            <div class="form-row">
+                                <label>LLM Temperature</label>
+                                <div class="range-row">
+                                    <input type="range" id="llm-temperature" min="0" max="2" step="0.1" value="0.7">
+                                    <span id="llm-temperature-val">0.7</span>
                                 </div>
                             </div>
                         </div>
 
                         <!-- MCP Tools -->
-                        <div class="settings-card mcp-card">
+                         <div class="settings-card">
                             <h3><span class="material-icons-round">extension</span> Tools</h3>
                             <div class="mcp-toggle-list" id="mcp-toggle-list">
                                 <p class="muted">Loading...</p>
@@ -567,6 +601,57 @@
                             <div class="tools-grid" id="tools-grid">
                                 <p class="muted">Loading...</p>
                             </div>
+                        </div>
+
+                        <!-- Data Management -->
+                        <div class="settings-card" id="data-card">
+                            <h3><span class="material-icons-round">database</span> Data</h3>
+
+                            <!-- Relationship -->
+                            <details class="data-details">
+                                <summary>Relationship <span class="muted" id="rel-stage-label">—</span></summary>
+                                <div id="relationship-display">
+                                    <p class="muted">Loading...</p>
+                                </div>
+                            </details>
+
+                            <!-- Stored Facts -->
+                            <details class="data-details">
+                                <summary>Stored Facts <span class="muted" id="facts-count"></span></summary>
+                                <div id="facts-list">
+                                    <p class="muted">Loading...</p>
+                                </div>
+                            </details>
+
+                            <!-- Sessions -->
+                            <details class="data-details">
+                                <summary>Conversation Sessions <span class="muted" id="sessions-count"></span></summary>
+                                <div id="sessions-list">
+                                    <p class="muted">Loading...</p>
+                                </div>
+                            </details>
+
+                            <!-- Vault Files -->
+                            <details class="data-details">
+                                <summary>Vault Files <span class="muted" id="vault-count"></span></summary>
+                                <div id="vault-files-list">
+                                    <p class="muted">Loading...</p>
+                                </div>
+                            </details>
+
+                            <!-- Rules -->
+                            <details class="data-details">
+                                <summary>Persistent Rules</summary>
+                                <textarea id="rules-editor" rows="4" placeholder="Loading..."></textarea>
+                                <button class="btn btn-sm" id="save-rules-btn" style="margin-top:0.5rem">Save Rules</button>
+                            </details>
+                        </div>
+
+                        <!-- Instructions Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">psychology</span> Additional Instructions</h3>
+                            <p class="help-text">Added on top of the character's personality. Leave empty for default.</p>
+                            <textarea id="custom-system-prompt" rows="3" placeholder="Extra instructions to add to every conversation..."></textarea>
                         </div>
                     </div>
 

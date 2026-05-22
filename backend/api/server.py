@@ -21,11 +21,12 @@ from backend .core .llm_router import LLMRouter
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .agent import Agent 
+from backend .core .relationship import Relationship 
 from backend .mcp .client import MCPClient 
 from backend .voice .tts import TTS 
 from backend .voice .pipeline import VoicePipeline 
 
-logging .basicConfig (level =logging .INFO ,format ='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging .basicConfig (level =logging .WARNING ,format ='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger =logging .getLogger (__name__ )
 
 
@@ -37,6 +38,7 @@ _shared ={
 "mcp":None ,
 "tts":None ,
 "agent":None ,
+"relationship":None ,
 }
 
 
@@ -66,6 +68,8 @@ def get_shared ():
         if elevenlabs_key :
             elevenlabs_model =_shared ["settings"].get ("voice.elevenlabs.model","eleven_multilingual_v2")
             _shared ["tts"].configure_elevenlabs (elevenlabs_key ,elevenlabs_model )
+    if _shared ["relationship"]is None :
+        _shared ["relationship"]=Relationship ()
     if _shared ["agent"]is None :
         _shared ["agent"]=Agent (
         mcp_client =_shared ["mcp"],
@@ -86,6 +90,7 @@ def context_builder ():return get_shared ()["context_builder"]
 def mcp ():return get_shared ()["mcp"]
 def tts ():return get_shared ()["tts"]
 def agent ():return get_shared ()["agent"]
+def relationship ():return get_shared ()["relationship"]
 
 
 app =FastAPI (title ="Amalgam")
@@ -154,7 +159,7 @@ async def _generate_missing_icons ():
             missing .append (d )
     if not missing :
         return 
-    logger .info (f"Missing icons for {len (missing )} character(s): {', '.join (missing )}")
+    logger .debug (f"Missing icons for {len (missing )} character(s): {', '.join (missing )}")
 
 
     import shutil 
@@ -170,7 +175,7 @@ async def _generate_missing_icons ():
             )
             stdout ,stderr =await asyncio .wait_for (proc .communicate (),timeout =300 )
             if proc .returncode ==0 :
-                logger .info ("VRM icon generation complete")
+                logger .debug ("VRM icon generation complete")
                 return 
             else :
                 logger .warning (f"VRM icon generation failed (exit {proc .returncode })")
@@ -205,13 +210,13 @@ def _generate_missing_icons_sync ():
                     data =yaml .safe_load (f )or {}
                 name =data .get ('name',char_dir )
             except Exception :
-                pass 
+                logger .debug ("Could not parse character index %s",index_path )
         letter =name [0 ].upper ()if name else '?'
         color =PALETTE [idx %len (PALETTE )]
         if _generate_letter_icon (name ,letter ,color ,icon_path ):
             generated +=1 
     if generated :
-        logger .info (f"Generated {generated } character icon(s)")
+        logger .debug (f"Generated {generated } character icon(s)")
 
 
 async def _delayed_startup_tasks ():
@@ -224,18 +229,18 @@ async def _delayed_startup_tasks ():
 
 @app .on_event ("startup")
 async def startup ():
-    logger .info ("Starting Amalgam backend...")
+    logger .warning ("Starting Amalgam backend...")
     asyncio .create_task (_delayed_startup_tasks ())
 
     memory ().start_session ()
 
     engine =settings ().get ("voice.engine","edge-tts")
     if engine =="openvoice":
-        logger .info ("Preloading OpenVoice TTS engine...")
+        logger .debug ("Preloading OpenVoice TTS engine...")
         try :
             loop =asyncio .get_event_loop ()
             await loop .run_in_executor (None ,tts ().get_openvoice_loaded )
-            logger .info ("OpenVoice TTS engine ready")
+            logger .debug ("OpenVoice TTS engine ready")
         except Exception as e :
             logger .warning (f"OpenVoice preload failed: {e }")
 
@@ -337,7 +342,7 @@ async def update_settings (body :dict ):
         char_id =body ["character"]["active"]
         chars =settings ().get_characters ()
         if char_id in chars :
-            logger .info (f"Character switched to {chars [char_id ].get ('name',char_id )}")
+            logger .debug (f"Character switched to {chars [char_id ].get ('name',char_id )}")
 
     return {"status":"ok","voice":tts ().voice }
 
@@ -488,7 +493,7 @@ async def regenerate_icons ():
     vrm_script =os .path .join (project_root ,"scripts","generate-icons-vrm.js")
     if node and os .path .exists (vrm_script ):
         try :
-            logger .info ("Running VRM icon generation...")
+            logger .debug ("Running VRM icon generation...")
             proc =await asyncio .create_subprocess_exec (
             node ,vrm_script ,"--all",
             stdout =asyncio .subprocess .PIPE ,
@@ -498,7 +503,7 @@ async def regenerate_icons ():
             stdout ,stderr =await asyncio .wait_for (proc .communicate (),timeout =300 )
             vrm_output =stdout .decode ()+stderr .decode ()
             vrm_ok =proc .returncode ==0 
-            logger .info (f"VRM icon gen result (ok={vrm_ok }): {vrm_output }")
+            logger .debug (f"VRM icon gen result (ok={vrm_ok }): {vrm_output }")
         except Exception as e :
             logger .error (f"VRM icon generation crashed: {e }")
 
@@ -616,6 +621,27 @@ async def new_session ():
 
 
 
+@app .get ("/api/facts")
+async def get_facts (category :str =None ,limit :int =100 ):
+    facts =memory ().get_facts (category =category ,limit =limit )
+    return {"facts":facts }
+
+@app .delete ("/api/facts/{fact_id}")
+async def delete_fact (fact_id :int ):
+    memory ().delete_fact (fact_id )
+    return {"status":"ok"}
+
+
+
+
+@app .get ("/api/relationship/{character_id}")
+async def get_relationship (character_id :str ):
+    stats =relationship ().get_stats (character_id )
+    return {"character_id":character_id ,**stats }
+
+
+
+
 async def _synthesize_now (text :str ,ws :WebSocket ):
     """Synthesize TTS for text and send audio directly (used by speak button)."""
     import base64 ,struct 
@@ -654,7 +680,7 @@ async def _synthesize_now (text :str ,ws :WebSocket ):
             "type":"tts_audio","audio":b64 ,"format":"wav",
             "duration":round (duration ,2 ),"sentence_idx":0 ,"emotion":"neutral"
             })
-            logger .info (f"Speak TTS: sent {duration :.2f}s audio")
+            logger .debug (f"Speak TTS: sent {duration :.2f}s audio")
         else :
             logger .warning ("Speak TTS: empty audio")
     except asyncio .TimeoutError :
@@ -665,7 +691,7 @@ async def _synthesize_now (text :str ,ws :WebSocket ):
 @app .websocket ("/ws/chat")
 async def ws_chat (websocket :WebSocket ):
     await websocket .accept ()
-    logger .info ("Chat WebSocket connected")
+    logger .warning ("Chat WebSocket connected")
     voice_output_enabled =False 
     voice_pipeline =None 
     voice_task =None 
@@ -680,60 +706,70 @@ async def ws_chat (websocket :WebSocket ):
                 cmd =data .get ("command","")
                 if cmd in ("voice_output_on","voice_on"):
                     voice_output_enabled =True 
-                    logger .info ("Voice output enabled by client")
+                    logger .warning ("Voice output enabled by client")
                     await websocket .send_json ({"type":"voice_state","state":"idle"})
                 elif cmd in ("voice_output_off","voice_off"):
                     voice_output_enabled =False 
-                    logger .info ("Voice output disabled by client")
+                    logger .warning ("Voice output disabled by client")
                     await websocket .send_json ({"type":"voice_state","state":"idle"})
                 elif cmd =="voice_input_on":
-                    if voice_pipeline is None :
-                        _main_loop =asyncio .get_running_loop ()
-                        def on_transcription (text ):
-                            """Callback from VoicePipeline thread — fire-and-forget to websocket."""
-                            try :
-                                asyncio .run_coroutine_threadsafe (
-                                websocket .send_json ({"type":"user_message_from_voice","text":text }),
-                                _main_loop 
-                                )
-                            except Exception as e :
-                                logger .warning (f"Voice transcription send failed: {e }")
-                        stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
-                        voice_pipeline =VoicePipeline (agent_callback =on_transcription ,stt_engine =stt_engine )
+                    stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
+                    if stt_engine =="browser":
 
-                        if stt_engine =="openai-whisper":
-                            whisper_key =settings ().get ("voice.openai_whisper.api_key","")
-                            if whisper_key :
-                                whisper_model =settings ().get ("voice.openai_whisper.model","whisper-1")
-                                voice_pipeline .configure_openai_stt (whisper_key ,whisper_model )
-                        elif stt_engine =="groq-whisper":
-                            groq_key =settings ().get ("voice.groq_whisper.api_key","")
-                            if groq_key :
-                                groq_model =settings ().get ("voice.groq_whisper.model","whisper-large-v3")
-                                groq_url =settings ().get ("voice.groq_whisper.base_url",None )
-                                voice_pipeline .configure_groq_stt (groq_key ,groq_model ,groq_url )
-                        elif stt_engine =="whispercpp":
-                            wcpp_url =settings ().get ("voice.whispercpp.url",None )
-                            voice_pipeline .configure_whispercpp_stt (wcpp_url )
-                    if voice_task is None or voice_task .done ():
-                        if voice_task and voice_task .exception ():
-                            logger .error (f"Previous voice task failed: {voice_task .exception ()}")
-                        voice_task =asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
-                    await websocket .send_json ({"type":"voice_state","state":"recording"})
-                    logger .info ("Voice input started")
+                        await websocket .send_json ({"type":"voice_state","state":"recording"})
+                        logger .warning ("Voice input started (browser STT)")
+                    else :
+                        if voice_pipeline is None :
+                            _main_loop =asyncio .get_running_loop ()
+                            def on_transcription (text ):
+                                """Callback from VoicePipeline thread — fire-and-forget to websocket."""
+                                try :
+                                    asyncio .run_coroutine_threadsafe (
+                                    websocket .send_json ({"type":"user_message_from_voice","text":text }),
+                                    _main_loop 
+                                    )
+                                except Exception as e :
+                                    logger .warning (f"Voice transcription send failed: {e }")
+                            voice_pipeline =VoicePipeline (agent_callback =on_transcription ,stt_engine =stt_engine )
+
+                            if stt_engine =="openai-whisper":
+                                whisper_key =settings ().get ("voice.openai_whisper.api_key","")
+                                if whisper_key :
+                                    whisper_model =settings ().get ("voice.openai_whisper.model","whisper-1")
+                                    voice_pipeline .configure_openai_stt (whisper_key ,whisper_model )
+                            elif stt_engine =="groq-whisper":
+                                groq_key =settings ().get ("voice.groq_whisper.api_key","")
+                                if groq_key :
+                                    groq_model =settings ().get ("voice.groq_whisper.model","whisper-large-v3")
+                                    groq_url =settings ().get ("voice.groq_whisper.base_url",None )
+                                    voice_pipeline .configure_groq_stt (groq_key ,groq_model ,groq_url )
+                            elif stt_engine =="whispercpp":
+                                wcpp_url =settings ().get ("voice.whispercpp.url",None )
+                                voice_pipeline .configure_whispercpp_stt (wcpp_url )
+                        if voice_task is None or voice_task .done ():
+                            if voice_task and voice_task .exception ():
+                                logger .error (f"Previous voice task failed: {voice_task .exception ()}")
+                            voice_task =asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
+                        await websocket .send_json ({"type":"voice_state","state":"recording"})
+                        logger .warning ("Voice input started")
                 elif cmd =="voice_input_off":
-                    if voice_pipeline :
-                        voice_pipeline .stop_listening ()
-                    if voice_task and not voice_task .done ():
-                        voice_task .cancel ()
-                        voice_task =None 
-                    voice_pipeline =None 
-                    await websocket .send_json ({"type":"voice_state","state":"idle"})
-                    logger .info ("Voice input stopped")
+                    stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
+                    if stt_engine =="browser":
+                        await websocket .send_json ({"type":"voice_state","state":"idle"})
+                        logger .warning ("Voice input stopped (browser STT)")
+                    else :
+                        if voice_pipeline :
+                            voice_pipeline .stop_listening ()
+                        if voice_task and not voice_task .done ():
+                            voice_task .cancel ()
+                            voice_task =None 
+                        voice_pipeline =None 
+                        await websocket .send_json ({"type":"voice_state","state":"idle"})
+                        logger .warning ("Voice input stopped")
                 elif cmd =="speak":
                     speak_text =data .get ("text","").strip ()
                     if speak_text :
-                        logger .info (f"Speak command: {speak_text [:50 ]}")
+                        logger .debug (f"Speak command: {speak_text [:50 ]}")
                         asyncio .create_task (_synthesize_now (speak_text ,websocket ))
                 continue 
 
@@ -789,7 +825,7 @@ async def ws_chat (websocket :WebSocket ):
                         try :
 
                             if stream_id !=_stream_idx :
-                                logger .info (f"TTS sentence {idx }: skipped (stale stream)")
+                                logger .debug (f"TTS sentence {idx }: skipped (stale stream)")
                                 return 
                             char =settings ().get_active_character ()
                             ref_audio =None 
@@ -811,7 +847,7 @@ async def ws_chat (websocket :WebSocket ):
                             timeout =60.0 
                             )
                             audio_np ,_ ,sr =result 
-                            logger .info (f"TTS sentence {idx }: {len (audio_np )} samples, sr={sr }")
+                            logger .debug (f"TTS sentence {idx }: {len (audio_np )} samples, sr={sr }")
                             if len (audio_np )>0 :
                                 pcm =(audio_np *32767 ).astype ("int16").tobytes ()
                                 data_size =len (pcm )
@@ -833,7 +869,7 @@ async def ws_chat (websocket :WebSocket ):
                                 "sentence_idx":idx ,
                                 "emotion":emotion 
                                 })
-                                logger .info (f"TTS sentence {idx }: sent {duration :.2f}s audio (emotion={emotion })")
+                                logger .debug (f"TTS sentence {idx }: sent {duration :.2f}s audio (emotion={emotion })")
                             else :
                                 logger .warning (f"TTS sentence {idx }: empty audio")
                         except asyncio .TimeoutError :
@@ -844,7 +880,15 @@ async def ws_chat (websocket :WebSocket ):
 
                     tts_tasks =[]
 
-                    async for item in agent ().handle_user_input (text ,images =images ):
+
+                    char_id =settings ().get ("character.active","amalgam")
+                    rel_context =relationship ().get_context_string (char_id )
+                    logger .debug (f"ws:user_message - calling agent.handle_user_input for char_id={char_id }, text={text [:50 ]}")
+
+                    item_count =0 
+                    async for item in agent ().handle_user_input (text ,images =images ,relationship_context =rel_context ):
+                        item_count +=1 
+                        logger .debug (f"ws:item received #{item_count }: {type (item ).__name__ } = {item [:50 ]if isinstance (item ,str )else item }")
 
                         if isinstance (item ,tuple )and item [0 ]=='__emotion__':
                             current_emotion =item [1 ]
@@ -873,6 +917,18 @@ async def ws_chat (websocket :WebSocket ):
                             except Exception :
                                 pass 
                             continue 
+
+                        if isinstance (item ,tuple )and item [0 ]=='__animation__':
+                            anim_name =item [1 ]
+                            try :
+                                anim_url =f"/characters/{char_id }/anim/{anim_name }.vrma"
+                                await websocket .send_json ({"type":"animation","name":anim_name ,"url":anim_url })
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
+                            continue 
+
 
                         if isinstance (item ,tuple )and item [0 ]=='__roleplay__':
                             rp_text =f"*{item [1 ]}* "
@@ -923,6 +979,15 @@ async def ws_chat (websocket :WebSocket ):
                                     sentence_idx +=1 
 
 
+                    if full_response .strip ():
+                        try :
+                            relationship ().analyze_message ("user",text ,char_id )
+                            relationship ().analyze_message ("assistant",full_response ,char_id )
+                            asyncio .create_task (memory ().extract_facts (text ,full_response .strip ()))
+                        except Exception as e :
+                            logger .warning (f"Relationship/fact tracking error: {e }")
+
+
                     try :
                         await websocket .send_json ({"type":"viseme","value":0.0 })
                     except WebSocketDisconnect :
@@ -951,7 +1016,7 @@ async def ws_chat (websocket :WebSocket ):
                             pass 
 
                 except Exception as e :
-                    logger .error (f"Agent error: {e }")
+                    logger .error (f"Agent error: {e }, item_count={item_count if 'item_count'in locals ()else 'unknown'}")
 
                     for t in tts_tasks :
                         if not t .done ():
@@ -1004,7 +1069,7 @@ async def ws_chat (websocket :WebSocket ):
                         pass 
 
     except WebSocketDisconnect :
-        logger .info ("Chat WebSocket disconnected")
+        logger .warning ("Chat WebSocket disconnected")
     except Exception as e :
         logger .error (f"WebSocket error: {e }")
     finally :

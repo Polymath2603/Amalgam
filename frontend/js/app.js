@@ -1,12 +1,16 @@
 
 let avatarRenderer = null;
 let avatarPreviewRenderer = null;
+let speechBubble = null;
 
+window.addEventListener('error', e => console.error('GLOBAL_ERROR:', e.message, e.filename, e.lineno));
 document.addEventListener('DOMContentLoaded', () => {
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
     const statusDot = document.getElementById('status-dot');
+    console.log('app:init - elements:', { chatMessages: !!chatMessages, chatInput: !!chatInput, sendBtn: !!sendBtn, statusDot: !!statusDot });
+    if (!sendBtn) console.warn('app:init - send-btn not found in DOM');
 
     
     let _animationMap = {};
@@ -48,6 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
         _mainAvatarCreated = true;
         try {
             avatarRenderer = new _avatarModule.AvatarRenderer(avatarContainer, _vrmPath);
+            
+            import('/static/js/speech-bubble.js').then(({ SpeechBubble }) => {
+                speechBubble = new SpeechBubble(avatarContainer, avatarRenderer);
+            });
         } catch(err) {
             console.error('Main avatar creation failed:', err);
             avatarContainer.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#e74c3c;font-size:0.8rem;gap:0.5rem;padding:1rem;text-align:center"><span class="material-icons-round" style="font-size:2rem">error</span><span>Avatar error: ${err.message || err}</span></div>`;
@@ -209,8 +217,16 @@ document.addEventListener('DOMContentLoaded', () => {
             statusDot.className = 'status-dot online';
             statusText.textContent = 'Connected';
             
+            loadHistory();
+            
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+                if (voiceInputEnabled && isBrowserStt()) {
+                    ws.send(JSON.stringify({ type: 'command', command: 'voice_input_on' }));
+                } else if (!voiceInputEnabled && isBrowserStt()) {
+                    ws.send(JSON.stringify({ type: 'command', command: 'voice_input_off' }));
+                } else {
+                    ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+                }
                 ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
             }
         };
@@ -306,6 +322,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 let cleanText = stripMarkers(data.text);
                 _appendStreamText(body, cleanText);
                 
+                _speechBubbleAccumulator += cleanText;
+                
                 const pending = _streamBuffer.get(body);
                 if (pending) {
                     body.textContent += pending;
@@ -337,6 +355,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (data.finished) {
                     _flushStreamBuffer();
+                    
+                    if (speechBubble && _speechBubbleAccumulator.trim()) {
+                        speechBubble.show(_speechBubbleAccumulator.trim(), 6000);
+                    }
+                    _speechBubbleAccumulator = '';
                     currentAssistantMessage = null;
                     lastUserMessage = null;
                     if (!isPlayingTTS) {
@@ -366,6 +389,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const expr = (data.expression || 'neutral').toLowerCase();
             if (avatarRenderer) avatarRenderer.setExpression(expr);
             if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression(expr);
+        } else if (data.type === 'animation' || data.type === '__animation__') {
+            
+            if (data.type === 'animation' && data.url && avatarRenderer) {
+                avatarRenderer.playAnimation(data.url);
+            } else if (data.type === '__animation__' && data.text && avatarRenderer) {
+                
+                const animationUrl = _animationMap[data.text.toLowerCase()];
+                if (animationUrl) {
+                    avatarRenderer.playAnimation(animationUrl);
+                }
+            }
         } else if (data.type === 'roleplay') {
             
             const text = data.text || '';
@@ -402,6 +436,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     
+    
+    let _speechBubbleAccumulator = '';
+
     let _sessionHasMessages = false;
     function updateSessionButtons() {
         document.getElementById('new-chat-btn').style.display = _sessionHasMessages ? '' : 'none';
@@ -498,8 +535,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function sendMessage() {
+        console.log('sendMessage called');
         const text = chatInput.value.trim();
-        if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+        console.log('Text:', text);
+        if (!text) return;
+        if (!ws) { console.warn('send: ws null'); showToast('Not connected', 'danger'); return; }
+        if (ws.readyState === WebSocket.CONNECTING) { console.warn('send: ws connecting'); showToast('Connecting...', 'danger'); return; }
+        if (ws.readyState !== WebSocket.OPEN) {
+            console.warn('send: ws state', ws.readyState);
+            showToast('Not connected (reconnecting...)', 'danger');
+            return;
+        }
         clearErrors();
         flushTTSQueue();
 
@@ -517,14 +563,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
         clearTimeout(_typingTimer);
         setStatus('ready');
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'command', command: 'stop_typing' }));
+        try { 
+            console.log('Sending stop_typing command');
+            ws.send(JSON.stringify({ type: 'command', command: 'stop_typing' })); 
+        } catch (e) { 
+            console.warn('send stop_typing:', e); 
+        }
+        console.log('Adding user message:', text);
         lastUserMessage = addMessage('user', text);
-        ws.send(JSON.stringify({ type: 'user_message', text }));
+        try { 
+            console.log('Sending user_message:', JSON.stringify({ type: 'user_message', text }));
+            ws.send(JSON.stringify({ type: 'user_message', text })); 
+        } catch (e) { 
+            console.warn('send user_message:', e); showToast('Send failed', 'danger'); 
+        }
         chatInput.value = '';
         chatInput.style.height = 'auto';
     }
 
-    sendBtn.addEventListener('click', sendMessage);
+    if (sendBtn) {
+        sendBtn.addEventListener('click', sendMessage);
+    } else {
+        console.warn('send-btn not found; using delegated click handler');
+    }
+    
+    const chatInputArea = document.querySelector('.chat-input-area');
+    if (chatInputArea) {
+        chatInputArea.addEventListener('click', (e) => {
+            if (e.target.closest && e.target.closest('#send-btn')) sendMessage();
+        });
+    }
     document.addEventListener('keydown', e => {
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
             const tag = e.target.tagName;
@@ -583,20 +651,111 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     
+    let browserSpeechRec = null;
+    let browserSpeechRestartTimer = null;
+
+    function isBrowserStt() {
+        return document.getElementById('stt-engine')?.value === 'browser';
+    }
+
+    function startBrowserSpeechRec() {
+        if (browserSpeechRec) return;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            showToast('Speech Recognition not supported in this browser. Try Chrome.', 'danger');
+            return;
+        }
+        browserSpeechRec = new SpeechRecognition();
+        browserSpeechRec.continuous = true;
+        browserSpeechRec.interimResults = true;
+        browserSpeechRec.lang = 'en-US';
+
+        browserSpeechRec.onresult = (event) => {
+            let finalText = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                if (event.results[i].isFinal) {
+                    finalText += event.results[i][0].transcript;
+                }
+            }
+            if (finalText.trim() && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'user_message', text: finalText.trim() }));
+            }
+        };
+
+        browserSpeechRec.onerror = (event) => {
+            console.warn('Browser SpeechRecognition error:', event.error);
+            if (event.error === 'not-allowed') {
+                showToast('Microphone access denied. Check browser permissions.', 'danger');
+                stopBrowserSpeechRec();
+            } else if (event.error === 'aborted') {
+                
+            } else if (event.error === 'no-speech') {
+                
+            } else {
+                showToast(`Speech recognition error: ${event.error}`, 'danger');
+            }
+        };
+
+        browserSpeechRec.onend = () => {
+            
+            if (voiceInputEnabled && isBrowserStt()) {
+                browserSpeechRestartTimer = setTimeout(() => {
+                    if (voiceInputEnabled && isBrowserStt()) {
+                        try { browserSpeechRec?.start(); } catch (_) {}
+                    }
+                }, 300);
+            }
+        };
+
+        try {
+            browserSpeechRec.start();
+        } catch (e) {
+            console.warn('Browser SpeechRecognition start failed:', e);
+        }
+    }
+
+    function stopBrowserSpeechRec() {
+        if (browserSpeechRestartTimer) {
+            clearTimeout(browserSpeechRestartTimer);
+            browserSpeechRestartTimer = null;
+        }
+        if (browserSpeechRec) {
+            try { browserSpeechRec.stop(); } catch (_) {}
+            browserSpeechRec = null;
+        }
+    }
+
+    
     const voiceInputToggle = document.getElementById('voice-input-toggle');
     const voiceOutputToggle = document.getElementById('voice-output-toggle');
     const voiceInputToggleSettings = document.getElementById('voice-input-toggle-settings');
     const voiceOutputToggleSettings = document.getElementById('voice-output-toggle-settings');
 
-    voiceInputToggle.addEventListener('click', () => {
+    function toggleVoiceInput() {
         voiceInputEnabled = !voiceInputEnabled;
         voiceInputToggle.querySelector('.material-icons-round').textContent = voiceInputEnabled ? 'mic' : 'mic_off';
         voiceInputToggle.classList.toggle('active', voiceInputEnabled);
         if (voiceInputToggleSettings) {
             voiceInputToggleSettings.checked = voiceInputEnabled;
         }
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+        if (voiceInputEnabled && isBrowserStt()) {
+            startBrowserSpeechRec();
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'command', command: 'voice_input_on' }));
+            }
+        } else {
+            if (isBrowserStt()) {
+                stopBrowserSpeechRec();
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'command', command: 'voice_input_off' }));
+                }
+            } else {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+                }
+            }
         }
         fetch('/api/settings/set', {
             method: 'POST',
@@ -604,7 +763,9 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({ key: 'ui.voice_input', value: voiceInputEnabled })
         });
         showToast(voiceInputEnabled ? 'Voice input on' : 'Voice input off');
-    });
+    }
+
+    voiceInputToggle.addEventListener('click', toggleVoiceInput);
 
     voiceOutputToggle.addEventListener('click', () => {
         voiceOutputEnabled = !voiceOutputEnabled;
@@ -629,8 +790,22 @@ document.addEventListener('DOMContentLoaded', () => {
             voiceInputEnabled = voiceInputToggleSettings.checked;
             voiceInputToggle.querySelector('.material-icons-round').textContent = voiceInputEnabled ? 'mic' : 'mic_off';
             voiceInputToggle.classList.toggle('active', voiceInputEnabled);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+            if (voiceInputEnabled && isBrowserStt()) {
+                startBrowserSpeechRec();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'command', command: 'voice_input_on' }));
+                }
+            } else {
+                if (isBrowserStt()) {
+                    stopBrowserSpeechRec();
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'command', command: 'voice_input_off' }));
+                    }
+                } else {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+                    }
+                }
             }
             fetch('/api/settings/set', {
                 method: 'POST',
@@ -777,6 +952,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         loadHistory();
+        
+        [2000, 4000, 8000].forEach(delay => setTimeout(() => loadHistory(), delay));
     }
 
     function applyTheme(theme) {
@@ -823,15 +1000,30 @@ document.addEventListener('DOMContentLoaded', () => {
         setOpt('ollama-model', d.provider?.ollama?.model);
         
         document.getElementById('openrouter-api-key').value = d.provider?.openrouter?.api_key || '';
+        setVal('openrouter-base-url', d.provider?.openrouter?.base_url);
         setOpt('openrouter-model', d.provider?.openrouter?.model);
         document.getElementById('zai-api-key').value = d.provider?.zai?.api_key || '';
+        setVal('zai-base-url', d.provider?.zai?.base_url);
         setOpt('zai-model', d.provider?.zai?.model);
         document.getElementById('siliconflow-api-key').value = d.provider?.siliconflow?.api_key || '';
+        setVal('siliconflow-base-url', d.provider?.siliconflow?.base_url);
         setOpt('siliconflow-model', d.provider?.siliconflow?.model);
         document.getElementById('groq-api-key').value = d.provider?.groq?.api_key || '';
+        setVal('groq-base-url', d.provider?.groq?.base_url);
         setOpt('groq-model', d.provider?.groq?.model);
         document.getElementById('chatgpt-api-key').value = d.provider?.chatgpt?.api_key || '';
+        setVal('chatgpt-base-url', d.provider?.chatgpt?.base_url);
         setOpt('chatgpt-model', d.provider?.chatgpt?.model);
+        document.getElementById('claude-api-key').value = d.provider?.claude?.api_key || '';
+        setVal('claude-base-url', d.provider?.claude?.base_url);
+        setOpt('claude-model', d.provider?.claude?.model);
+
+        
+        const temp = d.llm?.temperature ?? 0.7;
+        const tempSlider = document.getElementById('llm-temperature');
+        if (tempSlider) { tempSlider.value = temp; document.getElementById('llm-temperature-val').textContent = temp; }
+        const vadEl = document.getElementById('vad-mode');
+        if (vadEl) vadEl.value = d.voice?.vad_mode ?? 2;
 
         
         document.getElementById('custom-system-prompt').value = d.character?.system_prompt || '';
@@ -841,7 +1033,35 @@ document.addEventListener('DOMContentLoaded', () => {
         const engineEl = document.getElementById('tts-engine');
         if (engineEl) { engineEl.value = d.voice?.engine || 'edge-tts'; showTtsSection(engineEl.value); }
         const sttEngineEl = document.getElementById('stt-engine');
-        if (sttEngineEl) { const v = d.provider?.stt?.engine || 'faster-whisper'; sttEngineEl.value = v; showSttSection(v); }
+        if (sttEngineEl) { const v = d.voice?.stt_engine || 'browser'; sttEngineEl.value = v; showSttSection(v); }
+
+        
+        setVal('elevenlabs-api-key', d.voice?.elevenlabs?.api_key);
+        setVal('elevenlabs-model', d.voice?.elevenlabs?.model);
+        setVal('elevenlabs-voice-id', d.voice?.elevenlabs?.voice_id);
+        setVal('openai-tts-api-key', d.voice?.openai_tts?.api_key);
+        setVal('openai-tts-model', d.voice?.openai_tts?.model);
+        setOpt('openai-tts-voice', d.voice?.openai_tts?.voice);
+        setVal('alltalk-url', d.voice?.alltalk?.url);
+        setVal('alltalk-voice', d.voice?.alltalk?.voice);
+        setVal('alltalk-language', d.voice?.alltalk?.language);
+        setVal('alltalk-version', d.voice?.alltalk?.version);
+        setVal('alltalk-rvc-voice', d.voice?.alltalk?.rvc_voice);
+        setVal('alltalk-rvc-pitch', d.voice?.alltalk?.rvc_pitch);
+        setVal('piper-url', d.voice?.piper?.url);
+        setVal('coqui-url', d.voice?.coqui_local?.url);
+        setVal('coqui-speaker-id', d.voice?.coqui_local?.speaker_id);
+        setVal('kokoro-url', d.voice?.kokoro?.url);
+        setVal('kokoro-voice', d.voice?.kokoro?.voice);
+
+        
+        setVal('openai-whisper-api-key', d.voice?.openai_whisper?.api_key);
+        setVal('openai-whisper-model', d.voice?.openai_whisper?.model);
+        setVal('groq-whisper-api-key', d.voice?.groq_whisper?.api_key);
+        setVal('groq-whisper-model', d.voice?.groq_whisper?.model);
+        setVal('groq-whisper-base-url', d.voice?.groq_whisper?.base_url);
+        setVal('whispercpp-url', d.voice?.whispercpp?.url);
+        setVal('faster-whisper-model', d.voice?.faster_whisper?.model);
 
         
         voiceInputEnabled = d.ui?.voice_input ?? true;
@@ -854,8 +1074,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (voiceOutputToggleSettings) voiceOutputToggleSettings.checked = voiceOutputEnabled;
         
         if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+            if (voiceInputEnabled && isBrowserStt()) {
+                ws.send(JSON.stringify({ type: 'command', command: 'voice_input_on' }));
+            } else if (!voiceInputEnabled && isBrowserStt()) {
+                ws.send(JSON.stringify({ type: 'command', command: 'voice_input_off' }));
+            } else {
+                ws.send(JSON.stringify({ type: 'command', command: voiceInputEnabled ? 'voice_input_on' : 'voice_input_off' }));
+            }
             ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
+        }
+        
+        if (voiceInputEnabled && isBrowserStt()) {
+            startBrowserSpeechRec();
+        } else if (isBrowserStt()) {
+            stopBrowserSpeechRec();
         }
 
         
@@ -889,6 +1121,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const chars = await api('/api/characters');
         const charName = chars?.[charId]?.name || (charId.charAt(0).toUpperCase() + charId.slice(1));
         setCharacterAvatar(charName);
+    }
+
+    function setVal(id, val) {
+        const el = document.getElementById(id);
+        if (el && val) el.value = val;
     }
 
     function setOpt(id, val) {
@@ -990,7 +1227,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="material-icons-round mcp-status-icon ${iconClass}">${icon}</span>
                         <div>
                             <strong>${s.name}</strong>
-                            <span class="muted">${s.command} ${(s.args || []).join(' ')}</span>
+                            <span class="muted">${(() => { const c = s.command + ' ' + (s.args || []).join(' '); return c.length > 40 ? c.slice(0, 40) + '...' : c; })()}</span>
                         </div>
                     </div>
                     <label class="toggle">
@@ -1028,7 +1265,7 @@ document.addEventListener('DOMContentLoaded', () => {
             enabledTools.forEach(t => {
                 const card = document.createElement('div');
                 card.className = 'tool-card';
-                const desc = (t.description || '').length > 100 ? (t.description || '').slice(0, 100) + '...' : (t.description || '');
+                const desc = (t.description || '').length > 40 ? (t.description || '').slice(0, 40) + '...' : (t.description || '');
                 card.innerHTML = `<strong>${t.name}</strong><p>${desc}</p>`;
                 grid.appendChild(card);
             });
@@ -1117,7 +1354,9 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({
                 voice: {
                     engine: document.getElementById('tts-engine').value,
+                    stt_engine: document.getElementById('stt-engine')?.value || 'browser',
                     lipsync_enabled: document.getElementById('lipsync-toggle').checked,
+                    vad_mode: parseInt(document.getElementById('vad-mode')?.value || 2),
                     elevenlabs: {
                         api_key: document.getElementById('elevenlabs-api-key').value,
                         model: document.getElementById('elevenlabs-model').value,
@@ -1131,7 +1370,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     alltalk: {
                         url: document.getElementById('alltalk-url').value,
                         voice: document.getElementById('alltalk-voice').value,
-                        language: document.getElementById('alltalk-language').value
+                        language: document.getElementById('alltalk-language').value,
+                        version: document.getElementById('alltalk-version')?.value || 'v2',
+                        rvc_voice: document.getElementById('alltalk-rvc-voice')?.value || '',
+                        rvc_pitch: document.getElementById('alltalk-rvc-pitch')?.value || '0'
                     },
                     piper: { url: document.getElementById('piper-url').value },
                     coqui_local: {
@@ -1141,7 +1383,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     kokoro: {
                         url: document.getElementById('kokoro-url').value,
                         voice: document.getElementById('kokoro-voice').value
+                    },
+                    openai_whisper: {
+                        api_key: "REDACTED").value,
+                        model: document.getElementById('openai-whisper-model')?.value || 'whisper-1'
+                    },
+                    groq_whisper: {
+                        api_key: "REDACTED").value,
+                        model: document.getElementById('groq-whisper-model')?.value || 'whisper-large-v3',
+                        base_url: document.getElementById('groq-whisper-base-url')?.value || 'https:
+                    },
+                    whispercpp: { url: document.getElementById('whispercpp-url').value },
+                    faster_whisper: {
+                        model: document.getElementById('faster-whisper-model')?.value || 'base'
                     }
+                },
+                llm: {
+                    temperature: parseFloat(document.getElementById('llm-temperature')?.value || 0.7)
                 },
                 ui: {
                     theme: document.getElementById('theme-select').value,
@@ -1165,44 +1423,38 @@ document.addEventListener('DOMContentLoaded', () => {
                     openrouter: {
                         api_key: document.getElementById('openrouter-api-key').value,
                         model: document.getElementById('openrouter-model').value,
-                        base_url: 'https:
+                        base_url: document.getElementById('openrouter-base-url')?.value || 'https:
                     },
                     zai: {
                         api_key: document.getElementById('zai-api-key').value,
                         model: document.getElementById('zai-model').value,
-                        base_url: 'https:
+                        base_url: document.getElementById('zai-base-url')?.value || 'https:
                     },
                     siliconflow: {
                         api_key: document.getElementById('siliconflow-api-key').value,
                         model: document.getElementById('siliconflow-model').value,
-                        base_url: 'https:
+                        base_url: document.getElementById('siliconflow-base-url')?.value || 'https:
                     },
                     groq: {
                         api_key: document.getElementById('groq-api-key').value,
                         model: document.getElementById('groq-model').value,
-                        base_url: 'https:
+                        base_url: document.getElementById('groq-base-url')?.value || 'https:
                     },
                     chatgpt: {
                         api_key: document.getElementById('chatgpt-api-key').value,
                         model: document.getElementById('chatgpt-model').value,
-                        base_url: 'https:
+                        base_url: document.getElementById('chatgpt-base-url')?.value || 'https:
                     },
                     claude: {
                         api_key: document.getElementById('claude-api-key').value,
                         model: document.getElementById('claude-model').value,
-                        base_url: 'https:
+                        base_url: document.getElementById('claude-base-url')?.value || 'https:
                     },
                     llamacpp: {
                         base_url: document.getElementById('llamacpp-url').value
                     },
                     koboldai: {
                         base_url: document.getElementById('koboldai-url').value
-                    },
-                    stt: {
-                        engine: document.getElementById('stt-engine')?.value || 'faster-whisper',
-                        openai_whisper: { api_key: "REDACTED").value },
-                        groq_whisper: { api_key: "REDACTED").value },
-                        whispercpp: { url: document.getElementById('whispercpp-url').value }
                     }
                 },
                 mcp: { servers: mcpServersCache }
@@ -1222,6 +1474,163 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     
+    const tempSlider = document.getElementById('llm-temperature');
+    if (tempSlider) {
+        tempSlider.addEventListener('input', function () {
+            document.getElementById('llm-temperature-val').textContent = this.value;
+        });
+    }
+
+    
+    async function loadRelationship() {
+        const charId = (await api('/api/settings'))?.character?.active || 'amalgam';
+        const data = await api(`/api/relationship/${charId}`);
+        const container = document.getElementById('relationship-display');
+        const label = document.getElementById('rel-stage-label');
+        if (!container) return;
+        if (!data || data.error) {
+            container.innerHTML = '<p class="muted">No relationship data yet.</p>';
+            if (label) label.textContent = '';
+            return;
+        }
+        if (label) label.textContent = data.stage || '';
+        container.innerHTML = `
+            <div class="rel-stat"><span class="rel-stat-label">Stage</span><span>${data.stage || 'stranger'}</span></div>
+            <div class="rel-stat"><span class="rel-stat-label">Interactions</span><span>${data.interaction_count || 0}</span></div>
+            <div class="rel-stat"><span class="rel-stat-label">Sentiment</span><span>${data.avg_sentiment ?? 0.5}</span></div>
+            <div class="rel-stat"><span class="rel-stat-label">Depth</span><span>${data.avg_depth ?? 0}</span></div>
+            <div class="rel-stat"><span class="rel-stat-label">User words</span><span>${data.total_words_user || 0}</span></div>
+            <div class="rel-stat"><span class="rel-stat-label">Assistant words</span><span>${data.total_words_assistant || 0}</span></div>
+        `;
+    }
+
+    async function loadFacts() {
+        const data = await api('/api/facts?limit=100');
+        const container = document.getElementById('facts-list');
+        const count = document.getElementById('facts-count');
+        if (!container) return;
+        const facts = data?.facts || [];
+        if (count) count.textContent = `(${facts.length})`;
+        if (facts.length === 0) {
+            container.innerHTML = '<p class="muted">No facts stored yet.</p>';
+            return;
+        }
+        container.innerHTML = facts.map(f => `
+            <div class="data-fact-item">
+                <span class="data-fact-text">${escHtml(f.fact)}</span>
+                <span class="data-fact-meta">${f.category} (${f.importance})</span>
+                <span class="data-fact-delete" data-id="${f.id}">delete</span>
+            </div>
+        `).join('');
+        container.querySelectorAll('.data-fact-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                await api(`/api/facts/${btn.dataset.id}`, { method: 'DELETE' });
+                loadFacts();
+                showToast('Fact deleted');
+            });
+        });
+    }
+
+    async function loadSessions() {
+        const data = await api('/api/memory/sessions');
+        const container = document.getElementById('sessions-list');
+        const count = document.getElementById('sessions-count');
+        if (!container) return;
+        const sessions = data?.sessions || [];
+        if (count) count.textContent = `(${sessions.length})`;
+        if (sessions.length === 0) {
+            container.innerHTML = '<p class="muted">No sessions yet.</p>';
+            return;
+        }
+        container.innerHTML = sessions.map(s => `
+            <div class="data-session-item">
+                <span>${escHtml(s.preview || s.id)}</span>
+                <span class="muted">${s.message_count || '?'} msgs</span>
+                <span class="data-session-delete" data-id="${s.id}">delete</span>
+            </div>
+        `).join('');
+        container.querySelectorAll('.data-session-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!confirm('Delete this session?')) return;
+                await api(`/api/memory/session/${btn.dataset.id}`, { method: 'DELETE' });
+                loadSessions();
+                loadHistory();
+                showToast('Session deleted');
+            });
+        });
+    }
+
+    async function loadVaultFiles() {
+        const data = await api('/api/vault/files');
+        const container = document.getElementById('vault-files-list');
+        const count = document.getElementById('vault-count');
+        if (!container) return;
+        const files = data?.files || [];
+        if (count) count.textContent = `(${files.length})`;
+        if (files.length === 0) {
+            container.innerHTML = '<p class="muted">No vault files.</p>';
+            return;
+        }
+        container.innerHTML = files.map(f => `
+            <div class="data-session-item">
+                <span>${escHtml(f.name)}</span>
+                <span class="muted">${f.size} bytes</span>
+            </div>
+        `).join('');
+    }
+
+    async function loadRules() {
+        const editor = document.getElementById('rules-editor');
+        if (!editor) return;
+        try {
+            const r = await fetch('/api/rules');
+            const data = await r.json();
+            editor.value = data?.rules || '';
+        } catch {
+            editor.value = 'Failed to load rules.';
+        }
+    }
+
+    const saveRulesBtn = document.getElementById('save-rules-btn');
+    if (saveRulesBtn) {
+        saveRulesBtn.addEventListener('click', async () => {
+            const editor = document.getElementById('rules-editor');
+            if (!editor) return;
+            await fetch('/api/rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rules: editor.value })
+            });
+            showToast('Rules saved');
+        });
+    }
+
+    
+    const settingsTab = document.getElementById('tab-settings');
+    if (settingsTab) {
+        const observer = new MutationObserver(() => {
+            if (settingsTab.classList.contains('active')) {
+                loadRelationship();
+                loadFacts();
+                loadSessions();
+                loadVaultFiles();
+                loadRules();
+                loadHistory(); 
+            }
+        });
+        observer.observe(settingsTab, { attributes: true, attributeFilter: ['class'] });
+        
+        if (settingsTab.classList.contains('active')) {
+            loadRelationship();
+            loadFacts();
+            loadSessions();
+            loadVaultFiles();
+            loadRules();
+            loadHistory(); 
+        }
+    }
+
+    
     const historyPanel = document.getElementById('history-panel');
     const historyList = document.getElementById('history-list');
 
@@ -1234,8 +1643,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('history-toggle').addEventListener('click', async () => {
+        console.log('History toggle clicked');
         historyPanel.classList.toggle('open');
+        console.log('History panel open class:', historyPanel.classList.contains('open'));
         if (historyPanel.classList.contains('open')) {
+            console.log('Loading history...');
             await loadHistory();
         }
     });
@@ -1262,18 +1674,22 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function updateHistoryToggle() {
-        document.getElementById('history-toggle').style.display = historyList.querySelector('[data-session-id]') ? '' : 'none';
+        
     }
 
     async function loadHistory() {
+        const container = document.getElementById('history-list');
+        if (!container) return;
         try {
             const data = await api('/api/memory/sessions');
+            console.log('loadHistory: API response:', data);
             historyList.innerHTML = '';
             if (!data || !data.sessions || data.sessions.length === 0) {
                 historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center">No conversations yet</div>';
                 updateHistoryToggle();
                 return;
             }
+            console.log('loadHistory: got', data.sessions.length, 'sessions');
             data.sessions.forEach(session => {
                 const item = document.createElement('div');
                 item.className = 'history-item';
@@ -1309,6 +1725,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     item.remove();
                     updateHistoryToggle();
                 });
+                
+                historyList.appendChild(item);
             });
             updateHistoryToggle();
         } catch (e) {
@@ -1353,7 +1771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     
-    ['openrouter', 'zai', 'siliconflow', 'groq', 'chatgpt'].forEach(provider => {
+    ['openrouter', 'zai', 'siliconflow', 'groq', 'chatgpt', 'claude'].forEach(provider => {
         const btn = document.getElementById(`fetch-${provider}-models`);
         if (!btn) return;
         btn.addEventListener('click', async () => {
@@ -1385,7 +1803,7 @@ document.addEventListener('DOMContentLoaded', () => {
         inp.type = inp.type === 'password' ? 'text' : 'password';
         icon.textContent = inp.type === 'password' ? 'visibility_off' : 'visibility';
     });
-    ['openrouter', 'zai', 'siliconflow', 'groq', 'chatgpt'].forEach(p => {
+    ['openrouter', 'zai', 'siliconflow', 'groq', 'chatgpt', 'claude'].forEach(p => {
         const btn = document.getElementById(`toggle-${p}-key`);
         if (btn) btn.addEventListener('click', function () {
             const inp = document.getElementById(`${p}-api-key`);

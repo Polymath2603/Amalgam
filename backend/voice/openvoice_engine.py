@@ -90,7 +90,7 @@ class OpenVoiceEngine :
             logger .warning (f"Source speaker embedding not found: {se_path }")
 
         self ._loaded =True 
-        logger .info ("OpenVoice engine loaded successfully")
+        logger .debug ("OpenVoice engine loaded successfully")
 
     def get_speaker_embedding (self ,ref_audio_path :str ):
         """Extract and cache speaker embedding from reference audio or .pth file."""

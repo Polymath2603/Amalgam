@@ -30,7 +30,8 @@ class EdgeTTSProvider (TTSProvider ):
             try :
                 voices =await edge_tts .list_voices ()
                 self ._valid_voices ={v ['ShortName']for v in voices }
-            except Exception :
+            except Exception as e :
+                logger .warning ("Failed to fetch Edge-TTS voices: %s",e )
                 self ._valid_voices =set ()
         if self .voice not in self ._valid_voices :
             logger .warning (f"Edge-TTS voice '{self .voice }' not available, falling back to '{self .FALLBACK_VOICE }'")

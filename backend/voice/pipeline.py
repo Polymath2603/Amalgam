@@ -3,6 +3,7 @@ Designed to run in a background thread via run_in_executor.
 Supports pluggable STT engines via STTRouter.
 """
 import concurrent .futures 
+import threading 
 import numpy as np 
 import logging 
 
@@ -12,9 +13,9 @@ logger =logging .getLogger (__name__ )
 
 
 class VoicePipeline :
-    def __init__ (self ,agent_callback =None ,stt_engine ="faster-whisper"):
+    def __init__ (self ,agent_callback =None ,stt_engine ="browser"):
         self .agent_callback =agent_callback 
-        self ._listening =False 
+        self ._stop_event =threading .Event ()
         self ._vad =None 
         self ._stt =STTRouter (engine =stt_engine )
         self ._stt_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="stt")
@@ -33,6 +34,16 @@ class VoicePipeline :
             from backend .voice .vad import VAD 
             self ._vad =VAD (mode =2 )
 
+    def _on_stt_done (self ,future ):
+        try :
+            result =future .result ()
+            if result is not None and result .strip ()and self .agent_callback :
+                self .agent_callback (result )
+        except concurrent .futures .CancelledError :
+            pass 
+        except Exception as e :
+            logger .error (f"STT transcription failed: {e }")
+
     def listen_loop (self ):
         """Blocking listen loop for background thread. Monitors mic via sounddevice."""
         try :
@@ -43,8 +54,8 @@ class VoicePipeline :
             return 
 
         self ._ensure_models ()
-        self ._listening =True 
-        logger .info (f"VoicePipeline: Listening for speech (STT: {self ._stt .engine })...")
+        self ._stop_event .clear ()
+        logger .debug (f"VoicePipeline: Listening for speech (STT: {self ._stt .engine })...")
 
         audio_q =queue .Queue ()
 
@@ -65,7 +76,7 @@ class VoicePipeline :
 
         try :
             with stream :
-                while self ._listening :
+                while not self ._stop_event .is_set ():
                     try :
                         chunk =audio_q .get (timeout =0.1 )
                     except queue .Empty :
@@ -86,7 +97,7 @@ class VoicePipeline :
                                 is_recording =True 
                                 recording =bytearray ()
                                 silence_frames =0 
-                                logger .info ("VoicePipeline: Speech detected")
+                                logger .debug ("VoicePipeline: Speech detected")
                             recording .extend (frame )
                             silence_frames =0 
                         elif is_recording :
@@ -98,19 +109,15 @@ class VoicePipeline :
 
                                 audio_data =np .frombuffer (bytes (recording ),dtype =np .int16 ).astype (np .float32 )/32768.0 
                                 if len (audio_data )>8000 :
-                                    logger .info (f"VoicePipeline: Transcribing {len (audio_data )/16000 :.1f}s of audio...")
-
+                                    logger .debug (f"VoicePipeline: Transcribing {len (audio_data )/16000 :.1f}s of audio...")
                                     future =self ._stt_executor .submit (self ._stt .transcribe ,audio_data )
-                                    future .add_done_callback (
-                                    lambda f :self .agent_callback (f .result ())if f .result ()and self .agent_callback else None 
-                                    )
+                                    future .add_done_callback (self ._on_stt_done )
                                 recording =bytearray ()
         except Exception as e :
             logger .error (f"VoicePipeline error: {e }")
         finally :
-            self ._listening =False 
-            logger .info ("VoicePipeline: Stopped")
+            logger .debug ("VoicePipeline: Stopped")
 
     def stop_listening (self ):
-        self ._listening =False 
+        self ._stop_event .set ()
         self ._stt_executor .shutdown (wait =False )

@@ -4,6 +4,7 @@ import numpy as np
 import httpx 
 
 from .base import STTProvider 
+from .utils import numpy_to_wav 
 
 logger =logging .getLogger (__name__ )
 
@@ -26,7 +27,7 @@ class GroqWhisperProvider (STTProvider ):
             logger .warning ("Groq Whisper API key not set")
             return ""
 
-        wav_bytes =self ._numpy_to_wav (audio_np )
+        wav_bytes =numpy_to_wav (audio_np )
         try :
             resp =httpx .post (
             f"{self ._base_url }/audio/transcriptions",
@@ -37,7 +38,7 @@ class GroqWhisperProvider (STTProvider ):
             )
             if resp .status_code ==200 :
                 text =resp .text .strip ()
-                logger .info (f"Groq Whisper STT: {text }")
+                logger .debug (f"Groq Whisper STT: {text }")
                 return text 
             else :
                 logger .error (f"Groq Whisper API error {resp .status_code }: {resp .text [:200 ]}")
@@ -45,14 +46,4 @@ class GroqWhisperProvider (STTProvider ):
             logger .error (f"Groq Whisper STT error: {e }")
         return ""
 
-    def _numpy_to_wav (self ,audio_np :np .ndarray ,sr :int =16000 )->bytes :
-        import struct 
-        pcm =(audio_np *32767 ).astype ("int16").tobytes ()
-        data_size =len (pcm )
-        header =struct .pack (
-        '<4sI4s4sIHHIIHH4sI',
-        b'RIFF',36 +data_size ,b'WAVE',
-        b'fmt ',16 ,1 ,1 ,sr ,sr *2 ,2 ,16 ,
-        b'data',data_size 
-        )
-        return header +pcm 
+

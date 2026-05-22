@@ -20,7 +20,7 @@ class SpeechT5Provider (TTSProvider ):
         try :
             from transformers import SpeechT5Processor ,SpeechT5ForTextToSpeech ,SpeechT5HifiGan 
             import torch 
-            logger .info ("Loading SpeechT5 model...")
+            logger .debug ("Loading SpeechT5 model...")
             self ._processor =SpeechT5Processor .from_pretrained ("microsoft/speecht5_tts")
             self ._model =SpeechT5ForTextToSpeech .from_pretrained ("microsoft/speecht5_tts")
             self ._vocoder =SpeechT5HifiGan .from_pretrained ("microsoft/speecht5_hifigan")
@@ -28,7 +28,7 @@ class SpeechT5Provider (TTSProvider ):
             import datasets 
             emb_dataset =datasets .load_dataset ("Matthijs/cmu-arctic-xvectors",split ="validation")
             self ._speaker_embeddings =torch .tensor (emb_dataset [7306 ]["xvector"]).unsqueeze (0 )
-            logger .info ("SpeechT5 model loaded")
+            logger .debug ("SpeechT5 model loaded")
         except ImportError as e :
             logger .error (f"SpeechT5 dependencies missing: {e }")
             raise 

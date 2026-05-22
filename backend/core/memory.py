@@ -38,10 +38,22 @@ class Memory :
         ''')
 
 
+        self .cursor .execute ('''
+            CREATE TABLE IF NOT EXISTS facts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fact TEXT NOT NULL,
+                category TEXT DEFAULT 'general',
+                importance REAL DEFAULT 0.5,
+                source_session TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+
         try :
             self .cursor .execute ("SELECT session_id FROM conversations LIMIT 1")
         except sqlite3 .OperationalError :
-            logger .info ("Migrating conversations table: adding session_id column")
+            logger .debug ("Migrating conversations table: adding session_id column")
             self .cursor .execute ("ALTER TABLE conversations ADD COLUMN session_id TEXT DEFAULT 'legacy'")
             self .conn .commit ()
 
@@ -169,8 +181,8 @@ class Memory :
                 emb =np .array (json .loads (emb_str ))
                 sim =np .dot (q_vec ,emb )/(np .linalg .norm (q_vec )*np .linalg .norm (emb ))
                 scored .append ((sim ,role ,content ))
-            except Exception :
-                pass 
+            except Exception as e :
+                logger .debug ("Embedding similarity failed: %s",e )
 
         scored .sort (key =lambda x :x [0 ],reverse =True )
         return [{"role":s [1 ],"content":s [2 ]}for s in scored [:top_k ]]
@@ -187,7 +199,7 @@ class Memory :
         if count >40 :
             self .summarizing =True 
             try :
-                logger .info ("Auto-summarizing older memories...")
+                logger .debug ("Auto-summarizing older memories...")
 
 
                 self .cursor .execute (
@@ -214,13 +226,83 @@ class Memory :
                     self .cursor .execute ('INSERT INTO summaries (summary) VALUES (?)',(summary ,))
                     self .cursor .execute ('DELETE FROM conversations WHERE id <= ? AND session_id = ?',(last_id ,session_id ))
                     self .conn .commit ()
-                    logger .info ("Summarization complete.")
+                    logger .debug ("Summarization complete.")
             except Exception as e :
                 logger .error (f"Summarization failed: {e }")
             finally :
                 self .summarizing =False 
 
+    async def extract_facts (self ,user_content :str ,assistant_content :str ):
+        if not self .llm :
+            return 
+        prompt =(
+        "Extract key facts from this exchange as a JSON array of objects. "
+        "Each object has: fact (str, specific self-contained statement), "
+        "category (str: 'user_info'|'preference'|'opinion'|'shared_experience'|'general'), "
+        "importance (float 0.0-1.0). "
+        "Only extract substantive facts, not greetings or pleasantries.\n\n"
+        f"User: {user_content }\nAssistant: {assistant_content }\n\nJSON:"
+        )
+        try :
+            result =await self .llm .generate ([{"role":"user","content":prompt }])
+            if result and not result .startswith ("Error"):
+                raw =result .strip ()
+                if raw .startswith ("```"):
+                    raw =raw .split ("\n",1 )[-1 ].rsplit ("```",1 )[0 ]
+                facts =json .loads (raw )
+                session_id =self .get_current_session ()
+                for f in facts :
+                    imp =min (1.0 ,max (0.0 ,float (f .get ("importance",0.5 ))))
+                    self .cursor .execute (
+                    'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
+                    (str (f ["fact"]),str (f .get ("category","general")),imp ,session_id )
+                    )
+                self .conn .commit ()
+        except (json .JSONDecodeError ,Exception )as e :
+            logger .debug (f"Fact extraction skipped: {e }")
+
+    def delete_fact (self ,fact_id :int ):
+        self .cursor .execute ('DELETE FROM facts WHERE id = ?',(fact_id ,))
+        self .conn .commit ()
+
+    def add_fact (self ,fact :str ,category :str ="general",importance :float =0.5 ):
+        session_id =self .get_current_session ()
+        self .cursor .execute (
+        'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
+        (fact ,category ,min (1.0 ,max (0.0 ,importance )),session_id )
+        )
+        self .conn .commit ()
+
+    def get_facts (self ,category :str =None ,min_importance :float =0.0 ,limit :int =50 ):
+        if category :
+            self .cursor .execute (
+            'SELECT id, fact, category, importance, timestamp FROM facts WHERE category = ? AND importance >= ? ORDER BY importance DESC, timestamp DESC LIMIT ?',
+            (category ,min_importance ,limit )
+            )
+        else :
+            self .cursor .execute (
+            'SELECT id, fact, category, importance, timestamp FROM facts WHERE importance >= ? ORDER BY importance DESC, timestamp DESC LIMIT ?',
+            (min_importance ,limit )
+            )
+        return [{"id":r [0 ],"fact":r [1 ],"category":r [2 ],"importance":r [3 ],"timestamp":r [4 ]}for r in self .cursor .fetchall ()]
+
+    async def get_relevant_facts (self ,query :str ,top_k :int =5 ):
+        query_words =set (query .lower ().split ())
+        self .cursor .execute ('SELECT id, fact, category, importance FROM facts')
+        rows =self .cursor .fetchall ()
+        scored =[]
+        for fid ,fact ,cat ,imp in rows :
+            fact_words =set (fact .lower ().split ())
+            common =len (query_words &fact_words )
+            total =len (query_words |fact_words )
+            keyword_sim =common /max (total ,1 )
+            score =keyword_sim *0.4 +float (imp )*0.6 
+            scored .append ((score ,fid ,fact ,cat ,imp ))
+        scored .sort (key =lambda x :x [0 ],reverse =True )
+        return [{"id":s [1 ],"fact":s [2 ],"category":s [3 ],"importance":s [4 ]}for s in scored [:top_k ]]
+
     def clear (self ):
         self .cursor .execute ('DELETE FROM conversations')
         self .cursor .execute ('DELETE FROM summaries')
+        self .cursor .execute ('DELETE FROM facts')
         self .conn .commit ()

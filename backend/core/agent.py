@@ -1,4 +1,5 @@
 import json 
+import logging 
 import re 
 import asyncio 
 from typing import AsyncIterator 
@@ -6,6 +7,8 @@ from typing import AsyncIterator
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .llm_router import LLMRouter 
+
+logger =logging .getLogger (__name__ )
 
 
 DEFAULT_EMOTION_TAGS =[
@@ -55,7 +58,7 @@ class Agent :
         self .settings =settings 
         self .context_builder .settings =settings 
 
-    async def handle_user_input (self ,text :str ,images :list =None )->AsyncIterator [str ]:
+    async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [str ]:
         await self .memory .add_turn ("user",text )
 
         iterations =0 
@@ -82,6 +85,7 @@ class Agent :
             relevant =relevant ,
             tts_emotions =self ._emotion_tags ,
             expression_names =self ._expression_names ,
+            relationship_context =relationship_context ,
             )
 
             if images :
@@ -98,7 +102,12 @@ class Agent :
             in_tool_block =False 
 
             try :
+                logger .debug (f"agent: starting llm.stream, model={self .llm .provider }")
+                token_count =0 
                 async for token in self .llm .stream (messages ):
+                    token_count +=1 
+                    if token_count ==1 :
+                        logger .debug (f"agent: first token received")
                     if not tool_detected and "```tool"in full_response +token :
                         in_tool_block =True 
                         tool_detected =True 
@@ -200,6 +209,9 @@ class Agent :
                             else :
                                 yield chunk 
                                 clean_yielded =len (full_response )
+            except Exception as e :
+                logger .error (f"agent: llm.stream exception: {type (e ).__name__ }: {e }")
+                yield f"\n[Agent Error: {e }]\n"
             finally :
                 if not in_tool_block :
 

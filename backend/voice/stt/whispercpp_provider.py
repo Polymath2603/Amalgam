@@ -4,6 +4,7 @@ import numpy as np
 import httpx 
 
 from .base import STTProvider 
+from .utils import numpy_to_wav 
 
 logger =logging .getLogger (__name__ )
 
@@ -18,7 +19,7 @@ class WhisperCppProvider (STTProvider ):
             self ._url =url .rstrip ("/")
 
     def transcribe (self ,audio_np :np .ndarray )->str :
-        wav_bytes =self ._numpy_to_wav (audio_np )
+        wav_bytes =numpy_to_wav (audio_np )
         try :
             files ={"file":("audio.wav",wav_bytes ,"audio/wav")}
             resp =httpx .post (
@@ -28,7 +29,7 @@ class WhisperCppProvider (STTProvider ):
             )
             if resp .status_code ==200 :
                 text =resp .json ().get ("text","").strip ()
-                logger .info (f"Whisper.cpp STT: {text }")
+                logger .debug (f"Whisper.cpp STT: {text }")
                 return text 
             else :
                 logger .error (f"Whisper.cpp API error {resp .status_code }: {resp .text [:200 ]}")
@@ -36,14 +37,4 @@ class WhisperCppProvider (STTProvider ):
             logger .error (f"Whisper.cpp STT error: {e }")
         return ""
 
-    def _numpy_to_wav (self ,audio_np :np .ndarray ,sr :int =16000 )->bytes :
-        import struct 
-        pcm =(audio_np *32767 ).astype ("int16").tobytes ()
-        data_size =len (pcm )
-        header =struct .pack (
-        '<4sI4s4sIHHIIHH4sI',
-        b'RIFF',36 +data_size ,b'WAVE',
-        b'fmt ',16 ,1 ,1 ,sr ,sr *2 ,2 ,16 ,
-        b'data',data_size 
-        )
-        return header +pcm 
+

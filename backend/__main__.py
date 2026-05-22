@@ -30,7 +30,7 @@ def _kill_port (port ):
         pids =[p for p in pids if p ]
         if pids :
             for pid in pids :
-                logger .info (f"Killing existing process {pid } on port {port }")
+                logger .debug (f"Killing existing process {pid } on port {port }")
                 subprocess .run (["kill","-9",pid ],capture_output =True )
     except FileNotFoundError :
 
@@ -42,14 +42,14 @@ def _kill_port (port ):
 
 def main ():
     _kill_port (8000 )
-    logger .info ("Starting Amalgam...")
-    logger .info ("Chat UI: http://localhost:8000")
-    logger .info ("Avatar: Three.js VRM (browser-rendered)")
+    logger .debug ("Starting Amalgam...")
+    logger .debug ("Chat UI: http://localhost:8000")
+    logger .debug ("Avatar: Three.js VRM (browser-rendered)")
     uvicorn .run (
     "backend.api.server:app",
     host ="0.0.0.0",
     port =8000 ,
-    log_level ="info",
+    log_level ="warning",
     reload =False 
     )
 

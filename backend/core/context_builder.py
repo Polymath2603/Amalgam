@@ -81,6 +81,7 @@ Example: <think>The user is asking about X. Let me recall what I know about X fr
 - If a tool fails or returns an unexpected result, report it clearly and suggest alternatives
 - If asked about something outside your knowledge, be honest — use <think> to reason through what you do know
 - If the user provides an image, examine it carefully and incorporate what you see into your response
+{relationship_section}\
 {vault_rules}\
 {tool_section}\
 {summary_section}\
@@ -127,7 +128,8 @@ class ContextBuilder :
     def build (self ,tools :List [Dict ],history :List [Dict ],user_msg :str ,
     character_id :str =None ,additional_prompt :str ="",
     summary :str ="",relevant :List [Dict ]=None ,
-    tts_emotions :List [str ]=None ,expression_names :List [str ]=None )->list :
+    tts_emotions :List [str ]=None ,expression_names :List [str ]=None ,
+    relationship_context :str ="")->list :
         if not character_id and self .settings :
             character_id =self .settings .get ("character.active","amalgam")
         character =self ._characters .get (character_id ,{})
@@ -140,11 +142,13 @@ class ContextBuilder :
         tool_section =self ._build_tool_section (tools )
         summary_section =self ._build_summary_section (summary )
         relevant_section =self ._build_relevant_section (relevant )
+        relationship_section =self ._build_relationship_section (relationship_context )
 
         sys_prompt =sys_prompt .format (
         tool_section =tool_section ,
         summary_section =summary_section ,
         relevant_section =relevant_section ,
+        relationship_section =relationship_section ,
         )
 
         messages =[{"role":"system","content":sys_prompt }]
@@ -183,6 +187,11 @@ class ContextBuilder :
         for r in relevant :
             lines .append (f"- {r ['role']}: {r ['content']}")
         return "\n".join (lines )
+
+    def _build_relationship_section (self ,relationship_context :str )->str :
+        if not relationship_context :
+            return ""
+        return f"\n\n# Relationship Context\n{relationship_context }"
 
     def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",
     character_id :str =None ,
@@ -244,8 +253,8 @@ class ContextBuilder :
                     content =f .read ().strip ()
                 if content and not content .startswith ("# Rules\n\nAdd your custom rules"):
                     vault_rules =f"\n\n## Persistent Rules\n{content }"
-            except Exception :
-                pass 
+            except Exception as e :
+                logger .debug ("Failed to read vault rules: %s",e )
 
 
         reasoning_note ="\n\nFor reasoning models, use <think>your reasoning</think> before your response."
@@ -260,6 +269,7 @@ class ContextBuilder :
         tool_section ="{tool_section}",
         summary_section ="{summary_section}",
         relevant_section ="{relevant_section}",
+        relationship_section ="{relationship_section}",
         reasoning_note =reasoning_note ,
         )
         return rendered 

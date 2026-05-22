@@ -1,6 +1,5 @@
 import logging 
 import numpy as np 
-from faster_whisper import WhisperModel 
 
 from .base import STTProvider 
 
@@ -17,12 +16,13 @@ class FasterWhisperProvider (STTProvider ):
 
     def _ensure_model (self ):
         if self ._model is None :
-            logger .info (f"Loading faster-whisper model '{self .model_size }'...")
+            from faster_whisper import WhisperModel 
+            logger .debug (f"Loading faster-whisper model '{self .model_size }'...")
             self ._model =WhisperModel (self .model_size ,device ="cpu",compute_type ="int8")
 
     def transcribe (self ,audio_np :np .ndarray )->str :
         self ._ensure_model ()
         segments ,info =self ._model .transcribe (audio_np ,beam_size =5 )
         text =" ".join ([segment .text for segment in segments ]).strip ()
-        logger .info (f"STT: {text }")
+        logger .debug (f"STT: {text }")
         return text 

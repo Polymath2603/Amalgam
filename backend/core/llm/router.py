@@ -58,13 +58,25 @@ class LLMRouter :
             return self ._openai_compat .get (self .provider )
         return self ._gemini 
 
-    async def stream (self ,messages :list )->AsyncIterator [str ]:
+    def _apply_temperature (self ,inst ):
+        temp =self .settings .get ("llm.temperature",0.7 )if self .settings else 0.7 
+        inst .temperature =temp 
+
+    async def stream (self ,messages :list ,temperature :float =None )->AsyncIterator [str ]:
         inst =self ._provider_instance ()
+        if temperature is not None :
+            inst .temperature =temperature 
+        else :
+            self ._apply_temperature (inst )
         async for token in inst .stream (messages ):
             yield token 
 
-    async def generate (self ,messages :list )->str :
+    async def generate (self ,messages :list ,temperature :float =None )->str :
         inst =self ._provider_instance ()
+        if temperature is not None :
+            inst .temperature =temperature 
+        else :
+            self ._apply_temperature (inst )
         return await inst .generate (messages )
 
     async def get_embedding (self ,text :str )->List [float ]:

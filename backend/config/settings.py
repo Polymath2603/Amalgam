@@ -70,7 +70,11 @@ DEFAULTS ={
 "voice":{
 "engine":"edge-tts",
 "lipsync_enabled":True ,
-"stt_engine":"faster-whisper",
+"stt_engine":"browser",
+"vad_mode":2 ,
+"faster_whisper":{
+"model":"base"
+},
 "openai_whisper":{
 "api_key":"",
 "model":"whisper-1"
@@ -105,6 +109,9 @@ DEFAULTS ={
 "whispercpp":{
 "url":"http://127.0.0.1:8080"
 }
+},
+"llm":{
+"temperature":0.7 
 },
 "avatar":{
 "model_path":"",
@@ -269,7 +276,7 @@ class Settings :
             try :
                 with open (self .path ,"r")as f :
                     self .data =json .load (f )
-                logger .info (f"Settings loaded from {self .path }")
+                logger .debug (f"Settings loaded from {self .path }")
             except Exception as e :
                 logger .error (f"Failed to load settings: {e }")
                 self .data ={}

@@ -85,6 +85,10 @@ export class AvatarRenderer {
         this._lookAtFallback = false;
 
         
+        this._headPositionListeners = [];
+        this._lastHeadScreenPos = null;
+
+        
         this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         const initW = this.container.clientWidth || 800;
         const initH = this.container.clientHeight || 600;
@@ -462,6 +466,27 @@ export class AvatarRenderer {
         }
     }
 
+    getHeadScreenPosition() {
+        if (!this.vrm?.humanoid) return null;
+        const head = this.vrm.humanoid.getNormalizedBoneNode('head');
+        if (!head) return null;
+        const pos = new THREE.Vector3();
+        head.getWorldPosition(pos);
+        pos.y += 0.35;
+        pos.project(this.camera);
+        const w = this.renderer.domElement.clientWidth;
+        const h = this.renderer.domElement.clientHeight;
+        return {
+            x: (pos.x * 0.5 + 0.5) * w,
+            y: (-pos.y * 0.5 + 0.5) * h,
+            visible: pos.z <= 1,
+        };
+    }
+
+    onHeadPosition(callback) {
+        this._headPositionListeners.push(callback);
+    }
+
     _animate() {
         this._rafId = requestAnimationFrame(() => this._animate());
         const delta = this.clock.getDelta();
@@ -508,6 +533,15 @@ export class AvatarRenderer {
 
             
             this.vrm.update(delta);
+
+            
+            const screenPos = this.getHeadScreenPosition();
+            this._lastHeadScreenPos = screenPos;
+            if (screenPos && this._headPositionListeners.length) {
+                for (const cb of this._headPositionListeners) {
+                    cb(screenPos);
+                }
+            }
         }
 
         this.renderer.render(this.scene, this.camera);

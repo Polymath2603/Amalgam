@@ -53,7 +53,7 @@ class LlamaCppProvider (LLMProvider ):
         "prompt":prompt ,
         "stream":True ,
         "n_predict":400 ,
-        "temperature":0.7 ,
+        "temperature":self .temperature ,
         "cache_prompt":True ,
         "stop":self ._get_stop_tokens (),
         }
@@ -88,7 +88,7 @@ class LlamaCppProvider (LLMProvider ):
         "prompt":prompt ,
         "stream":False ,
         "n_predict":400 ,
-        "temperature":0.7 ,
+        "temperature":self .temperature ,
         "stop":self ._get_stop_tokens (),
         }
         try :

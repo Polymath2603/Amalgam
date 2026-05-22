@@ -27,12 +27,13 @@ class GeminiProvider (LLMProvider ):
 
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         if not self ._api_key :
+            logger .warning ("Gemini API key not set — returning error to user")
             yield "[Error: Gemini API key not set. Go to Settings > Providers.]"
             return 
 
         url =f"{self ._base_url }/openai/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
-        body ={"model":self ._model ,"messages":messages ,"stream":True ,"temperature":0.7 ,"max_tokens":2048 }
+        body ={"model":self ._model ,"messages":messages ,"stream":True ,"temperature":self .temperature ,"max_tokens":2048 }
 
         try :
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
@@ -62,7 +63,7 @@ class GeminiProvider (LLMProvider ):
             return "[Error: Gemini API key not set]"
         url =f"{self ._base_url }/openai/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
-        body ={"model":self ._model ,"messages":messages ,"temperature":0.7 ,"max_tokens":2048 }
+        body ={"model":self ._model ,"messages":messages ,"temperature":self .temperature ,"max_tokens":2048 }
         try :
             response =await self ._client .post (url ,json =body ,headers =headers )
             if response .status_code ==200 :
