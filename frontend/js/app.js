@@ -1030,14 +1030,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     
     let _settingsSnapshot = {};
+    function _settingsFields() {
+        return Array.from(document.querySelectorAll('#tab-settings input, #tab-settings select, #tab-settings textarea')).filter(el => el.id);
+    }
     function captureSettingsSnapshot() {
         _settingsSnapshot = {};
-        document.querySelectorAll('#tab-settings input, #tab-settings select, #tab-settings textarea').forEach(el => {
+        _settingsFields().forEach(el => {
             _settingsSnapshot[el.id] = el.type === 'checkbox' ? el.checked : el.value;
         });
     }
     function isSettingsDirty() {
-        return Array.from(document.querySelectorAll('#tab-settings input, #tab-settings select, #tab-settings textarea')).some(el => {
+        return _settingsFields().some(el => {
             const cur = el.type === 'checkbox' ? el.checked : el.value;
             return cur !== _settingsSnapshot[el.id];
         });
@@ -1288,6 +1291,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             chatMessages.appendChild(div);
                         });
                         chatMessages.scrollTop = chatMessages.scrollHeight;
+                        _sessionHasMessages = true;
+                        updateSessionButtons();
                     }
                     historyPanel.classList.remove('open');
                 });
