@@ -173,11 +173,8 @@ class Agent :
                         full_response =re .sub (r'\[\[.*?\]\]','',full_response )
                         full_response =re .sub (r'\(\(.*?\)\)','',full_response )
 
-                        full_response =re .sub (r'/\[\[[^\]\s]*','',full_response )
-                        full_response =re .sub (r'/\(\([^\)\s]*','',full_response )
-
-                        full_response =re .sub (r'\[\[[^\]\s]*','',full_response )
-                        full_response =re .sub (r'\(\([^\)\s]*','',full_response )
+                        full_response =re .sub (r'/[a-zA-Z]+\]\]','',full_response )
+                        full_response =re .sub (r'/[a-zA-Z]+\)\)','',full_response )
 
 
                         if len (full_response )>clean_yielded :
@@ -186,19 +183,37 @@ class Agent :
                             incomplete_emotion =re .search (r'/\[\[[^\[\]]*$',chunk )
                             incomplete_expr =re .search (r'/\(\([^()]*$',chunk )
                             incomplete_action =re .search (r'/\*\*[^*]*$',chunk )
+                            incomplete_bare_slash =re .search (r'(?<!\s)/$',chunk )
                             starts =[]
-                            for m in [incomplete_emotion ,incomplete_expr ,incomplete_action ]:
+                            for m in [incomplete_emotion ,incomplete_expr ,incomplete_action ,incomplete_bare_slash ]:
                                 if m :
                                     starts .append (m .start ())
                             if starts :
                                 cutoff =min (starts )
                                 yield chunk [:cutoff ]
+                                clean_yielded +=cutoff 
                             else :
                                 yield chunk 
                                 clean_yielded =len (full_response )
             finally :
-                if not in_tool_block and full_response .strip ():
-                    await self .memory .add_turn ("assistant",full_response .strip ())
+                if not in_tool_block :
+
+                    remaining =full_response [clean_yielded :]if len (full_response )>clean_yielded else ""
+                    if remaining :
+                        remaining =re .sub (r'/\[\[[^\]\s]*','',remaining )
+                        remaining =re .sub (r'/\(\([^\)\s]*','',remaining )
+                        remaining =re .sub (r'\[\[[^\]\s]*','',remaining )
+                        remaining =re .sub (r'\(\([^\)\s]*','',remaining )
+                        remaining =re .sub (r'/[a-zA-Z]+\]\]','',remaining )
+                        remaining =re .sub (r'/[a-zA-Z]+\)\)','',remaining )
+                        remaining =re .sub (r'/ [a-zA-Z]+','',remaining )
+                        remaining =re .sub (r'[a-zA-Z]*\]\]','',remaining )
+                        remaining =re .sub (r'[a-zA-Z]*\)\)','',remaining )
+                        remaining =remaining .strip ()
+                        if remaining :
+                            yield remaining 
+                    if full_response .strip ():
+                        await self .memory .add_turn ("assistant",full_response .strip ())
 
             if not in_tool_block :
                 return 
