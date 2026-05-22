@@ -46,6 +46,12 @@ backend/voice/stt.py
 # Obsolete animation location (moved to characters/default/anim/)
 frontend/animations/
 
+# Legacy single-file frontend scripts (moved to frontend/js/, frontend/css/)
+frontend/style-old.css
+
+# BVH→VRMA conversion tool (one-off use)
+scripts/
+
 # Editor / OS files
 .vscode/
 .idea/

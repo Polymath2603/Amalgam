@@ -1262,7 +1262,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const data = await api('/api/memory/sessions');
             historyList.innerHTML = '';
-            if (!data.sessions || data.sessions.length === 0) {
+            if (!data || !data.sessions || data.sessions.length === 0) {
                 historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center">No conversations yet</div>';
                 updateHistoryToggle();
                 return;
@@ -1306,6 +1306,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateHistoryToggle();
         } catch (e) {
             historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted)">Failed to load history</div>';
+            updateHistoryToggle();
         }
     }
 
