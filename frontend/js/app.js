@@ -494,7 +494,12 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
-        if (!_sessionHasMessages) { _sessionHasMessages = true; updateSessionButtons(); }
+        if (!_sessionHasMessages) {
+            _sessionHasMessages = true;
+            updateSessionButtons();
+            
+            setTimeout(loadHistory, 1000);
+        }
         return div;
     }
 
@@ -1674,7 +1679,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function updateHistoryToggle() {
-        
+        const hasSessions = !!historyList.querySelector('[data-session-id]');
+        document.getElementById('history-toggle').style.display = hasSessions ? '' : 'none';
     }
 
     async function loadHistory() {
