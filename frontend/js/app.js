@@ -770,6 +770,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.warn('Failed to load chat session:', e);
             updateSessionButtons();
         }
+        
+        loadHistory();
     }
 
     function applyTheme(theme) {
