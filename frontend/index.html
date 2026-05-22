@@ -5,16 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Amalgam</title>
     <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/icons/inter.css">
+    <link rel="stylesheet" href="/static/icons/material-icons.css">
+    <link rel="stylesheet" href="/static/css/style.css">
     <script type="importmap">
     {
         "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-            "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.2/lib/three-vrm.module.min.js"
+            "three": "/static/vendor/three.module.js",
+            "three/addons/": "/static/vendor/",
+            "@pixiv/three-vrm": "/static/vendor/three-vrm.module.min.js"
         }
     }
     </script>
@@ -145,6 +144,9 @@
                 <div class="settings-scroll">
                     <div class="panel-header">
                         <h1>Settings</h1>
+                        <button class="icon-btn save-btn" id="save-all-settings" title="Save Settings" disabled>
+                            <span class="material-icons-round">save</span>
+                        </button>
                     </div>
 
                     <div class="settings-grid">
@@ -200,7 +202,7 @@
                                     <option value="kokoro">Kokoro (Local)</option>
                                 </select>
                             </div>
-                            <div class="tts-section" data-tts="elevenlabs" style="display:none">
+                            <div class="tts-section" data-tts="elevenlabs">
                                 <div class="form-row">
                                     <label>ElevenLabs API Key</label>
                                     <input type="password" id="elevenlabs-api-key" placeholder="sk_..." class="text-input">
@@ -214,7 +216,7 @@
                                     <input type="text" id="elevenlabs-voice-id" value="21m00Tcm4TlvDq8ikWAM" class="text-input" placeholder="21m00Tcm4TlvDq8ikWAM">
                                 </div>
                             </div>
-                            <div class="tts-section" data-tts="openai-tts" style="display:none">
+                            <div class="tts-section" data-tts="openai-tts">
                                 <div class="form-row">
                                     <label>OpenAI API Key</label>
                                     <input type="password" id="openai-tts-api-key" placeholder="sk-..." class="text-input">
@@ -235,10 +237,10 @@
                                     </select>
                                 </div>
                             </div>
-                            <div class="tts-section" data-tts="speecht5" style="display:none">
+                            <div class="tts-section" data-tts="speecht5">
                                 <p class="help-text">SpeechT5 runs locally via Hugging Face. No configuration needed.</p>
                             </div>
-                            <div class="tts-section" data-tts="alltalk" style="display:none">
+                            <div class="tts-section" data-tts="alltalk">
                                 <div class="form-row">
                                     <label>AllTalk URL</label>
                                     <input type="text" id="alltalk-url" value="http://127.0.0.1:7851" class="text-input">
@@ -252,13 +254,13 @@
                                     <input type="text" id="alltalk-language" value="en" class="text-input">
                                 </div>
                             </div>
-                            <div class="tts-section" data-tts="piper" style="display:none">
+                            <div class="tts-section" data-tts="piper">
                                 <div class="form-row">
                                     <label>Piper URL</label>
                                     <input type="text" id="piper-url" value="http://127.0.0.1:5000" class="text-input">
                                 </div>
                             </div>
-                            <div class="tts-section" data-tts="coqui-local" style="display:none">
+                            <div class="tts-section" data-tts="coqui-local">
                                 <div class="form-row">
                                     <label>Coqui URL</label>
                                     <input type="text" id="coqui-url" value="http://127.0.0.1:5002" class="text-input">
@@ -268,7 +270,7 @@
                                     <input type="text" id="coqui-speaker-id" placeholder="default" class="text-input">
                                 </div>
                             </div>
-                            <div class="tts-section" data-tts="kokoro" style="display:none">
+                            <div class="tts-section" data-tts="kokoro">
                                 <div class="form-row">
                                     <label>Kokoro URL</label>
                                     <input type="text" id="kokoro-url" value="http://127.0.0.1:8880" class="text-input">
@@ -306,19 +308,19 @@
                                     <option value="whispercpp">Whisper.cpp (Local)</option>
                                 </select>
                             </div>
-                            <div class="stt-section" data-stt="openai-whisper" style="display:none">
+                            <div class="stt-section" data-stt="openai-whisper">
                                 <div class="form-row">
                                     <label>OpenAI Whisper API Key</label>
                                     <input type="password" id="openai-whisper-api-key" placeholder="sk-..." class="text-input">
                                 </div>
                             </div>
-                            <div class="stt-section" data-stt="groq-whisper" style="display:none">
+                            <div class="stt-section" data-stt="groq-whisper">
                                 <div class="form-row">
                                     <label>Groq API Key</label>
                                     <input type="password" id="groq-whisper-api-key" placeholder="gsk_..." class="text-input">
                                 </div>
                             </div>
-                            <div class="stt-section" data-stt="whispercpp" style="display:none">
+                            <div class="stt-section" data-stt="whispercpp">
                                 <div class="form-row">
                                     <label>Whisper.cpp URL</label>
                                     <input type="text" id="whispercpp-url" value="http://127.0.0.1:8080" class="text-input">
@@ -568,13 +570,12 @@
                         </div>
                     </div>
 
-                    <button class="btn btn-primary" id="save-all-settings">Save All Settings</button>
                 </div>
             </section>
         </main>
     </div>
 
     <div class="toast-container" id="toast-container"></div>
-    <script src="/static/app.js"></script>
+    <script src="/static/js/app.js"></script>
 </body>
 </html>
