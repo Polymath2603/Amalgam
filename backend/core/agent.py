@@ -22,7 +22,7 @@ def _build_emotion_re (tags ):
 def _build_expression_re (names ):
     return re .compile (r'/\(\(('+'|'.join (re .escape (n )for n in names )+r')\)\)',re .IGNORECASE )
 
-ACTION_RE =re .compile (r'/\*\*(.+?)\*\*/',re .DOTALL )
+ACTION_RE =re .compile (r'/\*\*(.+?)\*\*/?',re .DOTALL )
 THINK_RE =re .compile (r'<think>(.*?)</think>',re .DOTALL )
 
 
@@ -183,9 +183,11 @@ class Agent :
                             incomplete_emotion =re .search (r'/\[\[[^\[\]]*$',chunk )
                             incomplete_expr =re .search (r'/\(\([^()]*$',chunk )
                             incomplete_action =re .search (r'/\*\*[^*]*$',chunk )
-                            incomplete_bare_slash =re .search (r'(?<!\s)/$',chunk )
+                            incomplete_bare_slash =re .search (r'/$',chunk )
+                            incomplete_open_parens =re .search (r'\(\([^()]*$',chunk )
+                            incomplete_open_brackets =re .search (r'\[\[[^\[\]]*$',chunk )
                             starts =[]
-                            for m in [incomplete_emotion ,incomplete_expr ,incomplete_action ,incomplete_bare_slash ]:
+                            for m in [incomplete_emotion ,incomplete_expr ,incomplete_action ,incomplete_bare_slash ,incomplete_open_parens ,incomplete_open_brackets ]:
                                 if m :
                                     starts .append (m .start ())
                             if starts :
