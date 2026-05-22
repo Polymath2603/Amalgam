@@ -57,8 +57,6 @@ export class AvatarRenderer {
         this.vrm = null;
         this.clock = new THREE.Clock();
         this.ready = false;
-
-        
         this.currentEmotion = 'neutral';
         this.mouthValue = 0;
         this._targetExpressions = {};
@@ -68,19 +66,16 @@ export class AvatarRenderer {
         this._frequencyAnalyzer = null;
         this._audioContext = null;
 
-        
         this._blinkTimer = BLINK_OPEN_MAX;
         this._blinkIsOpen = true;
         this._blinkEnabled = true;
 
-        
         this._saccadeYaw = 0;
         this._saccadePitch = 0;
         this._saccadeTimer = 0;
         this._yawDamped = 0;
         this._pitchDamped = 0;
 
-        
         this._mixer = null;
         this._currentAction = null;
         this._idleAction = null;
@@ -88,7 +83,6 @@ export class AvatarRenderer {
 
         
         this._lookAtFallback = false;
-        this._exprDebugLogged = false;
 
         
         this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -139,10 +133,7 @@ export class AvatarRenderer {
         this._resizeObserver = new ResizeObserver(() => this._onResize());
         this._resizeObserver.observe(this.container);
 
-        
         this._loadVRM();
-
-        
         this._animate();
     }
 
@@ -248,13 +239,10 @@ export class AvatarRenderer {
                     const presetNames = Object.keys(presetExpressionMap || {});
                     const customNames = Object.keys(expressionMap);
                     this._allExpressionNames = [...new Set([...presetNames, ...customNames, ...EXPRESSION_NAMES])];
-                    console.log('[Avatar] Expressions available:', this._allExpressionNames);
-                    console.log('[Avatar] Preset expressions:', presetNames);
                 } else {
                     console.warn('[Avatar] No expressionManager found on VRM');
                 }
 
-                
                 this._mixer = new THREE.AnimationMixer(vrm.scene);
 
                 
@@ -266,7 +254,6 @@ export class AvatarRenderer {
 
                 this.ready = true;
 
-                
                 try {
                     if (!this.preview) {
                         await this._loadIdleAnimation();
@@ -275,8 +262,6 @@ export class AvatarRenderer {
                     console.warn('VRMA animations not available, using procedural idle:', e);
                 }
 
-                console.log('VRM loaded:', vrm.meta?.title || 'Unknown', '| Path:', loadPath);
-                console.log('VRM meta version:', vrm.meta?.metaVersion, '| Expressions:', this._allExpressionNames?.length || 0);
             },
             () => {},
             (error) => {
@@ -452,11 +437,17 @@ export class AvatarRenderer {
             }
         } else {
             
-            const sceneBox = new THREE.Box3().setFromObject(vrm.scene);
-            const sc = sceneBox.getCenter(new THREE.Vector3());
-            const ss = sceneBox.getSize(new THREE.Vector3());
-            const cx = hips ? hipsPos.x : sc.x;
-            const cz = hips ? hipsPos.z : sc.z;
+            const headBone = vrm.humanoid?.getNormalizedBoneNode('head');
+            const headPos = new THREE.Vector3();
+            if (headBone) headBone.getWorldPosition(headPos);
+            let sc = {x:0,y:0,z:0}, ss = {x:0,y:0,z:0};
+            try {
+                const sceneBox = new THREE.Box3().setFromObject(vrm.scene);
+                sc = sceneBox.getCenter(new THREE.Vector3());
+                ss = sceneBox.getSize(new THREE.Vector3());
+            } catch(e) {}
+            const cx = headBone ? headPos.x : (hips ? hipsPos.x : sc.x);
+            const cz = headBone ? headPos.z : (hips ? hipsPos.z : sc.z);
             dist = 3;
             focalPoint.set(cx, sc.y + ss.y * 0.15, cz);
         }
@@ -499,15 +490,9 @@ export class AvatarRenderer {
                     if (expr === 'aa' || expr === 'ih' || expr === 'ou' || expr === 'ee' || expr === 'oh') continue; 
                     const current = em.getValue(expr) || 0;
                     const target = this._targetExpressions[expr] || 0;
-                    if (target > 0 && Math.abs(current - target) > 0.01) {
-                        if (!this._exprDebugLogged) {
-                            console.log(`[Avatar] Blending ${expr}: ${current.toFixed(3)} → ${target.toFixed(3)}`);
-                        }
-                    }
                     const blended = current + (target - current) * Math.min(1, delta * 5);
                     em.setValue(expr, blended);
                 }
-                if (!this._exprDebugLogged) this._exprDebugLogged = true;
             }
 
             
@@ -618,7 +603,6 @@ export class AvatarRenderer {
         }
 
         if (emotion === 'neutral') {
-            
             this._setBlinkEnabled(true);
             return;
         }
