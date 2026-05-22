@@ -411,8 +411,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function stripMarkers(text) {
         return (text || '')
-            .replace(/\/\[\[(happy|sad|angry|surprised|thinking|relaxed|confused|shy|jealous|bored|suspicious|victory|sleep|love|excited)\]\]/gi, '')
-            .replace(/\/\(\((happy|angry|sad|relaxed|surprised|blink)\)\)/gi, '')
             .replace(/\/\*\*[\s\S]+?\*\*\/?/g, '')
             .replace(/\/\[\[.*?\]\]/g, '')
             .replace(/\/\(\(.*?\)\)/g, '')
