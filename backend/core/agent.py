@@ -157,14 +157,17 @@ class Agent :
 
 
                         action_found =False 
+                        first_action_pos =len (full_response )
                         for m in ACTION_RE .finditer (full_response ):
                             content =m .group (1 ).strip ()
                             if content :
                                 yield ('__roleplay__',content )
                                 action_found =True 
+                                if m .start ()<first_action_pos :
+                                    first_action_pos =m .start ()
                         if action_found :
                             full_response =ACTION_RE .sub ('',full_response )
-                            clean_yielded =0 
+                            clean_yielded =min (clean_yielded ,first_action_pos )
 
 
                         full_response =re .sub (r'/\[\[.*?\]\]','',full_response )
