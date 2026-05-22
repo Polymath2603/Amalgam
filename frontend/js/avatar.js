@@ -1,5 +1,12 @@
 
 
+
+const _origWarn = console.warn;
+console.warn = (...args) => {
+    if (args[0]?.includes?.('THREE.Clock: This module has been deprecated')) return;
+    _origWarn.apply(console, args);
+};
+
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
