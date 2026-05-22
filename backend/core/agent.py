@@ -173,12 +173,6 @@ class Agent :
                         full_response =re .sub (r'\[\[.*?\]\]','',full_response )
                         full_response =re .sub (r'\(\(.*?\)\)','',full_response )
 
-                        full_response =re .sub (r'/[a-zA-Z]+\]\]','',full_response )
-                        full_response =re .sub (r'/[a-zA-Z]+\)\)','',full_response )
-
-                        full_response =re .sub (r'[a-zA-Z]+\]\]','',full_response )
-                        full_response =re .sub (r'[a-zA-Z]+\)\)','',full_response )
-
                         full_response =re .sub (r'/\[\[[^\]\s]*','',full_response )
                         full_response =re .sub (r'/\(\([^\)\s]*','',full_response )
 

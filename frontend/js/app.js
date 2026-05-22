@@ -423,10 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/(\/\[\[|\/\(\(|\/\*\*|\[\[|\(\()[^\]\)]*$/g, '')
             
             .replace(/[a-zA-Z]*\]\]/g, '')
-            .replace(/[a-zA-Z]*\)\)/g, '')
-            
-            .replace(/\/[a-zA-Z]+\]\]/g, '')
-            .replace(/\/[a-zA-Z]+\)\)/g, '');
+            .replace(/[a-zA-Z]*\)\)/g, '');
     }
 
     function addMessage(role, text) {
