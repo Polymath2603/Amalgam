@@ -124,7 +124,9 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
             stderr_text =stderr .decode ().strip ()
             if stderr_text :
                 result +="\n[stderr]\n"+stderr_text 
-        if process .returncode !=0 :
+        if process .returncode ==0 and not result .strip ():
+            result ="[Command completed successfully with no output.]"
+        elif process .returncode !=0 :
             logger .warning (f"Shell command exited with code {process .returncode }: {cmd [:100 ]}")
         return [TextContent (type ="text",text =result )]
 
