@@ -107,7 +107,9 @@ class Memory :
         return self ._current_session 
 
     def session_exists (self ,session_id :str )->bool :
-        return session_id in self ._known_sessions 
+        return session_id in self ._known_sessions or self ._sync_execute (
+        'SELECT COUNT(*) FROM conversations WHERE session_id = ?',(session_id ,)
+        ).fetchone ()[0 ]>0 
 
     def set_current_session (self ,session_id :str ):
         self ._current_session =session_id 
@@ -115,6 +117,7 @@ class Memory :
     def get_current_session (self )->str :
         if not self ._current_session :
             self ._current_session =uuid .uuid4 ().hex [:12 ]
+            self ._known_sessions .add (self ._current_session )
         return self ._current_session 
 
     async def _get_embedding (self ,text :str )->Optional [List [float ]]:
