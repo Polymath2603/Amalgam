@@ -41,17 +41,17 @@ async def handle_chat (websocket :WebSocket ):
                 cmd =data .get ("command","")
                 if cmd in ("voice_output_on","voice_on"):
                     voice_output_enabled =True 
-                    logger .warning ("Voice output enabled by client")
+                    logger .debug ("Voice output enabled by client")
                     await websocket .send_json ({"type":"voice_state","state":"idle"})
                 elif cmd in ("voice_output_off","voice_off"):
                     voice_output_enabled =False 
-                    logger .warning ("Voice output disabled by client")
+                    logger .debug ("Voice output disabled by client")
                     await websocket .send_json ({"type":"voice_state","state":"idle"})
                 elif cmd =="voice_input_on":
                     stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
                     if stt_engine =="browser":
                         await websocket .send_json ({"type":"voice_state","state":"recording"})
-                        logger .warning ("Voice input started (browser STT)")
+                        logger .debug ("Voice input started (browser STT)")
                     else :
                         if voice_pipeline is None :
                             _main_loop =asyncio .get_running_loop ()
@@ -62,7 +62,7 @@ async def handle_chat (websocket :WebSocket ):
                                     _main_loop 
                                     )
                                 except Exception as e :
-                                    logger .warning (f"Voice transcription send failed: {e }")
+                                    logger .error (f"Voice transcription send failed: {e }")
                             voice_pipeline =VoicePipeline (agent_callback =on_transcription ,stt_engine =stt_engine )
                             if stt_engine =="openai-whisper":
                                 whisper_key =settings ().get ("voice.openai_whisper.api_key","")
@@ -83,12 +83,12 @@ async def handle_chat (websocket :WebSocket ):
                                 logger .error (f"Previous voice task failed: {voice_task .exception ()}")
                             voice_task =asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
                         await websocket .send_json ({"type":"voice_state","state":"recording"})
-                        logger .warning ("Voice input started")
+                        logger .debug ("Voice input started")
                 elif cmd =="voice_input_off":
                     stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
                     if stt_engine =="browser":
                         await websocket .send_json ({"type":"voice_state","state":"idle"})
-                        logger .warning ("Voice input stopped (browser STT)")
+                        logger .debug ("Voice input stopped (browser STT)")
                     else :
                         if voice_pipeline :
                             voice_pipeline .stop_listening ()
@@ -97,7 +97,7 @@ async def handle_chat (websocket :WebSocket ):
                             voice_task =None 
                         voice_pipeline =None 
                         await websocket .send_json ({"type":"voice_state","state":"idle"})
-                        logger .warning ("Voice input stopped")
+                        logger .debug ("Voice input stopped")
                 elif cmd =="speak":
                     speak_text =data .get ("text","").strip ()
                     if speak_text :

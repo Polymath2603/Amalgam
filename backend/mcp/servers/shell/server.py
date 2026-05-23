@@ -1,9 +1,13 @@
 from mcp .server import Server 
 from mcp .types import Tool ,TextContent 
-import subprocess 
 import asyncio 
 import os 
 import shlex 
+import logging 
+
+logger =logging .getLogger (__name__ )
+
+SHELL_TIMEOUT =int (os .environ .get ("AMALGAM_SHELL_TIMEOUT","30"))
 
 app =Server ("shell-server")
 
@@ -68,10 +72,21 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         stdout =asyncio .subprocess .PIPE ,
         stderr =asyncio .subprocess .PIPE 
         )
-        stdout ,stderr =await process .communicate ()
+        try :
+            stdout ,stderr =await asyncio .wait_for (process .communicate (),timeout =SHELL_TIMEOUT )
+        except asyncio .TimeoutError :
+            try :
+                process .kill ()
+            except Exception :
+                pass 
+            return [TextContent (type ="text",text =f"Command timed out after {SHELL_TIMEOUT }s: {cmd }")]
         result =stdout .decode ()
         if stderr :
-            result +="\n"+stderr .decode ()
+            stderr_text =stderr .decode ().strip ()
+            if stderr_text :
+                result +="\n[stderr]\n"+stderr_text 
+        if process .returncode !=0 :
+            logger .warning (f"Shell command exited with code {process .returncode }: {cmd [:100 ]}")
         return [TextContent (type ="text",text =result )]
     raise ValueError (f"Unknown tool: {name }")
 
