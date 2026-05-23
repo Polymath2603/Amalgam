@@ -77,6 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let ttsQueue = [];
     let ttsQueuePlaying = false;
     let ttsFlushRequested = false;
+    let _speakingMsgId = null;
 
     
     let _streamBuffer = new Map();
@@ -440,6 +441,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let _speechBubbleAccumulator = '';
 
     let _sessionHasMessages = false;
+    let _currentSessionId = null;
     function updateSessionButtons() {
         document.getElementById('new-chat-btn').style.display = _sessionHasMessages ? '' : 'none';
         document.getElementById('new-session-btn').style.display = _sessionHasMessages ? '' : 'none';
@@ -483,6 +485,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     </button>
                 ` : ''}` +
             `</div>`;
+    }
+
+    function updateSpeakButtons() {
+        document.querySelectorAll('.msg-assistant .msg-action[data-action="speak"], .msg-assistant .msg-action[data-action="stop-speak"]').forEach(btn => {
+            const msg = btn.closest('.msg');
+            const isSpeaking = msg.dataset.msgId === _speakingMsgId;
+            btn.dataset.action = isSpeaking ? 'stop-speak' : 'speak';
+            btn.title = isSpeaking ? 'Stop' : 'Speak';
+            btn.innerHTML = isSpeaking ? '<span class="material-icons-round">stop</span>' : '<span class="material-icons-round">volume_up</span>';
+        });
     }
 
     function addMessage(role, text) {
@@ -530,8 +542,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     ws.send(JSON.stringify({ type: 'user_message', text }));
                 }
             }
-        } else if (action === 'speak') {
-            if (ws?.readyState === WebSocket.OPEN) {
+        } else if (action === 'speak' || action === 'stop-speak') {
+            if (_speakingMsgId === msg.dataset.msgId && action === 'stop-speak') {
+                flushTTSQueue();
+                _speakingMsgId = null;
+                updateSpeakButtons();
+            } else if (ws?.readyState === WebSocket.OPEN) {
+                if (isPlayingTTS) flushTTSQueue();
+                _speakingMsgId = msg.dataset.msgId;
+                updateSpeakButtons();
                 ws.send(JSON.stringify({ type: 'command', command: 'speak', text: body }));
             }
         }
@@ -874,6 +893,7 @@ document.addEventListener('DOMContentLoaded', () => {
             source.connect(ctx.destination);
             currentAudioSource = source;
             isPlayingTTS = true;
+            updateSpeakButtons();
 
             setStatus('speaking');
 
@@ -884,6 +904,8 @@ document.addEventListener('DOMContentLoaded', () => {
             source.onended = () => {
                 isPlayingTTS = false;
                 currentAudioSource = null;
+                _speakingMsgId = null;
+                updateSpeakButtons();
                 if (avatarRenderer) avatarRenderer.stopLipSync();
                 if (avatarPreviewRenderer) avatarPreviewRenderer.stopLipSync();
                 if (onComplete) onComplete();
@@ -930,23 +952,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function init() {
-        const settings = await api('/api/settings');
-        if (settings) { applySettings(settings); markSettingsClean(); }
-        await loadCharacters();
-        await fetchAnimationMap();
-
-        
-        const hashId = location.hash.replace('#', '');
-        const loadId = hashId || 'current';
-
-        
+    async function loadSession(sessionId) {
         const chatMessages = document.getElementById('chat-messages');
         chatMessages.innerHTML = '<div class="msg msg-system" style="text-align:center;color:var(--muted);padding:2rem"><span class="material-icons-round" style="font-size:1.5rem;display:block;margin-bottom:0.5rem">hourglass_top</span>Loading conversation...</div>';
+        _sessionHasMessages = false;
         updateSessionButtons();
         try {
-            const session = await api(`/api/memory/session/${loadId}`);
+            const session = await api(`/api/memory/session/${sessionId}`);
             chatMessages.innerHTML = '';
+            if (session?.exists === false) {
+                const res = await api('/api/memory/new-session', { method: 'POST' });
+                if (res?.session_id) location.hash = res.session_id;
+                return;
+            }
             if (session?.messages?.length) {
                 _sessionHasMessages = true;
                 session.messages.forEach(m => {
@@ -957,14 +975,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
-            if (session?.session_id) {
-                location.hash = session.session_id;
-            }
+            _currentSessionId = session?.session_id || sessionId;
+            if (_currentSessionId) location.hash = _currentSessionId;
             updateSessionButtons();
         } catch (e) {
-            console.warn('Failed to load chat session:', e);
+            chatMessages.innerHTML = '';
+            const res = await api('/api/memory/new-session', { method: 'POST' });
+            if (res?.session_id) location.hash = res.session_id;
+            _currentSessionId = res?.session_id || sessionId;
             updateSessionButtons();
         }
+    }
+
+    window.addEventListener('hashchange', () => {
+        const hashId = location.hash.replace('#', '');
+        if (hashId && hashId !== _currentSessionId) {
+            loadSession(hashId);
+        }
+    });
+
+    async function init() {
+        const settings = await api('/api/settings');
+        if (settings) { applySettings(settings); markSettingsClean(); }
+        await loadCharacters();
+        await fetchAnimationMap();
+
+        
+        const hashId = location.hash.replace('#', '');
+        await loadSession(hashId || 'current');
         
         loadHistory();
         
@@ -1667,9 +1705,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('new-chat-btn').addEventListener('click', async () => {
         const res = await api('/api/memory/new-session', { method: 'POST' });
         if (res?.session_id) location.hash = res.session_id;
-        document.getElementById('chat-messages').innerHTML = '';
-        _sessionHasMessages = false;
-        updateSessionButtons();
         showToast('New conversation started');
     });
 
@@ -1689,9 +1724,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('new-session-btn').addEventListener('click', async () => {
         const res = await api('/api/memory/new-session', { method: 'POST' });
         if (res?.session_id) location.hash = res.session_id;
-        document.getElementById('chat-messages').innerHTML = '';
-        _sessionHasMessages = false;
-        updateSessionButtons();
         historyPanel.classList.remove('open');
         showToast('New conversation started');
     });
@@ -1699,8 +1731,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('clear-all-history').addEventListener('click', async () => {
         if (!confirm('Clear all conversation history?')) return;
         await api('/api/memory/clear', { method: 'POST' });
-        location.hash = '';
-        document.getElementById('chat-messages').innerHTML = '';
+        const res = await api('/api/memory/session/current');
+        if (res?.session_id) location.hash = res.session_id;
         historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center">No conversations yet</div>';
         updateHistoryToggle();
         showToast('History cleared');
@@ -1737,21 +1769,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button class="history-delete" title="Delete conversation"><span class="material-icons-round" style="font-size:1rem">close</span></button>
                 `;
                 item.querySelector('.history-content').addEventListener('click', async () => {
-                    const msgs = await api(`/api/memory/session/${session.id}`);
-                    if (msgs?.messages) {
-                        const chatMessages = document.getElementById('chat-messages');
-                        chatMessages.innerHTML = '';
-                        msgs.messages.forEach(m => {
-                            const div = document.createElement('div');
-                            div.className = `msg msg-${m.role}`;
-                            div.innerHTML = getMessageHtml(m.role, stripMarkers(m.content));
-                            chatMessages.appendChild(div);
-                        });
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
-                        _sessionHasMessages = msgs.messages.length > 0;
-                        location.hash = session.id;
-                        updateSessionButtons();
-                    }
+                    location.hash = session.id;
                     historyPanel.classList.remove('open');
                 });
                 item.querySelector('.history-delete').addEventListener('click', async (e) => {
@@ -1760,10 +1778,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     await api(`/api/memory/session/${session.id}`, { method: 'DELETE' });
                     item.remove();
                     if (location.hash.replace('#', '') === session.id) {
-                        location.hash = '';
-                        document.getElementById('chat-messages').innerHTML = '';
-                        _sessionHasMessages = false;
-                        updateSessionButtons();
+                        const res = await api('/api/memory/new-session', { method: 'POST' });
+                        if (res?.session_id) location.hash = res.session_id;
                     }
                     updateHistoryToggle();
                 });

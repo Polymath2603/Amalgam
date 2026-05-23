@@ -23,7 +23,8 @@ async def get_session_messages (session_id :str ):
     else :
         memory ().set_current_session (session_id )
     messages =memory ().get_session_messages (session_id )
-    return {"messages":messages ,"session_id":session_id }
+    exists =memory ().session_exists (session_id )or len (messages )>0 
+    return {"messages":messages ,"session_id":session_id ,"exists":exists }
 
 
 @router .post ("/api/memory/session/{session_id}/activate")

@@ -72,6 +72,10 @@ class Memory :
         self .summarizing =False 
         self ._current_session :Optional [str ]=None 
         self ._db_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="mem_db")
+        self ._known_sessions :set =set ()
+        self ._sync_execute ('SELECT DISTINCT session_id FROM conversations')
+        for row in self .cursor .fetchall ():
+            self ._known_sessions .add (row [0 ])
 
     async def _db_commit (self ):
         loop =asyncio .get_running_loop ()
@@ -99,7 +103,11 @@ class Memory :
 
     def start_session (self )->str :
         self ._current_session =uuid .uuid4 ().hex [:12 ]
+        self ._known_sessions .add (self ._current_session )
         return self ._current_session 
+
+    def session_exists (self ,session_id :str )->bool :
+        return session_id in self ._known_sessions 
 
     def set_current_session (self ,session_id :str ):
         self ._current_session =session_id 

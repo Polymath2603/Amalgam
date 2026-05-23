@@ -58,6 +58,9 @@
                     <div class="chat-avatar-info">
                         <span class="chat-avatar-name" id="chat-avatar-name">Loading...</span>
                         <span class="chat-avatar-status" id="chat-avatar-status">Ready</span>
+                        <div class="voice-bars" id="voice-bars">
+                            <span></span><span></span><span></span><span></span><span></span>
+                        </div>
                     </div>
                 </div>
                 <div class="chat-controls">
@@ -67,9 +70,6 @@
                     <button class="icon-toggle" id="voice-output-toggle" title="Toggle voice output (speaker)">
                         <span class="material-icons-round">volume_off</span>
                     </button>
-                    <div class="voice-bars" id="voice-bars">
-                        <span></span><span></span><span></span><span></span><span></span>
-                    </div>
                     <button class="icon-toggle" id="new-chat-btn" title="New conversation">
                         <span class="material-icons-round">add</span>
                     </button>
@@ -364,18 +364,6 @@
                             </div>
                         </div>
 
-                        <!-- Thinking Section -->
-                        <div class="settings-card">
-                            <h3><span class="material-icons-round">lightbulb</span> Thinking</h3>
-                            <div class="form-row toggle-row">
-                                <label>Show thinking process</label>
-                                <label class="toggle">
-                                    <input type="checkbox" id="thinking-toggle" checked>
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
-                        </div>
-
                         <!-- STT Section -->
                         <div class="settings-card">
                             <h3><span class="material-icons-round">mic</span> Speech-to-Text</h3>
@@ -438,6 +426,11 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
+                        </div>
+
+                        <!-- TTS Section -->
+                        <div class="settings-card">
+                            <h3><span class="material-icons-round">volume_up</span> Text-to-Speech</h3>
                             <div class="form-row toggle-row">
                                 <label>Voice Output (Speaker)</label>
                                 <label class="toggle">
@@ -445,11 +438,6 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                        </div>
-
-                        <!-- TTS Section -->
-                        <div class="settings-card">
-                            <h3><span class="material-icons-round">volume_up</span> Text-to-Speech</h3>
                             <div class="form-row">
                                 <label>TTS Engine</label>
                                 <select id="tts-engine">
@@ -589,6 +577,13 @@
                                     <span id="llm-temperature-val">0.7</span>
                                 </div>
                             </div>
+                            <div class="form-row toggle-row">
+                                <label>Show thinking process</label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="thinking-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
                         </div>
 
                         <!-- MCP Tools -->
@@ -597,10 +592,12 @@
                             <div class="mcp-toggle-list" id="mcp-toggle-list">
                                 <p class="muted">Loading...</p>
                             </div>
-                            <h4 class="tools-label">Available Tools</h4>
-                            <div class="tools-grid" id="tools-grid">
-                                <p class="muted">Loading...</p>
-                            </div>
+                            <details class="data-details">
+                                <summary>Available Tools</summary>
+                                <div class="tools-grid" id="tools-grid">
+                                    <p class="muted">Loading...</p>
+                                </div>
+                            </details>
                         </div>
 
                         <!-- Data Management -->

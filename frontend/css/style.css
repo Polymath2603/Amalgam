@@ -479,13 +479,13 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .muted { color: var(--text-muted); font-size: 0.8rem; }
 
 
-#data-card details.data-details {
+details.data-details {
     margin-bottom: 0.75rem;
     border: 1px solid var(--border);
     border-radius: 0.5rem;
     overflow: hidden;
 }
-#data-card details.data-details summary {
+details.data-details summary {
     cursor: pointer;
     padding: 0.5rem 0.75rem;
     font-weight: 500;
@@ -493,10 +493,10 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
     background: var(--bg-input);
     user-select: none;
 }
-#data-card details.data-details summary:hover {
+details.data-details summary:hover {
     background: var(--border);
 }
-#data-card details.data-details > div {
+details.data-details > div {
     padding: 0.5rem 0.75rem;
     max-height: 300px;
     overflow-y: auto;
