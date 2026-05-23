@@ -256,7 +256,7 @@ class Agent :
                 if not tool_called :
                     if accumulated .strip ():
                         final_text =self ._clean_remaining_tags (accumulated )
-                        if final_text and final_text !=_last_clean :
+                        if _last_clean ==""and final_text :
                             yield final_text 
                         await self .memory .add_turn ("assistant",accumulated .strip ())
                     break 
