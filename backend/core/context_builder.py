@@ -1,27 +1,26 @@
-import os 
-import logging 
-from string import Template 
-from typing import List ,Dict 
+import os
+import logging
+from string import Template
+from typing import List, Dict
 
-from backend .paths import PROJECT_ROOT ,VAULT_DIR 
-from backend .core .vault import VaultManager 
+from backend.paths import PROJECT_ROOT, VAULT_DIR
+from backend.core.vault import VaultManager
 
-logger =logging .getLogger (__name__ )
+logger = logging.getLogger(__name__)
 
-VRM_EXPRESSIONS =["happy","angry","sad","relaxed","surprised","blink"]
+VRM_EXPRESSIONS = ["happy", "angry", "sad", "relaxed", "surprised", "blink"]
 
-EMOTION_TAGS =[
-"happy","sad","angry","surprised","thinking","relaxed",
-"confused","shy","jealous","bored","suspicious","victory",
-"sleep","love","excited"
+EMOTION_TAGS = [
+    "happy", "sad", "angry", "surprised", "thinking", "relaxed",
+    "confused", "shy", "jealous", "bored", "suspicious", "victory",
+    "sleep", "love", "excited"
 ]
 
 
-_PROMPT_TEMPLATE ="""\
-# Identity
+_PROMPT_TEMPLATE = """\
+
 $identity
 
-# Environment
 Your responses are displayed as chat messages in a web UI.
 - The user is communicating with you via text or voice input
 - You have a 3D VRM avatar that can show facial expressions and perform full-body animations
@@ -30,10 +29,8 @@ Your responses are displayed as chat messages in a web UI.
 - Images sent by the user are visible to you
 - You can use connected tools to interact with the local system
 
-# Communication System
 You can express yourself through three independent tag systems, layered on top of your speech.
 
-## Voice Emotion — /[[emotion]]
 Controls the emotional tone of your spoken (TTS) voice. Place inline where the emotion should shift.
 $emotion_tags
 Rules:
@@ -42,7 +39,6 @@ Rules:
 - Use one emotion tag per response to set your vocal tone
 - Express vocal tone only — this does not affect the avatar's face
 
-## Facial Expression — /((expression))
 Controls the VRM avatar's facial blend shapes independently of your voice.
 $expression_tags
 Rules:
@@ -52,7 +48,6 @@ Rules:
 - Use independently from emotions — a happy voice could have a surprised face
 - The expression persists until changed by a subsequent tag
 
-## Body Animation — /**action**/
 Triggers full-body VRM animations.
 $action_tags
 Rules:
@@ -60,11 +55,9 @@ Rules:
 - Keep descriptions brief and natural: /**nods**/, /**waves**/, /**considers**/
 - Not every line needs an action — reserve for meaningful moments
 
-# Response Guidelines
-## Tone
+
 $character_style
 
-## Formatting
 - Keep responses concise and natural — this is a conversation, not a document
 - Never output markdown code fences (```) around your response — you are already in a chat interface
 - Do not use bullet points, numbered lists, or excessive bold text unless the user specifically asks for structure
@@ -73,11 +66,9 @@ $character_style
 - Use warm, engaging language. Be direct but not terse.
 - Never use emojis unless the user does first
 
-## Reasoning
 For complex questions, internal deliberation, or multi-step reasoning, wrap your thinking in <think>...</think> tags before responding. The thinking content will be shown or hidden based on the user's preference.
 Example: <think>The user is asking about X. Let me recall what I know about X from previous context and the available tools.</think>Here is my answer...
 
-## Edge Cases
 - If a request is ambiguous, make a reasonable attempt before asking for clarification
 - If a tool fails or returns an unexpected result, report it clearly and suggest alternatives
 - Do not call the same tool more than once in a row with the same arguments — if a tool call returns an unexpected result, respond to the user instead of retrying
@@ -92,217 +83,218 @@ $reasoning_note\
 """
 
 
-class ContextBuilder :
-    def __init__ (self ,settings =None ):
-        self .settings =settings 
+class ContextBuilder:
+    def __init__(self, settings=None):
+        self.settings = settings
 
-    @property 
-    def _characters (self )->Dict [str ,Dict ]:
-        if self .settings :
-            return self .settings .get_characters ()
+    @property
+    def _characters(self) -> Dict[str, Dict]:
+        if self.settings:
+            return self.settings.get_characters()
         return {}
 
-    def get_character (self ,character_id :str )->Dict :
-        return self ._characters .get (character_id ,{})
+    def get_character(self, character_id: str) -> Dict:
+        return self._characters.get(character_id, {})
 
-    def list_characters (self )->Dict [str ,Dict ]:
-        return self ._characters 
+    def list_characters(self) -> Dict[str, Dict]:
+        return self._characters
 
-    def _get_available_animations (self ,character_id :str =None )->List [str ]:
-        names =[]
-        default_dir =os .path .join (PROJECT_ROOT ,"characters","default","anim")
-        if os .path .exists (default_dir ):
-            for f in sorted (os .listdir (default_dir )):
-                if f .endswith (".vrma"):
-                    name =f .replace (".vrma","")
-                    name =name .replace (".bvh","")
-                    names .append (name )
-        if character_id and character_id !="default":
-            char_dir =os .path .join (PROJECT_ROOT ,"characters",character_id ,"anim")
-            if os .path .exists (char_dir ):
-                for f in sorted (os .listdir (char_dir )):
-                    if f .endswith (".vrma"):
-                        name =f .replace (".vrma","")
-                        name =name .replace (".bvh","")
-                        names .append (name )
-        return names 
+    def _get_available_animations(self, character_id: str = None) -> List[str]:
+        names = []
+        default_dir = os.path.join(PROJECT_ROOT, "characters", "default", "anim")
+        if os.path.exists(default_dir):
+            for f in sorted(os.listdir(default_dir)):
+                if f.endswith(".vrma"):
+                    name = f.replace(".vrma", "")
+                    name = name.replace(".bvh", "")
+                    names.append(name)
+        if character_id and character_id != "default":
+            char_dir = os.path.join(PROJECT_ROOT, "characters", character_id, "anim")
+            if os.path.exists(char_dir):
+                for f in sorted(os.listdir(char_dir)):
+                    if f.endswith(".vrma"):
+                        name = f.replace(".vrma", "")
+                        name = name.replace(".bvh", "")
+                        names.append(name)
+        return names
 
-    def _get_vault_path (self )->str :
-        if self .settings :
-            return self .settings .get ("vault.path",str (VAULT_DIR ))
-        return str (VAULT_DIR )
+    def _get_vault_path(self) -> str:
+        if self.settings:
+            return self.settings.get("vault.path", str(VAULT_DIR))
+        return str(VAULT_DIR)
 
-    def _build_vault_section (self )->str :
-        vault_path =self ._get_vault_path ()
-        vault_token_budget =self .settings .get ("vault.max_tokens",2000 )if self .settings else 2000 
-        if not os .path .exists (vault_path ):
+    def _build_vault_section(self) -> str:
+        vault_path = self._get_vault_path()
+        vault_token_budget = self.settings.get("vault.max_tokens", 2000) if self.settings else 2000
+        if not os.path.exists(vault_path):
             return ""
-        vault =VaultManager (vault_path )
-        return vault .inject_to_context (max_tokens =vault_token_budget )
+        vault = VaultManager(vault_path)
+        return vault.inject_to_context(max_tokens=vault_token_budget)
 
-    def build (self ,tools :List [Dict ],history :List [Dict ],user_msg :str ,
-    character_id :str =None ,additional_prompt :str ="",
-    summary :str ="",relevant :List [Dict ]=None ,
-    tts_emotions :List [str ]=None ,expression_names :List [str ]=None ,
-    relationship_context :str ="",native_tools_available :bool =False )->list :
-        if not character_id and self .settings :
-            character_id =self .settings .get ("character.active","default")
-        character =self ._characters .get (character_id ,{})
+    def build(self, tools: List[Dict], history: List[Dict], user_msg: str,
+              character_id: str = None, additional_prompt: str = "",
+              summary: str = "", relevant: List[Dict] = None,
+              tts_emotions: List[str] = None, expression_names: List[str] = None,
+              relationship_context: str = "", native_tools_available: bool = False) -> list:
+        if not character_id and self.settings:
+            character_id = self.settings.get("character.active", "default")
+        character = self._characters.get(character_id, {})
 
-        sys_prompt =self ._build_character_prompt (
-        character ,additional_prompt ,character_id ,
-        tts_emotions =tts_emotions ,expression_names =expression_names 
+        sys_prompt = self._build_character_prompt(
+            character, additional_prompt, character_id,
+            tts_emotions=tts_emotions, expression_names=expression_names
         )
 
-        tool_section =self ._build_tool_section (tools ,native_tools_available =native_tools_available )
-        summary_section =self ._build_summary_section (summary )
-        relevant_section =self ._build_relevant_section (relevant )
-        relationship_section =self ._build_relationship_section (relationship_context )
+        tool_section = self._build_tool_section(tools, native_tools_available=native_tools_available)
+        summary_section = self._build_summary_section(summary)
+        relevant_section = self._build_relevant_section(relevant)
+        relationship_section = self._build_relationship_section(relationship_context)
 
-        sys_prompt =Template (sys_prompt ).safe_substitute (
-        tool_section =tool_section ,
-        summary_section =summary_section ,
-        relevant_section =relevant_section ,
-        relationship_section =relationship_section ,
+        sys_prompt = Template(sys_prompt).safe_substitute(
+            tool_section=tool_section,
+            summary_section=summary_section,
+            relevant_section=relevant_section,
+            relationship_section=relationship_section,
         )
 
-        messages =[{"role":"system","content":sys_prompt }]
-        for h in history :
-            messages .append ({"role":h ["role"],"content":h ["content"]})
-        messages .append ({"role":"user","content":user_msg })
+        messages = [{"role": "system", "content": sys_prompt}]
+        for h in history:
+            messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": user_msg})
 
-        return messages 
+        return messages
 
-    def _build_tool_section (self ,tools :List [Dict ],native_tools_available :bool =False )->str :
-        if not tools :
+    def _build_tool_section(self, tools: List[Dict], native_tools_available: bool = False) -> str:
+        if not tools:
             return ""
-        lines =["\n\n# Available Tools"]
-        lines .append ("You have access to the following tools. Use them when appropriate — do not preemptively refuse to call them. If a tool call is blocked or needs permission, the system will prompt the user automatically.")
-        lines .append ("You can call multiple tools in sequence — after a tool result arrives, you may call another tool or respond to the user.")
+        lines = ["\n\n
+        lines.append("You have access to the following tools. Use them when appropriate — do not preemptively refuse to call them. If a tool call is blocked or needs permission, the system will prompt the user automatically.")
+        lines.append("You can call multiple tools in sequence — after a tool result arrives, you may call another tool or respond to the user.")
 
+        skill_tools = {t['name'] for t in tools if t['name'] in ('skill', 'create_skill', 'delete_skill', 'list_skills')}
+        other_tools = [t for t in tools if t['name'] not in skill_tools]
+        has_skills = bool(skill_tools)
 
-        skill_tools ={t ['name']for t in tools if t ['name']in ('skill','create_skill','delete_skill','list_skills')}
-        other_tools =[t for t in tools if t ['name']not in skill_tools ]
-        has_skills =bool (skill_tools )
+        if has_skills:
+            lines.append("\n
+You can spawn a sub-agent for focused, self-contained tasks using the `task` tool. The sub-agent has the same capabilities (MCP tools, LLM) but runs in an isolated context. Use this for tasks independent of the current conversation, such as code reviews, document generation, or research. Returns the sub-agent's complete output.
 
-        if has_skills :
-            lines .append ("\n## Skills System")
-            lines .append ("Skills are reusable knowledge files (SKILL.md) you can load on-demand.")
-            lines .append ("Use `list_skills` to see available skills, then `skill(\"name\")` to load one into context when a task matches its description.")
-            lines .append ("Use `create_skill` to save useful patterns, conventions, or knowledge as new skills for future reuse.")
-            lines .append ("Consider loading a relevant skill whenever a task involves a known framework, tool, or domain — the skill content will give you precise guidance.")
+            lines.append("Skills are reusable knowledge files (SKILL.md) you can load on-demand.")
+            lines.append("Use `list_skills` to see available skills, then `skill(\"name\")` to load one into context when a task matches its description.")
+            lines.append("Use `create_skill` to save useful patterns, conventions, or knowledge as new skills for future reuse.")
+            lines.append("Consider loading a relevant skill whenever a task involves a known framework, tool, or domain — the skill content will give you precise guidance.")
 
-        for t in other_tools :
-            lines .append (f"\n## {t ['name']}")
-            lines .append (t ['description'])
-            if 'parameters'in t and t ['parameters'].get ('properties'):
-                params =t ['parameters']['properties']
-                for k ,v in params .items ():
-                    lines .append (f"  - {k } ({v .get ('type','string')})")
+        for t in other_tools:
+            lines.append(f"\n
+            lines.append(t['description'])
+            if 'parameters' in t and t['parameters'].get('properties'):
+                params = t['parameters']['properties']
+                for k, v in params.items():
+                    lines.append(f"  - {k} ({v.get('type', 'string')})")
 
-        if not native_tools_available :
-            lines .append (
-            '\n\nTo invoke a tool, respond with a tool block:\n'
-            '```tool\n{"name": "<tool_name>", "arguments": {"<param>": "<value>"}}\n```'
+        if not native_tools_available:
+            lines.append(
+                '\n\nTo invoke a tool, respond with a tool block:\n'
+                '```tool\n{"name": "<tool_name>", "arguments": {"<param>": "<value>"}}\n```'
             )
-        return "\n".join (lines )
+        return "\n".join(lines)
 
-    def _build_summary_section (self ,summary :str )->str :
-        if not summary :
+    def _build_summary_section(self, summary: str) -> str:
+        if not summary:
             return ""
-        return f"\n\n# Conversation Summary (Previous Session)\n{summary }"
+        return f"\n\n
 
-    def _build_relevant_section (self ,relevant :List [Dict ])->str :
-        if not relevant :
+    def _build_relevant_section(self, relevant: List[Dict]) -> str:
+        if not relevant:
             return ""
-        lines =["\n\n# Relevant Past Context"]
-        for r in relevant :
-            lines .append (f"- {r ['role']}: {r ['content']}")
-        return "\n".join (lines )
+        lines = ["\n\n
+        for r in relevant:
+            lines.append(f"- {r['role']}: {r['content']}")
+        return "\n".join(lines)
 
-    def _build_relationship_section (self ,relationship_context :str )->str :
-        if not relationship_context :
+    def _build_relationship_section(self, relationship_context: str) -> str:
+        if not relationship_context:
             return ""
-        return f"\n\n# Relationship Context\n{relationship_context }"
+        return f"\n\n
 
-    def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",
-    character_id :str =None ,
-    tts_emotions :List [str ]=None ,
-    expression_names :List [str ]=None )->str :
-        name =character .get ("name","Assistant")if character else "Assistant"
-        system_prompt =character .get ("system_prompt","")if character else ""
-        personality =character .get ("personality","")if character else ""
-        characteristics =character .get ("characteristics","")if character else ""
-        interaction_style =character .get ("interaction_style","")if character else ""
-        vocabulary =character .get ("vocabulary",[])if character else []
-        dialogue_examples =character .get ("dialogue_examples",[])if character else []
-        quirks =character .get ("quirks",[])if character else []
-        memory_bias =character .get ("memory_bias",[])if character else []
-        forbidden =character .get ("forbidden",[])if character else []
+    def _build_character_prompt(self, character: Dict, additional_prompt: str = "",
+                                character_id: str = None,
+                                tts_emotions: List[str] = None,
+                                expression_names: List[str] = None) -> str:
+        name = character.get("name", "Assistant") if character else "Assistant"
+        system_prompt = character.get("system_prompt", "") if character else ""
+        personality = character.get("personality", "") if character else ""
+        characteristics = character.get("characteristics", "") if character else ""
+        interaction_style = character.get("interaction_style", "") if character else ""
+        vocabulary = character.get("vocabulary", []) if character else []
+        dialogue_examples = character.get("dialogue_examples", []) if character else []
+        quirks = character.get("quirks", []) if character else []
+        memory_bias = character.get("memory_bias", []) if character else []
+        forbidden = character.get("forbidden", []) if character else []
 
-        identity =system_prompt or f"You are {name }, a helpful AI assistant."
-        style_parts =[]
-        if personality :
-            style_parts .append (f"Personality: {personality }")
-        if characteristics :
-            style_parts .append (f"Traits: {characteristics }")
-        if interaction_style :
-            style_parts .append (f"Style: {interaction_style }")
-        if vocabulary :
-            style_parts .append (f"Signature phrases: {' '.join (f'\"{p }\"'for p in vocabulary )}")
-        if quirks :
-            style_parts .append (f"Quirks: {'; '.join (quirks )}")
-        if memory_bias :
-            style_parts .append (f"Always remember: {'; '.join (memory_bias )}")
-        if forbidden :
-            style_parts .append (f"Forbidden: {'; '.join (forbidden )}")
-        character_style ="\n".join (style_parts )if style_parts else "Be warm, natural, and engaging."
+        identity = system_prompt or f"You are {name}, a helpful AI assistant."
+        style_parts = []
+        if personality:
+            style_parts.append(f"Personality: {personality}")
+        if characteristics:
+            style_parts.append(f"Traits: {characteristics}")
+        if interaction_style:
+            style_parts.append(f"Style: {interaction_style}")
+        if vocabulary:
+            style_parts.append(f"Signature phrases: {' '.join(f'\"{p}\"' for p in vocabulary)}")
+        if quirks:
+            style_parts.append(f"Quirks: {'; '.join(quirks)}")
+        if memory_bias:
+            style_parts.append(f"Always remember: {'; '.join(memory_bias)}")
+        if forbidden:
+            style_parts.append(f"Forbidden: {'; '.join(forbidden)}")
+        character_style = "\n".join(style_parts) if style_parts else "Be warm, natural, and engaging."
 
-        if dialogue_examples :
-            character_style +="\n\n## Dialogue Examples"
-            for ex in dialogue_examples :
-                character_style +=f'\n- "{ex }"'
+        if dialogue_examples:
+            character_style += "\n\n
+            for ex in dialogue_examples:
+                character_style += f'\n- "{ex}"'
 
-        if additional_prompt and additional_prompt .strip ():
-            character_style +=f"\n\n## Additional Instructions\n{additional_prompt .strip ()}"
+        if additional_prompt and additional_prompt.strip():
+            character_style += f"\n\n
 
-        emotions =tts_emotions or EMOTION_TAGS 
-        emotion_tags ="\n".join (f"  - /[[{e }]]"for e in emotions )
-        emotion_tags =f"Available:\n{emotion_tags }"
+        emotions = tts_emotions or EMOTION_TAGS
+        emotion_tags = "\n".join(f"  - /[[{e}]]" for e in emotions)
+        emotion_tags = f"Available:\n{emotion_tags}"
 
-        expressions =expression_names or VRM_EXPRESSIONS 
-        expression_tags ="\n".join (f"  - /(({e }))"for e in expressions )
-        expression_tags =f"Available:\n{expression_tags }"
+        expressions = expression_names or VRM_EXPRESSIONS
+        expression_tags = "\n".join(f"  - /(({e}))" for e in expressions)
+        expression_tags = f"Available:\n{expression_tags}"
 
-        anims =self ._get_available_animations (character_id )
-        if anims :
-            anim_lines ="\n".join (f"  - /**{a }**/"for a in anims )
-            action_tags =f"Available animations:\n{anim_lines }"
-        else :
-            action_tags ="No predefined animations — use descriptive /**action**/ markers (e.g. /**nods**/, /**waves happily**/). These will animate the avatar semantically."
+        anims = self._get_available_animations(character_id)
+        if anims:
+            anim_lines = "\n".join(f"  - /**{a}**/" for a in anims)
+            action_tags = f"Available animations:\n{anim_lines}"
+        else:
+            action_tags = "No predefined animations — use descriptive /**action**/ markers (e.g. /**nods**/, /**waves happily**/). These will animate the avatar semantically."
 
-        vault_rules =self ._build_vault_section ()
+        vault_rules = self._build_vault_section()
 
-        if self .settings and not self .settings .get ("ui.thinking_enabled",True ):
-            reasoning_note =""
-        else :
-            reasoning_note ="\n\nFor reasoning models, use <think>your reasoning</think> before your response."
+        if self.settings and not self.settings.get("ui.thinking_enabled", True):
+            reasoning_note = ""
+        else:
+            reasoning_note = "\n\nFor reasoning models, use <think>your reasoning</think> before your response."
 
-        rendered =Template (_PROMPT_TEMPLATE ).safe_substitute (
-        identity =identity ,
-        emotion_tags =emotion_tags ,
-        expression_tags =expression_tags ,
-        action_tags =action_tags ,
-        character_style =character_style ,
-        vault_rules =vault_rules ,
-        tool_section ="$tool_section",
-        summary_section ="$summary_section",
-        relevant_section ="$relevant_section",
-        relationship_section ="$relationship_section",
-        reasoning_note =reasoning_note ,
+        rendered = Template(_PROMPT_TEMPLATE).safe_substitute(
+            identity=identity,
+            emotion_tags=emotion_tags,
+            expression_tags=expression_tags,
+            action_tags=action_tags,
+            character_style=character_style,
+            vault_rules=vault_rules,
+            tool_section="$tool_section",
+            summary_section="$summary_section",
+            relevant_section="$relevant_section",
+            relationship_section="$relationship_section",
+            reasoning_note=reasoning_note,
         )
-        return rendered 
+        return rendered
 
-    def build_from_messages (self ,messages :list ,new_user_msg :str )->list :
-        messages .append ({"role":"user","content":new_user_msg })
-        return messages 
+    def build_from_messages(self, messages: list, new_user_msg: str) -> list:
+        messages.append({"role": "user", "content": new_user_msg})
+        return messages

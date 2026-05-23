@@ -23,6 +23,10 @@ class MCPClient :
         self .exit_stack =AsyncExitStack ()
         self ._reconnect_tasks ={}
         self ._server_configs :Dict [str ,dict ]={}
+        self ._agent =None 
+
+    def register_agent (self ,agent ):
+        self ._agent =agent 
 
     async def connect_servers (self ,config_path :str ):
         """Connect to MCP servers defined in a JSON config file."""
@@ -159,9 +163,27 @@ class MCPClient :
             "description":tool .description ,
             "parameters":tool .inputSchema 
             })
+        if self ._agent is not None :
+            schema .append ({
+            "name":"task",
+            "description":"Spawn a sub-agent to handle a focused, self-contained task. The sub-agent has the same capabilities (MCP tools, LLM) but runs in an isolated context. Use this for tasks that are independent of the current conversation. Returns the sub-agent's complete output.",
+            "parameters":{
+            "type":"object",
+            "properties":{
+            "prompt":{
+            "type":"string",
+            "description":"Detailed instructions for the sub-agent"
+            }
+            },
+            "required":["prompt"]
+            }
+            })
         return schema 
 
     async def call_tool (self ,name :str ,arguments :dict )->str :
+        if name =="task"and self ._agent is not None :
+            prompt =arguments .get ("prompt","")
+            return await self ._agent .spawn_subagent (prompt )
         if name not in self .server_tool_map :
             return f"Error: Tool {name } not found"
 

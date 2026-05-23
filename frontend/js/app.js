@@ -578,6 +578,18 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('Not connected (reconnecting...)', 'danger');
             return;
         }
+
+        
+        if (text.startsWith('/')) {
+            const parts = text.split(/\s+/);
+            const command = parts[0].substring(1).toLowerCase();
+            const args = parts.slice(1).join(' ');
+            ws.send(JSON.stringify({ type: 'slash_command', command, args }));
+            chatInput.value = '';
+            chatInput.style.height = 'auto';
+            return;
+        }
+
         clearErrors();
         flushTTSQueue();
 

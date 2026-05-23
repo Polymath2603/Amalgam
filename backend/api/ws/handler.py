@@ -105,23 +105,68 @@ async def handle_chat (websocket :WebSocket ):
                         asyncio .create_task (synthesize_now (speak_text ,websocket ))
                 continue 
 
-            if msg_type =="user_message":
-                text =data .get ("text","").strip ()
-                images =data .get ("images",None )
-                if not text and not images :
-                    continue 
-
-                if text =="/clear":
+            if msg_type =="slash_command":
+                cmd =data .get ("command","").lower ()
+                args =data .get ("args","")
+                if cmd =="clear":
                     await memory ().clear ()
                     memory ().start_session ()
                     await websocket .send_json (
                     {"type":"chat_append","role":"system","text":"Memory cleared.","finished":True })
-                    continue 
-
-                if text =="/help":
-                    help_text ="Commands:\n/clear — clear history\n/help — show this"
+                elif cmd =="new":
+                    await memory ().set_current_session ("")
+                    await websocket .send_json (
+                    {"type":"chat_append","role":"system","text":"New session started.","finished":True })
+                elif cmd =="help":
+                    help_text =(
+                    "Slash commands:\n"
+                    "/clear — clear history\n"
+                    "/new — start new session\n"
+                    "/provider &lt;name&gt; — switch provider (gemini, openrouter, ollama, etc.)\n"
+                    "/model &lt;name&gt; — switch model\n"
+                    "/session &lt;id&gt; — load a session\n"
+                    "/help — show this"
+                    )
                     await websocket .send_json (
                     {"type":"chat_append","role":"system","text":help_text ,"finished":True })
+                elif cmd =="provider":
+                    if args :
+                        s =settings ()
+                        s .set ("provider.active",args )
+                        await websocket .send_json (
+                        {"type":"chat_append","role":"system","text":f"Switched to provider: {args }","finished":True })
+                    else :
+                        await websocket .send_json (
+                        {"type":"chat_append","role":"system","text":f"Current provider: {settings ().get ('provider.active','gemini')}","finished":True })
+                elif cmd =="model":
+                    if args :
+                        provider =settings ().get ("provider.active","gemini")
+                        s =settings ()
+                        s .set (f"provider.{provider }.model",args )
+                        await websocket .send_json (
+                        {"type":"chat_append","role":"system","text":f"Switched model to: {args }","finished":True })
+                    else :
+                        provider =settings ().get ("provider.active","gemini")
+                        model =settings ().get (f"provider.{provider }.model","not set")
+                        await websocket .send_json (
+                        {"type":"chat_append","role":"system","text":f"Current model ({provider }): {model }","finished":True })
+                elif cmd =="session":
+                    if args :
+                        await websocket .send_json (
+                        {"type":"chat_append","role":"system","text":f"Load session by navigating to #chat/{args }","finished":True })
+                    else :
+                        sid =memory ().get_current_session ()
+                        await websocket .send_json (
+                        {"type":"chat_append","role":"system","text":f"Current session: {sid }","finished":True })
+                else :
+                    await websocket .send_json (
+                    {"type":"chat_append","role":"system","text":f"Unknown command: /{cmd }. Try /help","finished":True })
+                continue 
+
+            if msg_type =="user_message":
+                text =data .get ("text","").strip ()
+                images =data .get ("images",None )
+                if not text and not images :
                     continue 
 
 

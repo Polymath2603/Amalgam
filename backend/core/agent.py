@@ -96,6 +96,26 @@ class Agent :
         text =re .sub (r'\s*/\s*$','',text )
         return text .strip ()
 
+    async def spawn_subagent (self ,prompt :str ,session_id :str =None )->str :
+        """Run a sub-agent with a focused task. Returns the complete response."""
+        sub_memory =Memory (llm_router =self .llm )
+        if not session_id :
+            sub_memory .start_session ()
+        else :
+            sub_memory .set_current_session (session_id )
+        sub_agent =Agent (
+        mcp_client =self .mcp_client ,
+        llm =self .llm ,
+        memory =sub_memory ,
+        context_builder =self .context_builder ,
+        settings =self .settings ,
+        )
+        parts =[]
+        async for chunk in sub_agent .handle_user_input (prompt ):
+            if isinstance (chunk ,str ):
+                parts .append (chunk )
+        return "".join (parts )
+
     async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [str ]:
         await self .memory .add_turn ("user",text )
 

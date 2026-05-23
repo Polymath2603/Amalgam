@@ -71,6 +71,7 @@ def get_shared ():
         settings =_shared ["settings"]
         )
         _sync_emotion_tags ()
+        _shared ["mcp"].register_agent (_shared ["agent"])
     return _shared 
 
 
