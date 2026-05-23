@@ -98,6 +98,14 @@ def create_app ():
         mcp_servers =settings ().get_mcp_servers ()
         if mcp_servers :
             try :
+
+                for s in mcp_servers :
+                    if s .get ("name")=="shell":
+                        shell_mode =settings ().get ("shell.mode","safe")
+                        shell_prefixes =settings ().get ("shell.allowed_prefixes",[])
+                        s .setdefault ("env",{})
+                        s ["env"]["AMALGAM_SHELL_MODE"]=shell_mode 
+                        s ["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"]=",".join (shell_prefixes )
                 await mcp ().connect_from_settings (mcp_servers )
             except Exception as e :
                 logger .warning (f"MCP servers from settings failed: {e }")

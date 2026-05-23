@@ -677,6 +677,21 @@
     </div>
 
     <div class="toast-container" id="toast-container"></div>
+
+    <!-- Shell Permission Dialog -->
+    <div id="shell-permission-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:none;align-items:center;justify-content:center">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;max-width:500px;width:90%;box-shadow:0 4px 24px rgba(0,0,0,0.3)">
+            <h3 style="margin:0 0 0.5rem"><span class="material-icons-round" style="vertical-align:middle">security</span> Shell Command Permission</h3>
+            <p class="muted" style="margin:0 0 0.75rem">The AI wants to run a command that isn't in your allowlist:</p>
+            <pre id="shell-pending-cmd" style="background:var(--bg);padding:0.75rem;border-radius:var(--radius-sm);font-family:monospace;font-size:0.85rem;white-space:pre-wrap;word-break:break-all;margin:0 0 1rem"></pre>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                <button class="btn-sm" id="shell-allow-once" style="border-color:var(--accent);color:var(--accent)">Allow Once</button>
+                <button class="btn-sm" id="shell-allow-prefix" style="border-color:var(--accent);color:var(--accent)">Allow Command Prefix</button>
+                <button class="btn-sm" id="shell-allow-exact" style="border-color:var(--accent);color:var(--accent)">Allow Exact Command</button>
+                <button class="btn-sm btn-danger" id="shell-decline" style="margin-left:auto">Decline</button>
+            </div>
+        </div>
+    </div>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

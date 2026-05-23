@@ -197,8 +197,8 @@ class OpenAICompatProvider (LLMProvider ):
                     except (ValueError ,TypeError ):
                         pass 
                     if code ==429 :
-                        return f"Quota exceeded. {msg }"
-                    return msg 
+                        return f"API rate limit exceeded. {msg .split ('.')[0 ]}."
+                    return msg .split ('.')[0 ]+'.'
                 return str (err )
         except (json .JSONDecodeError ,IndexError ,KeyError ,TypeError ):
             pass 

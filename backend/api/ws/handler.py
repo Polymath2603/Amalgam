@@ -189,6 +189,14 @@ async def handle_chat (websocket :WebSocket ):
                             except Exception :
                                 pass 
                             continue 
+                        if isinstance (item ,tuple )and item [0 ]=='__permission__':
+                            try :
+                                await websocket .send_json ({"type":"permission_request","command":item [1 ]})
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
+                            continue 
                         if isinstance (item ,tuple )and item [0 ]=='__roleplay__':
                             rp_text =f"*{item [1 ]}* "
                             full_response +=rp_text 

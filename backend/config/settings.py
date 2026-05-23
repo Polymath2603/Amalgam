@@ -135,6 +135,22 @@ DEFAULTS ={
 "vault":{
 "path":str (VAULT_DIR )
 },
+"shell":{
+"mode":"safe",
+"allowed_prefixes":[
+"echo","ls","cat","pwd","date",
+"find","grep","head","tail","wc",
+"mkdir","cp","mv","rm","touch",
+"curl","wget",
+"python3","python",
+"pip","pip3",
+"whoami","uname","notify-send",
+"ps","top","htop",
+"df","du","free",
+"which","kill","pkill",
+"xdotool","xclip","wl-paste"
+]
+},
 "ui":{
 "theme":"dark",
 "font_size":14 ,
@@ -148,7 +164,11 @@ DEFAULTS ={
 "name":"shell",
 "command":"python3",
 "args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"shell"/"server.py")],
-"enabled":True 
+"enabled":True ,
+"env":{
+"AMALGAM_SHELL_MODE":"safe",
+"AMALGAM_SHELL_ALLOWED_COMMANDS":"echo,ls,cat,pwd,date,find,grep,head,tail,wc,mkdir,cp,mv,rm,touch,curl,wget,python3,python,pip,pip3,whoami,uname,notify-send,ps,top,htop,df,du,free,which,kill,pkill,xdotool,xclip,wl-paste,git status,git log,git diff"
+}
 },
 {
 "name":"screenshot",

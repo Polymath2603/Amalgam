@@ -423,6 +423,13 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('typing');
         } else if (data.type === 'stop_typing') {
             if (document.querySelector('#chat-avatar-status')?.textContent === 'Typing...') setStatus('ready');
+        } else if (data.type === 'permission_request') {
+            const overlay = document.getElementById('shell-permission-overlay');
+            const cmdDisplay = document.getElementById('shell-pending-cmd');
+            if (overlay && cmdDisplay) {
+                cmdDisplay.textContent = data.command || '';
+                overlay.style.display = 'flex';
+            }
         } else if (data.type === 'thinking') {
             const thinkingEnabled = document.getElementById('thinking-toggle')?.checked ?? true;
             if (thinkingEnabled && data.text) {
@@ -1961,6 +1968,33 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('font-size-val').textContent = `${e.target.value}px`;
         document.documentElement.style.setProperty('--font-size', e.target.value + 'px');
     });
+
+    
+    function hideShellPermission() {
+        const overlay = document.getElementById('shell-permission-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    async function approveShellCommand(mode) {
+        const cmdDisplay = document.getElementById('shell-pending-cmd');
+        const cmd = cmdDisplay?.textContent || '';
+        if (!cmd) return;
+        hideShellPermission();
+        if (mode === 'decline') {
+            showToast('Command declined');
+            return;
+        }
+        await api('/api/shell/approve', {
+            method: 'POST',
+            body: JSON.stringify({ cmd, mode })
+        });
+        showToast(`Command ${mode === 'once' ? 'allowed once' : mode === 'prefix' ? 'prefix allowed' : 'exact command allowed'}. Re-send your message to retry.`);
+    }
+
+    document.getElementById('shell-allow-once')?.addEventListener('click', () => approveShellCommand('once'));
+    document.getElementById('shell-allow-prefix')?.addEventListener('click', () => approveShellCommand('prefix'));
+    document.getElementById('shell-allow-exact')?.addEventListener('click', () => approveShellCommand('exact'));
+    document.getElementById('shell-decline')?.addEventListener('click', () => approveShellCommand('decline'));
 
     
     connectWS();

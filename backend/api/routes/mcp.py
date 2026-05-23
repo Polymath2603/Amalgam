@@ -37,3 +37,42 @@ async def get_mcp_tools ():
     """Get all available MCP tools."""
     tools =mcp ().get_tool_schema ()if mcp ()else []
     return {"tools":tools }
+
+
+@router .post ("/api/shell/approve")
+async def approve_command (body :dict ):
+    """Approve a previously blocked shell command.
+    
+    Body:
+      cmd: str — the exact command that was blocked
+      mode: str — "once" | "prefix" | "exact"
+    
+    Adds the command to the shell server's in-memory allowlist
+    via the approve_command MCP tool, and persists to settings.
+    """
+    cmd =body .get ("cmd","")
+    mode =body .get ("mode","once")
+    if not cmd :
+        return {"status":"error","message":"cmd is required"}
+
+    if mode in ("prefix","exact")and mcp ():
+        tool_name ="approve_command"
+        if tool_name in mcp ().server_tool_map :
+            try :
+                await mcp ().call_tool (tool_name ,{"cmd":cmd ,"mode":mode })
+            except Exception as e :
+                logger .error (f"Failed to approve command via MCP: {e }")
+
+    if mode =="prefix":
+        prefix =cmd .lstrip ().split ()[0 ]+" "if " "in cmd .lstrip ()else cmd .lstrip ()
+        current =settings ().get ("shell.allowed_prefixes",[])
+        if prefix not in current :
+            current .append (prefix )
+            settings ().set ("shell.allowed_prefixes",current )
+    elif mode =="exact":
+        current =settings ().get ("shell.allowed_prefixes",[])
+        if cmd not in current :
+            current .append (cmd )
+            settings ().set ("shell.allowed_prefixes",current )
+
+    return {"status":"ok","mode":mode ,"cmd":cmd }

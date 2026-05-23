@@ -3,6 +3,7 @@ from mcp .types import Tool ,TextContent
 import asyncio 
 import os 
 import shlex 
+import json 
 import logging 
 
 logger =logging .getLogger (__name__ )
@@ -10,8 +11,6 @@ logger =logging .getLogger (__name__ )
 SHELL_TIMEOUT =int (os .environ .get ("AMALGAM_SHELL_TIMEOUT","30"))
 
 app =Server ("shell-server")
-
-
 
 SHELL_MODE =os .environ .get ("AMALGAM_SHELL_MODE","safe").lower ()
 ALLOWED_PREFIXES_ENV =os .environ .get ("AMALGAM_SHELL_ALLOWED_COMMANDS","")
@@ -35,16 +34,37 @@ _DEFAULT_ALLOWED =[
 if ALLOWED_PREFIXES_ENV :
     ALLOWED_PREFIXES =[p .strip ()+" "if not p .strip ().endswith (" ")else p .strip ()for p in ALLOWED_PREFIXES_ENV .split (",")]
 else :
-    ALLOWED_PREFIXES =_DEFAULT_ALLOWED 
+    ALLOWED_PREFIXES =list (_DEFAULT_ALLOWED )
 
-def _is_allowed (cmd :str )->bool :
+ALLOWED_EXACT =set ()
+ALLOWED_ONCE =set ()
+
+_APPROVED_EXACT =set ()
+
+
+def _is_allowed (cmd :str )->tuple [bool ,str ]:
+    """Returns (allowed, reason). reason is empty if allowed."""
     if SHELL_MODE =="unrestricted":
-        return True 
+        return True ,""
     trimmed =cmd .lstrip ()
+    if trimmed in ALLOWED_EXACT or trimmed in _APPROVED_EXACT :
+        return True ,""
     for prefix in ALLOWED_PREFIXES :
         if trimmed ==prefix .strip ()or trimmed .startswith (prefix ):
-            return True 
-    return False 
+            return True ,""
+    return False ,f"COMMAND_BLOCKED:{cmd }"
+
+
+def _extract_prefix (cmd :str )->str :
+    """Get the prefix for a command (first word + space, or the whole command if no args)."""
+    trimmed =cmd .lstrip ()
+    parts =shlex .split (trimmed )
+    if not parts :
+        return ""
+    if len (parts )==1 :
+        return parts [0 ]
+    return parts [0 ]+" "
+
 
 @app .list_tools ()
 async def list_tools ()->list [Tool ]:
@@ -59,8 +79,21 @@ async def list_tools ()->list [Tool ]:
     },
     "required":["cmd"]
     }
-    )
+    ),
+    Tool (
+    name ="approve_command",
+    description ="Approve a previously blocked command (call this when user allows it)",
+    inputSchema ={
+    "type":"object",
+    "properties":{
+    "cmd":{"type":"string","description":"The exact command to approve"},
+    "mode":{"type":"string","description":"once|prefix|exact","default":"once"}
+    },
+    "required":["cmd"]
+    }
+    ),
     ]
+
 
 @app .call_tool ()
 async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
@@ -69,8 +102,9 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         if not cmd :
             raise ValueError ("Command is required")
 
-        if not _is_allowed (cmd ):
-            return [TextContent (type ="text",text =f"Command not allowed (mode={SHELL_MODE }): {cmd }")]
+        allowed ,reason =_is_allowed (cmd )
+        if not allowed :
+            return [TextContent (type ="text",text =reason )]
 
         process =await asyncio .create_subprocess_shell (
         cmd ,
@@ -93,7 +127,28 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         if process .returncode !=0 :
             logger .warning (f"Shell command exited with code {process .returncode }: {cmd [:100 ]}")
         return [TextContent (type ="text",text =result )]
+
+    elif name =="approve_command":
+        cmd =arguments .get ("cmd","")
+        mode =arguments .get ("mode","once")
+        trimmed =cmd .lstrip ()
+        if mode =="once":
+            ALLOWED_ONCE .add (trimmed )
+            _APPROVED_EXACT .add (trimmed )
+            return [TextContent (type ="text",text =f"Approved once: {cmd }")]
+        elif mode =="prefix":
+            prefix =_extract_prefix (cmd )
+            if prefix and prefix not in ALLOWED_PREFIXES :
+                ALLOWED_PREFIXES .append (prefix )
+            return [TextContent (type ="text",text =f"Approved command prefix: {prefix } (from: {cmd })")]
+        elif mode =="exact":
+            _APPROVED_EXACT .add (trimmed )
+            ALLOWED_EXACT .add (trimmed )
+            return [TextContent (type ="text",text =f"Approved exact command: {cmd }")]
+        return [TextContent (type ="text",text =f"Unknown mode: {mode }")]
+
     raise ValueError (f"Unknown tool: {name }")
+
 
 if __name__ =="__main__":
     from mcp .server .stdio import stdio_server 
