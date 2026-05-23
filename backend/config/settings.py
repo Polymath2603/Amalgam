@@ -109,10 +109,22 @@ DEFAULTS ={
 },
 "whispercpp":{
 "url":"http://127.0.0.1:8080"
-}
+},
+"tts_timeout":60.0 
 },
 "llm":{
-"temperature":0.7 
+"temperature":0.7 ,
+"max_tokens":2048 ,
+"timeout":120.0 ,
+"context_token_limit":8192 
+},
+"memory":{
+"retrieval_k":3 ,
+"context_window":50 ,
+"summarize_threshold":40 ,
+"summarize_keep":15 ,
+"embedding_backend":"provider",
+"fact_extraction":True 
 },
 "avatar":{
 "model_path":"",

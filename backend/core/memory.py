@@ -9,17 +9,26 @@ from typing import List ,Dict ,Optional
 
 logger =logging .getLogger (__name__ )
 
+
+_LOCAL_EMBEDDING =None 
+try :
+    from sentence_transformers import SentenceTransformer 
+    _LOCAL_EMBEDDING =SentenceTransformer ("all-MiniLM-L6-v2")
+except ImportError :
+    pass 
+
+
 class Memory :
-    def __init__ (self ,llm_router =None ,db_path =None ):
+    def __init__ (self ,llm_router =None ,db_path =None ,settings =None ):
         import os 
         from backend .paths import CONVERSATIONS_DB 
         if db_path is None :
             db_path =CONVERSATIONS_DB 
         self .llm =llm_router 
+        self .settings =settings 
         os .makedirs (os .path .dirname (db_path ),exist_ok =True )
         self .conn =sqlite3 .connect (db_path ,check_same_thread =False )
         self .cursor =self .conn .cursor ()
-
 
         self .cursor .execute ('''
             CREATE TABLE IF NOT EXISTS conversations (
@@ -32,7 +41,6 @@ class Memory :
             )
         ''')
 
-
         self .cursor .execute ('''
             CREATE TABLE IF NOT EXISTS summaries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,7 +48,6 @@ class Memory :
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-
 
         self .cursor .execute ('''
             CREATE TABLE IF NOT EXISTS facts (
@@ -52,7 +59,6 @@ class Memory :
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-
 
         try :
             self .cursor .execute ("SELECT session_id FROM conversations LIMIT 1")
@@ -86,28 +92,61 @@ class Memory :
             return self .cursor .execute (sql )
         return self .cursor .execute (sql ,params )
 
+    def _setting (self ,key :str ,default ):
+        if self .settings :
+            return self .settings .get (key ,default )
+        return default 
+
     def start_session (self )->str :
-        """Start a new conversation session and return its ID."""
         self ._current_session =uuid .uuid4 ().hex [:12 ]
         return self ._current_session 
 
     def set_current_session (self ,session_id :str ):
-        """Manually set the current session ID."""
         self ._current_session =session_id 
 
     def get_current_session (self )->str :
-        """Get or create the current session ID."""
         if not self ._current_session :
             self ._current_session =uuid .uuid4 ().hex [:12 ]
         return self ._current_session 
 
+    async def _get_embedding (self ,text :str )->Optional [List [float ]]:
+        """Get embedding from configured backend: provider, local, or disabled."""
+        backend =self ._setting ("memory.embedding_backend","provider")
+
+        if backend =="disabled":
+            return None 
+
+        if backend =="local"and _LOCAL_EMBEDDING is not None :
+            try :
+                emb =_LOCAL_EMBEDDING .encode (text )
+                return emb .tolist ()
+            except Exception as e :
+                logger .debug (f"Local embedding failed: {e }")
+
+        if backend in ("provider","local")and self .llm :
+            try :
+                emb =await self .llm .get_embedding (text )
+                if emb :
+                    return emb 
+            except Exception as e :
+                logger .debug (f"Provider embedding failed: {e }")
+
+
+        if _LOCAL_EMBEDDING is not None :
+            try :
+                emb =_LOCAL_EMBEDDING .encode (text )
+                return emb .tolist ()
+            except Exception :
+                pass 
+
+        return None 
+
     async def add_turn (self ,role :str ,content :str ):
         session_id =self .get_current_session ()
         embedding_json =None 
-        if self .llm :
-            embedding =await self .llm .get_embedding (content )
-            if embedding :
-                embedding_json =json .dumps (embedding )
+        embedding =await self ._get_embedding (content )
+        if embedding :
+            embedding_json =json .dumps (embedding )
 
         await self ._db_execute (
         'INSERT INTO conversations (session_id, role, content, embedding) VALUES (?, ?, ?, ?)',
@@ -115,11 +154,9 @@ class Memory :
         )
         await self ._db_commit ()
 
-
         asyncio .create_task (self .check_and_summarize ())
 
     def get_sessions (self )->List [Dict ]:
-        """Get all sessions with preview text and message count."""
         self ._sync_execute ('''
             SELECT session_id,
                    MIN(timestamp) as started,
@@ -132,7 +169,6 @@ class Memory :
         sessions =[]
         for row in self .cursor .fetchall ():
             sid ,started ,last_active ,count =row 
-
             self .cursor .execute (
             "SELECT content FROM conversations WHERE session_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
             (sid ,)
@@ -149,7 +185,6 @@ class Memory :
         return sessions 
 
     def get_session_messages (self ,session_id :str )->List [Dict ]:
-        """Get all messages for a specific session."""
         self ._sync_execute (
         'SELECT id, role, content, timestamp FROM conversations WHERE session_id = ? ORDER BY id ASC',
         (session_id ,)
@@ -157,13 +192,13 @@ class Memory :
         return [{"id":r [0 ],"role":r [1 ],"content":r [2 ],"timestamp":r [3 ]}for r in self .cursor .fetchall ()]
 
     async def delete_session (self ,session_id :str )->bool :
-        """Delete all messages in a session."""
         await self ._db_execute ('DELETE FROM conversations WHERE session_id = ?',(session_id ,))
         await self ._db_commit ()
         return self .cursor .rowcount >0 
 
-    def get_recent (self ,n :int =50 )->List [Dict [str ,str ]]:
-        """Get recent messages from current session for context building."""
+    def get_recent (self ,n :int =None )->List [Dict [str ,str ]]:
+        if n is None :
+            n =self ._setting ("memory.context_window",50 )
         session_id =self .get_current_session ()
         self ._sync_execute (
         'SELECT id, role, content, timestamp FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?',
@@ -172,8 +207,9 @@ class Memory :
         rows =self .cursor .fetchall ()
         return [{"id":row [0 ],"role":row [1 ],"content":row [2 ],"timestamp":row [3 ]}for row in reversed (rows )]
 
-    def get_all_recent (self ,n :int =50 )->List [Dict [str ,str ]]:
-        """Get recent messages across all sessions (for context fallback)."""
+    def get_all_recent (self ,n :int =None )->List [Dict [str ,str ]]:
+        if n is None :
+            n =self ._setting ("memory.context_window",50 )
         self ._sync_execute ('SELECT id, role, content, timestamp FROM conversations ORDER BY id DESC LIMIT ?',(n ,))
         rows =self .cursor .fetchall ()
         return [{"id":row [0 ],"role":row [1 ],"content":row [2 ],"timestamp":row [3 ]}for row in reversed (rows )]
@@ -188,11 +224,15 @@ class Memory :
         row =self .cursor .fetchone ()
         return row [0 ]if row else ""
 
-    async def get_relevant (self ,query :str ,top_k :int =3 )->List [Dict [str ,str ]]:
-        if not self .llm :return []
+    async def get_relevant (self ,query :str ,top_k :int =None )->List [Dict [str ,str ]]:
+        if top_k is None :
+            top_k =self ._setting ("memory.retrieval_k",3 )
+        if not self .llm and _LOCAL_EMBEDDING is None :
+            return []
 
-        query_emb =await self .llm .get_embedding (query )
-        if not query_emb :return []
+        query_emb =await self ._get_embedding (query )
+        if not query_emb :
+            return []
 
         q_vec =np .array (query_emb )
         session_id =self .get_current_session ()
@@ -219,23 +259,22 @@ class Memory :
         if self .summarizing or not self .llm :
             return 
 
+        threshold =self ._setting ("memory.summarize_threshold",40 )
+        keep =self ._setting ("memory.summarize_keep",15 )
         session_id =self .get_current_session ()
         self .cursor .execute ('SELECT COUNT(*) FROM conversations WHERE session_id = ?',(session_id ,))
         count =self .cursor .fetchone ()[0 ]
 
-
-        if count >40 :
+        if count >threshold :
             self .summarizing =True 
             try :
                 logger .debug ("Auto-summarizing older memories...")
-
-
                 loop =asyncio .get_running_loop ()
                 rows =await loop .run_in_executor (
                 self ._db_executor ,
                 lambda :self .cursor .execute (
-                'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT 25',
-                (session_id ,)
+                'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT ?',
+                (session_id ,keep )
                 ).fetchall ()
                 )
 
@@ -270,6 +309,8 @@ class Memory :
                 self .summarizing =False 
 
     async def extract_facts (self ,user_content :str ,assistant_content :str ):
+        if not self ._setting ("memory.fact_extraction",True ):
+            return 
         if not self .llm :
             return 
         prompt =(

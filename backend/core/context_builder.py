@@ -4,6 +4,8 @@ from string import Template
 from typing import List ,Dict 
 
 from backend .paths import PROJECT_ROOT ,VAULT_DIR 
+from backend .core .vault import VaultManager 
+from backend .utils .tokens import estimate_tokens ,truncate_to_token_limit 
 
 logger =logging .getLogger (__name__ )
 
@@ -125,6 +127,19 @@ class ContextBuilder :
                         names .append (name )
         return names 
 
+    def _get_vault_path (self )->str :
+        if self .settings :
+            return self .settings .get ("vault.path",str (VAULT_DIR ))
+        return str (VAULT_DIR )
+
+    def _build_vault_section (self )->str :
+        vault_path =self ._get_vault_path ()
+        vault_token_budget =self .settings .get ("vault.max_tokens",2000 )if self .settings else 2000 
+        if not os .path .exists (vault_path ):
+            return ""
+        vault =VaultManager (vault_path )
+        return vault .inject_to_context (max_tokens =vault_token_budget )
+
     def build (self ,tools :List [Dict ],history :List [Dict ],user_msg :str ,
     character_id :str =None ,additional_prompt :str ="",
     summary :str ="",relevant :List [Dict ]=None ,
@@ -205,7 +220,6 @@ class ContextBuilder :
         vocabulary =character .get ("vocabulary",[])if character else []
         dialogue_examples =character .get ("dialogue_examples",[])if character else []
 
-
         identity =system_prompt or f"You are {name }, a helpful AI assistant."
         style_parts =[]
         if personality :
@@ -226,16 +240,13 @@ class ContextBuilder :
         if additional_prompt and additional_prompt .strip ():
             character_style +=f"\n\n## Additional Instructions\n{additional_prompt .strip ()}"
 
-
         emotions =tts_emotions or EMOTION_TAGS 
         emotion_tags ="\n".join (f"  - /[[{e }]]"for e in emotions )
         emotion_tags =f"Available:\n{emotion_tags }"
 
-
         expressions =expression_names or VRM_EXPRESSIONS 
         expression_tags ="\n".join (f"  - /(({e }))"for e in expressions )
         expression_tags =f"Available:\n{expression_tags }"
-
 
         anims =self ._get_available_animations (character_id )
         if anims :
@@ -244,50 +255,7 @@ class ContextBuilder :
         else :
             action_tags ="No predefined animations — use descriptive /**action**/ markers (e.g. /**nods**/, /**waves happily**/). These will animate the avatar semantically."
 
-
-        vault_sections =[]
-        vault_token_budget =2000 
-        vault_chars_budget =vault_token_budget *4 
-        vault_chars_used =0 
-
-        if os .path .exists (VAULT_DIR ):
-            try :
-                md_files =sorted ([f for f in os .listdir (VAULT_DIR )if f .endswith (".md")])
-                for filename in md_files :
-                    filepath =VAULT_DIR /filename 
-                    try :
-                        content =filepath .read_text (encoding ="utf-8").strip ()
-                    except Exception :
-                        continue 
-
-
-                    if not content or content .startswith ("# Rules\n\nAdd your custom rules"):
-                        continue 
-
-
-                    remaining =vault_chars_budget -vault_chars_used 
-                    if remaining <=0 :
-                        break 
-                    if len (content )>remaining :
-                        content =content [:remaining ]+"\n...[truncated]"
-
-                    section_name =filename .replace (".md","").replace ("_"," ").title ()
-                    vault_sections .append (f"\n\n## Vault: {section_name }\n{content }")
-                    vault_chars_used +=len (content )
-
-                if vault_sections :
-                    vault_content ="".join (vault_sections )
-                    logger .debug (f"Injected {len (vault_sections )} vault file(s) ({vault_chars_used } chars)")
-                else :
-                    vault_content =""
-            except Exception as e :
-                logger .debug ("Failed to read vault files: %s",e )
-                vault_content =""
-        else :
-            vault_content =""
-
-        vault_rules =vault_content 
-
+        vault_rules =self ._build_vault_section ()
 
         reasoning_note ="\n\nFor reasoning models, use <think>your reasoning</think> before your response."
 
