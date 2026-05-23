@@ -13,13 +13,14 @@ logger =logging .getLogger (__name__ )
 
 
 class VoicePipeline :
-    def __init__ (self ,agent_callback =None ,stt_engine ="browser"):
+    def __init__ (self ,agent_callback =None ,stt_engine ="browser",settings =None ):
         self .agent_callback =agent_callback 
         self ._stop_event =threading .Event ()
         self ._vad =None 
         self ._stt =STTRouter (engine =stt_engine )
         self ._stt_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="stt")
         self ._stream =None 
+        self ._settings =settings or {}
 
     def configure_openai_stt (self ,api_key :str ,model :str ="whisper-1"):
         self ._stt .configure_openai (api_key ,model )
@@ -33,7 +34,8 @@ class VoicePipeline :
     def _ensure_models (self ):
         if self ._vad is None :
             from backend .voice .vad import VAD 
-            self ._vad =VAD (mode =2 )
+            vad_mode =self ._settings .get ("voice.vad_mode",2 )
+            self ._vad =VAD (mode =vad_mode )
 
     def _on_stt_done (self ,future ):
         try :
@@ -73,7 +75,9 @@ class VoicePipeline :
         recording =bytearray ()
         is_recording =False 
         silence_frames =0 
-        FRAME_SIZE =960 
+        frame_size =self ._settings .get ("voice.vad_frame_size",960 )
+        energy_threshold =self ._settings .get ("voice.vad_energy_threshold",0.02 )
+        max_silence_frames =self ._settings .get ("voice.vad_silence_frames",33 )
 
         try :
             with self ._stream :
@@ -83,15 +87,15 @@ class VoicePipeline :
                     except queue .Empty :
                         continue 
 
-                    for i in range (0 ,len (chunk ),FRAME_SIZE ):
-                        frame =chunk [i :i +FRAME_SIZE ]
-                        if len (frame )<FRAME_SIZE :
+                    for i in range (0 ,len (chunk ),frame_size ):
+                        frame =chunk [i :i +frame_size ]
+                        if len (frame )<frame_size :
                             continue 
 
                         is_speech =self ._vad .process (frame )
                         samples =np .frombuffer (frame ,dtype =np .int16 ).astype (np .float32 )/32768.0 
                         energy =np .sqrt (np .mean (samples **2 ))
-                        speech_detected =is_speech or (energy >0.02 )
+                        speech_detected =is_speech or (energy >energy_threshold )
 
                         if speech_detected :
                             if not is_recording :
@@ -104,7 +108,7 @@ class VoicePipeline :
                         elif is_recording :
                             recording .extend (frame )
                             silence_frames +=1 
-                            if silence_frames >33 :
+                            if silence_frames >max_silence_frames :
                                 is_recording =False 
                                 silence_frames =0 
 

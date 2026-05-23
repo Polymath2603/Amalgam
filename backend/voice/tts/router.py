@@ -101,7 +101,7 @@ class TTSRouter :
     "openvoice":22050 ,
     }
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if not text .strip ():
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
@@ -111,13 +111,13 @@ class TTSRouter :
 
         if self .engine =="openvoice":
             async with self ._lock :
-                return await self ._do_synthesize (provider ,text ,ref_audio )
+                return await self ._do_synthesize (provider ,text ,ref_audio ,emotion =emotion )
         else :
-            return await self ._do_synthesize (provider ,text ,ref_audio )
+            return await self ._do_synthesize (provider ,text ,ref_audio ,emotion =emotion )
 
-    async def _do_synthesize (self ,provider ,text :str ,ref_audio :str =None )->tuple :
+    async def _do_synthesize (self ,provider ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if self .engine =="openvoice":
-            result =await provider .synthesize (text ,ref_audio =ref_audio )
+            result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
             if isinstance (result ,tuple )and len (result )>=3 :
                 audio ,visemes ,*_ =result 
             else :
@@ -126,14 +126,14 @@ class TTSRouter :
                 return audio ,visemes ,22050 
             logger .warning ("OpenVoice failed, falling back to edge-tts")
             fallback =self ._ensure ("edge-tts")
-            result =await fallback .synthesize (text )
+            result =await fallback .synthesize (text ,emotion =emotion )
             if isinstance (result ,tuple )and len (result )>=3 :
                 audio ,visemes ,*_ =result 
             else :
                 audio ,visemes =result 
             return audio ,visemes ,16000 
         else :
-            result =await provider .synthesize (text ,ref_audio =ref_audio )
+            result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
             if isinstance (result ,tuple )and len (result )>=3 :
                 audio ,visemes ,sr =result 
             else :

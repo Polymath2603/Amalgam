@@ -258,7 +258,10 @@ class ContextBuilder :
 
         vault_rules =self ._build_vault_section ()
 
-        reasoning_note ="\n\nFor reasoning models, use <think>your reasoning</think> before your response."
+        if self .settings and not self .settings .get ("ui.thinking_enabled",True ):
+            reasoning_note =""
+        else :
+            reasoning_note ="\n\nFor reasoning models, use <think>your reasoning</think> before your response."
 
         rendered =Template (_PROMPT_TEMPLATE ).safe_substitute (
         identity =identity ,

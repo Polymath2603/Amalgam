@@ -18,6 +18,20 @@ class EdgeTTSProvider (TTSProvider ):
 
     FALLBACK_VOICE ="en-US-AriaNeural"
 
+    EMOTION_SSML ={
+    "happy":{"rate":"+10%","pitch":"+2st"},
+    "sad":{"rate":"-5%","pitch":"-2st"},
+    "angry":{"rate":"+5%","pitch":"+3st"},
+    "surprised":{"rate":"+10%","pitch":"+3st"},
+    "thinking":{"rate":"0%","pitch":"0st"},
+    "relaxed":{"rate":"-5%","pitch":"-2st"},
+    "confused":{"rate":"0%","pitch":"0st"},
+    "shy":{"rate":"-5%","pitch":"-1st"},
+    "excited":{"rate":"+10%","pitch":"+4st"},
+    "love":{"rate":"-3%","pitch":"+2st"},
+    "victory":{"rate":"+10%","pitch":"+3st"},
+    }
+
     def __init__ (self ,voice ="en-US-AriaNeural"):
         super ().__init__ (voice )
         self ._has_ffmpeg =shutil .which ("ffmpeg")is not None 
@@ -37,7 +51,7 @@ class EdgeTTSProvider (TTSProvider ):
             logger .warning (f"Edge-TTS voice '{self .voice }' not available, falling back to '{self .FALLBACK_VOICE }'")
             self .voice =self .FALLBACK_VOICE 
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if not text .strip ():
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
@@ -49,7 +63,12 @@ class EdgeTTSProvider (TTSProvider ):
         os .close (fd_wav )
 
         try :
-            communicate =edge_tts .Communicate (text ,self .voice )
+            prosody =self .EMOTION_SSML .get (emotion )
+            if prosody :
+                ssml =f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"><prosody rate="{prosody ["rate"]}" pitch="{prosody ["pitch"]}">{text }</prosody></speak>'
+                communicate =edge_tts .Communicate (ssml ,self .voice )
+            else :
+                communicate =edge_tts .Communicate (text ,self .voice )
             await communicate .save (temp_mp3 )
 
             proc =await asyncio .create_subprocess_exec (

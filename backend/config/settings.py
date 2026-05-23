@@ -73,6 +73,9 @@ DEFAULTS ={
 "lipsync_enabled":True ,
 "stt_engine":"browser",
 "vad_mode":2 ,
+"vad_frame_size":960 ,
+"vad_energy_threshold":0.02 ,
+"vad_silence_frames":33 ,
 "faster_whisper":{
 "model":"base"
 },

@@ -137,6 +137,7 @@ class Agent :
 
             full_response =""
             tool_called =False 
+            in_tool_block =False 
             accumulated =""
 
             try :
@@ -242,6 +243,10 @@ class Agent :
                 if accumulated .strip ():
                     await self .memory .add_turn ("assistant",accumulated .strip ())
                 break 
+            finally :
+                if in_tool_block :
+                    logger .warning ("agent: stream ended mid-tool-block")
+                    in_tool_block =False 
 
         if iterations >=5 :
             yield "\n[Max tool iterations reached.]\n"

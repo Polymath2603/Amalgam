@@ -41,7 +41,7 @@ ws :WebSocket ,emotion :str ="neutral"):
                 logger .warning ("No voice_ref for OpenVoice, skipping TTS")
                 return 
         result =await asyncio .wait_for (
-        tts ().synthesize (sentence_text ,ref_audio =ref_audio ),
+        tts ().synthesize (sentence_text ,ref_audio =ref_audio ,emotion =emotion ),
         timeout =60.0 
         )
         audio_np ,_ ,sr =result 
@@ -76,7 +76,7 @@ ws :WebSocket ,emotion :str ="neutral"):
         logger .error (f"TTS error for sentence {sentence_idx }: {type (tts_err ).__name__ }: {tts_err }")
 
 
-async def synthesize_now (text :str ,ws :WebSocket ):
+async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
     """Synthesize TTS for text and send audio directly (used by speak button)."""
     try :
         char =settings ().get_active_character ()
@@ -94,7 +94,7 @@ async def synthesize_now (text :str ,ws :WebSocket ):
             if not ref_audio :
                 logger .warning ("No voice_ref for OpenVoice, skipping speak")
                 return 
-        result =await asyncio .wait_for (tts ().synthesize (text ,ref_audio =ref_audio ),timeout =60.0 )
+        result =await asyncio .wait_for (tts ().synthesize (text ,ref_audio =ref_audio ,emotion =emotion ),timeout =60.0 )
         audio_np ,_ ,sr =result 
         if len (audio_np )>0 :
             pcm =(audio_np *32767 ).astype ("int16").tobytes ()

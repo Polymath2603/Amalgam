@@ -9,5 +9,5 @@ class TTSProvider :
     def __init__ (self ,voice ="en-US-AriaNeural"):
         self .voice =voice 
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->Tuple [np .ndarray ,list ,int ]:
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->Tuple [np .ndarray ,list ,int ]:
         raise NotImplementedError 
