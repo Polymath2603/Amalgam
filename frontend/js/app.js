@@ -150,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (navItem && panel) {
             navItem.classList.add('active');
             panel.classList.add('active');
+            panel.focus({ preventScroll: true });
             if (tabId === 'settings') loadMCP();
             
             if (tabId === 'avatar') {
