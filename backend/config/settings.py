@@ -7,7 +7,7 @@ import os
 import yaml 
 import logging 
 from typing import Any ,Dict ,List 
-from backend .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR 
+from backend .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
 
 logger =logging .getLogger (__name__ )
 
@@ -199,6 +199,15 @@ DEFAULTS ={
 "command":"python3",
 "args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"system"/"server.py")],
 "enabled":True 
+},
+{
+"name":"skill",
+"command":"python3",
+"args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"skill"/"server.py")],
+"enabled":True ,
+"env":{
+"AMALGAM_DATA_DIR":str (DATA_DIR )
+}
 }
 ]
 }

@@ -6,6 +6,7 @@ from typing import AsyncIterator
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .llm import LLMRouter 
+from backend .core .plugin import get_registry as get_plugin_registry 
 
 logger =logging .getLogger (__name__ )
 
@@ -101,6 +102,7 @@ class Agent :
         iterations =0 
         current_input =text 
         native_tools =self .llm .supports_native_tools ()
+        last_tool_call =None 
 
         while iterations <5 :
             iterations +=1 
@@ -115,6 +117,8 @@ class Agent :
                 character_id =self .settings .get ("character.active","default")
                 additional_prompt =self .settings .get ("character.system_prompt","")
 
+            plugins =get_plugin_registry ()
+            tools =await plugins .hook_tool_definition (tools )
             messages =self .context_builder .build (
             tools ,history ,current_input ,
             character_id =character_id ,
@@ -126,6 +130,7 @@ class Agent :
             relationship_context =relationship_context ,
             native_tools_available =native_tools ,
             )
+            messages =await plugins .hook_messages (messages )
 
             if images :
                 last_text =messages [-1 ]["content"]
@@ -172,20 +177,27 @@ class Agent :
                             tool_name =item ["name"]
                             tool_args =item .get ("arguments",{})
                             tool_id =item .get ("id","")
+                            if accumulated .strip ():
+                                await self .memory .add_turn ("assistant",accumulated .strip ())
+                            tool_sig =(tool_name ,frozenset ((k ,str (v ))for k ,v in sorted (tool_args .items ())))
+                            if tool_sig ==last_tool_call :
+                                msg =f"Repeated identical tool call to {tool_name } — not retrying. Respond based on the previous result."
+                                yield ("__error__",msg )
+                                current_input =msg 
+                                await self .memory .add_turn ("system",current_input )
+                                break 
+                            last_tool_call =tool_sig 
                             yield ("__tool__",f"Calling tool: {tool_name }")
                             result ="No MCP client"
                             if self .mcp_client :
                                 result =await self .mcp_client .call_tool (tool_name ,tool_args )
+                            result =await plugins .hook_tool_result (tool_name ,tool_args ,result )
                             if result .startswith ("COMMAND_BLOCKED:"):
                                 blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                 yield ("__permission__",blocked_cmd )
                                 yield ("__tool__",f"Command blocked — needs permission: {blocked_cmd }")
-                                if accumulated .strip ():
-                                    await self .memory .add_turn ("assistant",accumulated .strip ())
                                 current_input =f"Tool result for {tool_name }: BLOCKED — {blocked_cmd }"
                             else :
-                                if accumulated .strip ():
-                                    await self .memory .add_turn ("assistant",accumulated .strip ())
                                 current_input =f"Tool result for {tool_name } (call_id={tool_id }): {result }"
                             await self .memory .add_turn ("system",current_input )
                             break 
@@ -208,16 +220,26 @@ class Agent :
                                         tool_call =json .loads (tool_block_buf [start_idx :end_idx ])
                                         name =tool_call .get ("name")
                                         args =tool_call .get ("arguments",{})
+                                        if accumulated .strip ():
+                                            await self .memory .add_turn ("assistant",accumulated .strip ())
+                                        tool_sig =(name ,frozenset ((k ,str (v ))for k ,v in sorted (args .items ())))
+                                        if tool_sig ==last_tool_call :
+                                            msg =f"Repeated identical tool call to {name } — not retrying. Respond based on the previous result."
+                                            yield ("__error__",msg )
+                                            current_input =msg 
+                                            await self .memory .add_turn ("system",current_input )
+                                            tool_called =True 
+                                            break 
+                                        last_tool_call =tool_sig 
                                         yield ("__tool__",f"Calling tool: {name }")
                                         result ="No MCP client"
                                         if self .mcp_client :
                                             result =await self .mcp_client .call_tool (name ,args )
+                                        result =await plugins .hook_tool_result (name ,args ,result )
                                         if result .startswith ("COMMAND_BLOCKED:"):
                                             blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                             yield ("__permission__",blocked_cmd )
                                             yield ("__tool__",f"Command blocked — needs permission: {blocked_cmd }")
-                                        if accumulated .strip ():
-                                            await self .memory .add_turn ("assistant",accumulated .strip ())
                                         current_input =f"Tool result for {name }: {result }"
                                         await self .memory .add_turn ("system",current_input )
                                         tool_called =True 

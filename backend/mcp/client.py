@@ -1,15 +1,15 @@
 """
-MCP Client — connects to MCP servers via stdio transport, discovers tools, and calls them.
-Supports both JSON config file and settings-based server lists.
-Also integrates local skills as virtual tools.
+MCP Client — connects to MCP servers via stdio or SSE transport, discovers tools, and calls them.
+Supports both local (stdio) and remote (SSE/HTTP) MCP servers.
 """
 import json 
 import asyncio 
 import logging 
 from typing import Dict ,Any ,List ,Optional 
 from mcp .client .stdio import stdio_client ,StdioServerParameters 
+from mcp .client .sse import sse_client 
 from mcp .client .session import ClientSession 
-from contextlib import AsyncExitStack 
+from contextlib import AsyncExitStack ,asynccontextmanager 
 import os 
 
 logger =logging .getLogger (__name__ )
@@ -22,9 +22,7 @@ class MCPClient :
         self .server_tool_map :Dict [str ,str ]={}
         self .exit_stack =AsyncExitStack ()
         self ._reconnect_tasks ={}
-        self ._skill_loader =None 
-        self ._skill_tools :List [Dict [str ,Any ]]=[]
-        self ._skill_names :set =set ()
+        self ._server_configs :Dict [str ,dict ]={}
 
     async def connect_servers (self ,config_path :str ):
         """Connect to MCP servers defined in a JSON config file."""
@@ -40,13 +38,7 @@ class MCPClient :
                 enabled =server_config .get ("enabled",True )
                 if not enabled :
                     continue 
-                cmd =server_config .get ("command")
-                args =server_config .get ("args",[])
-                env =server_config .get ("env",None )
-                ok =await self ._connect_server (server_name ,cmd ,args ,env )
-                if not ok :
-                    task =asyncio .create_task (self ._reconnect (server_name ,cmd ,args ,env ))
-                    self ._reconnect_tasks [server_name ]=task 
+                await self ._connect_from_config (server_name ,server_config )
 
     async def connect_from_settings (self ,servers :List [Dict ]):
         """Connect to MCP servers from settings config."""
@@ -54,19 +46,29 @@ class MCPClient :
             if not server_config .get ("enabled",True ):
                 continue 
             name =server_config .get ("name")
-            cmd =server_config .get ("command")
-            args =server_config .get ("args",[])
-            env =server_config .get ("env",None )
-            if name and cmd :
-                ok =await self ._connect_server (name ,cmd ,args ,env )
-                if not ok :
-                    task =asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ))
-                    self ._reconnect_tasks [name ]=task 
+            if name :
+                await self ._connect_from_config (name ,server_config )
+
+    async def _connect_from_config (self ,name :str ,config :dict ):
+        """Connect a server from a config dict. Supports stdio and SSE."""
+        self ._server_configs [name ]=config 
+        if "url"in config :
+
+            ok =await self ._connect_sse (name ,config ["url"],config .get ("headers",{}))
+        else :
+
+            cmd =config .get ("command")
+            args =config .get ("args",[])
+            env =config .get ("env",None )
+            ok =await self ._connect_server (name ,cmd ,args ,env )
+        if not ok :
+            task =asyncio .create_task (self ._reconnect_loop (name ))
+            self ._reconnect_tasks [name ]=task 
 
     async def _connect_server (self ,name :str ,cmd :str ,args :List [str ],
     env :Optional [Dict [str ,str ]]=None ,timeout :float =15.0 ):
-        """Returns True on success, False on failure."""
-        logger .debug (f"Connecting to MCP server: {name }")
+        """Connect to a stdio-based MCP server."""
+        logger .debug (f"Connecting to stdio MCP server: {name }")
         server_env =os .environ .copy ()
         if env :
             server_env .update (env )
@@ -83,44 +85,71 @@ class MCPClient :
             self .exit_stack .enter_async_context (ClientSession (read_stream ,write_stream )),
             timeout =timeout 
             )
-
             await asyncio .wait_for (session .initialize (),timeout =timeout )
             self .sessions [name ]=session 
+            await self ._discover_tools (name ,session )
+            logger .debug (f"Connected to stdio server {name }")
+            return True 
+        except asyncio .TimeoutError :
+            logger .error (f"Timeout connecting to stdio server {name } ({timeout }s)")
+            return False 
+        except Exception as e :
+            logger .error (f"Failed to connect to stdio server {name }: {e }")
+            return False 
 
+    async def _connect_sse (self ,name :str ,url :str ,headers :dict =None ,
+    timeout :float =15.0 ):
+        """Connect to a remote SSE/HTTP MCP server."""
+        logger .debug (f"Connecting to SSE MCP server: {name } at {url }")
+        try :
+            transport =await asyncio .wait_for (
+            self .exit_stack .enter_async_context (sse_client (url ,headers =headers or {})),
+            timeout =timeout 
+            )
+            read_stream ,write_stream =transport 
+            session =await asyncio .wait_for (
+            self .exit_stack .enter_async_context (ClientSession (read_stream ,write_stream )),
+            timeout =timeout 
+            )
+            await asyncio .wait_for (session .initialize (),timeout =timeout )
+            self .sessions [name ]=session 
+            await self ._discover_tools (name ,session )
+            logger .debug (f"Connected to SSE server {name }")
+            return True 
+        except asyncio .TimeoutError :
+            logger .error (f"Timeout connecting to SSE server {name } ({timeout }s)")
+            return False 
+        except Exception as e :
+            logger .error (f"Failed to connect to SSE server {name }: {e }")
+            return False 
 
-            tools_response =await asyncio .wait_for (session .list_tools (),timeout =timeout )
+    async def _discover_tools (self ,name :str ,session :ClientSession ):
+        """Discover tools from a connected session."""
+        try :
+            tools_response =await session .list_tools ()
             for tool in tools_response .tools :
                 self .tools_cache [tool .name ]=tool 
                 self .server_tool_map [tool .name ]=name 
-
-            logger .debug (f"Connected to {name } and discovered {len (tools_response .tools )} tools")
-            return True 
-
-        except asyncio .TimeoutError :
-            logger .error (f"Timeout connecting to MCP server {name } ({timeout }s)")
-            return False 
+            logger .debug (f"Discovered {len (tools_response .tools )} tools from {name }")
         except Exception as e :
-            logger .error (f"Failed to connect to {name }: {e }")
-            return False 
+            logger .error (f"Failed to discover tools from {name }: {e }")
 
-    async def _reconnect (self ,name :str ,cmd :str ,args :List [str ],
-    env :Optional [Dict [str ,str ]],delay =1 ):
-        if delay >15 :
-            logger .error (f"Max reconnect delay reached for {name }")
-            return 
-
-        await asyncio .sleep (delay )
-        logger .debug (f"Attempting to reconnect to {name }...")
-        ok =await self ._connect_server (name ,cmd ,args ,env ,timeout =10.0 )
-        if not ok :
-            task =asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ,delay =min (delay *2 ,16 )))
-            self ._reconnect_tasks [name ]=task 
-
-    def register_skill_loader (self ,skill_loader ):
-        self ._skill_loader =skill_loader 
-        self ._skill_loader .discover ()
-        self ._skill_tools =self ._skill_loader .get_tools ()
-        self ._skill_names ={t ["name"]for t in self ._skill_tools }
+    async def _reconnect_loop (self ,name :str ,delay :int =1 ):
+        config =self ._server_configs .get (name ,{})
+        while delay <=15 :
+            await asyncio .sleep (delay )
+            logger .debug (f"Reconnecting to {name }...")
+            if "url"in config :
+                ok =await self ._connect_sse (name ,config ["url"],config .get ("headers",{}))
+            else :
+                ok =await self ._connect_server (
+                name ,config .get ("command",""),
+                config .get ("args",[]),config .get ("env")
+                )
+            if ok :
+                return 
+            delay =min (delay *2 ,16 )
+        logger .error (f"Max reconnect delay reached for {name }")
 
     def get_tool_schema (self )->List [Dict [str ,Any ]]:
         schema =[]
@@ -130,15 +159,9 @@ class MCPClient :
             "description":tool .description ,
             "parameters":tool .inputSchema 
             })
-        schema .extend (self ._skill_tools )
         return schema 
 
     async def call_tool (self ,name :str ,arguments :dict )->str :
-        if name in self ._skill_names :
-            if self ._skill_loader :
-                return await self ._skill_loader .execute (name ,arguments )
-            return f"Error: Skill {name } not loaded"
-
         if name not in self .server_tool_map :
             return f"Error: Tool {name } not found"
 

@@ -12,7 +12,6 @@ from backend .core .vault import VaultManager
 from backend .core .agent import Agent 
 from backend .core .relationship import Relationship 
 from backend .mcp .client import MCPClient 
-from backend .skills .loader import SkillLoader 
 from backend .voice .tts import TTS 
 
 logger =logging .getLogger (__name__ )
@@ -54,8 +53,6 @@ def get_shared ():
         _shared ["vault"]=VaultManager (vault_path )
     if _shared ["mcp"]is None :
         _shared ["mcp"]=MCPClient ()
-        skill_loader =SkillLoader ()
-        _shared ["mcp"].register_skill_loader (skill_loader )
     if _shared ["tts"]is None :
         engine =_shared ["settings"].get ("voice.engine","edge-tts")
         _shared ["tts"]=TTS (engine =engine )

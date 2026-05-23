@@ -178,13 +178,28 @@ class ContextBuilder :
             return ""
         lines =["\n\n# Available Tools"]
         lines .append ("You have access to the following tools. Use them when appropriate — do not preemptively refuse to call them. If a tool call is blocked or needs permission, the system will prompt the user automatically.")
-        for t in tools :
+        lines .append ("You can call multiple tools in sequence — after a tool result arrives, you may call another tool or respond to the user.")
+
+
+        skill_tools ={t ['name']for t in tools if t ['name']in ('skill','create_skill','delete_skill','list_skills')}
+        other_tools =[t for t in tools if t ['name']not in skill_tools ]
+        has_skills =bool (skill_tools )
+
+        if has_skills :
+            lines .append ("\n## Skills System")
+            lines .append ("Skills are reusable knowledge files (SKILL.md) you can load on-demand.")
+            lines .append ("Use `list_skills` to see available skills, then `skill(\"name\")` to load one into context when a task matches its description.")
+            lines .append ("Use `create_skill` to save useful patterns, conventions, or knowledge as new skills for future reuse.")
+            lines .append ("Consider loading a relevant skill whenever a task involves a known framework, tool, or domain — the skill content will give you precise guidance.")
+
+        for t in other_tools :
             lines .append (f"\n## {t ['name']}")
             lines .append (t ['description'])
             if 'parameters'in t and t ['parameters'].get ('properties'):
                 params =t ['parameters']['properties']
                 for k ,v in params .items ():
                     lines .append (f"  - {k } ({v .get ('type','string')})")
+
         if not native_tools_available :
             lines .append (
             '\n\nTo invoke a tool, respond with a tool block:\n'

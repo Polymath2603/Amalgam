@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+service AgentService {
+  rpc Chat(stream ChatRequest) returns (stream ChatResponse);
+}
+
+message ChatRequest {
+  oneof payload {
+    string text = 1;
+    PermissionAction permission_action = 2;
+  }
+}
+
+message PermissionAction {
+  string action = 1;  // "allow" | "deny"
+  string cmd = 2;
+}
+
+message ChatResponse {
+  oneof payload {
+    string text_chunk = 1;
+    ToolCall tool_call = 2;
+    PermissionRequest permission_request = 3;
+    string error = 4;
+    bool done = 5;
+    string session_id = 6;
+    string thinking = 7;
+  }
+}
+
+message ToolCall {
+  string name = 1;
+  string args_json = 2;
+}
+
+message PermissionRequest {
+  string cmd = 1;
+  repeated string options = 2;
+}

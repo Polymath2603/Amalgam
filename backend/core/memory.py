@@ -267,6 +267,29 @@ class Memory :
         scored .sort (key =lambda x :x [0 ],reverse =True )
         return [{"role":s [1 ],"content":s [2 ]}for s in scored [:top_k ]]
 
+    async def _prune_tool_outputs (self ,session_id :str ,max_chars :int =2000 ):
+        """Truncate overly long tool / system messages to save context space."""
+        loop =asyncio .get_running_loop ()
+        rows =await loop .run_in_executor (
+        self ._db_executor ,
+        lambda :self ._db_cursor .execute (
+        'SELECT id, content FROM conversations WHERE session_id = ? AND role = ? ORDER BY id ASC',
+        (session_id ,"system")
+        ).fetchall ()
+        )
+        for row in rows :
+            msg_id ,content =row 
+            if len (content )>max_chars :
+                truncated =content [:max_chars ]+"\n[...truncated]"
+                await loop .run_in_executor (
+                self ._db_executor ,
+                lambda :self ._db_cursor .execute (
+                'UPDATE conversations SET content = ? WHERE id = ?',(truncated ,msg_id )
+                )
+                )
+        if rows :
+            await self ._db_commit ()
+
     async def check_and_summarize (self ):
         if self .summarizing or not self .llm :
             return 
@@ -280,8 +303,12 @@ class Memory :
         if count >threshold :
             self .summarizing =True 
             try :
-                logger .debug ("Auto-summarizing older memories...")
+                logger .debug ("Running structured compaction...")
                 loop =asyncio .get_running_loop ()
+
+
+                await self ._prune_tool_outputs (session_id )
+
                 rows =await loop .run_in_executor (
                 self ._db_executor ,
                 lambda :self ._db_cursor .execute (
@@ -296,16 +323,22 @@ class Memory :
                 last_id =rows [-1 ][0 ]
                 chat_log ="\n".join ([f"{r [1 ]}: {r [2 ]}"for r in rows ])
 
-                prompt =f"Summarize the following conversation history concisely:\n{chat_log }\n\nSummary:"
+                existing =self .get_summary ()
+                context_hint =f"\nPrevious summary:\n{existing }"if existing else ""
+
+                prompt =(
+                "Analyze the following conversation history and produce a structured compaction summary. "
+                "Focus on preserving actionable information: decisions, file paths, commands, user preferences, and next steps. "
+                "Use these sections:\n"
+                "## Goal\n## Constraints\n## Progress\n## Key Decisions\n## Next Steps\n## Critical Context\n## Relevant Files\n\n"
+                f"Conversation:\n{chat_log }\n{context_hint }\n\nCompacted summary:"
+                )
                 summary =await self .llm .generate ([{"role":"user","content":prompt }])
 
-                if summary and not summary .startswith ("Error"):
-                    existing =self .get_summary ()
-                    if existing :
-                        prompt =f"Combine these two summaries into one coherent overview:\n1. {existing }\n2. {summary }\n\nCombined Summary:"
-                        summary =await self .llm .generate ([{"role":"user","content":prompt }])
+                from backend .core .plugin import get_registry as get_plugin_registry 
+                summary =await get_plugin_registry ().hook_compaction (summary or "")
 
-                    loop =asyncio .get_running_loop ()
+                if summary and not summary .startswith ("Error"):
                     await loop .run_in_executor (
                     self ._db_executor ,
                     lambda :[
@@ -314,9 +347,9 @@ class Memory :
                     self .conn .commit ()
                     ]
                     )
-                    logger .debug ("Summarization complete.")
+                    logger .debug ("Structured compaction complete.")
             except Exception as e :
-                logger .error (f"Summarization failed: {e }")
+                logger .error (f"Compaction failed: {e }")
             finally :
                 self .summarizing =False 
 
