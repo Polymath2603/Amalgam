@@ -66,8 +66,7 @@ class ClaudeProvider (LLMProvider ):
     self ,messages :list ,tools :List [Dict [str ,Any ]]
     )->AsyncIterator :
         if not self ._api_key :
-            yield "[Error: Claude API key not set. Go to Settings > Providers.]"
-            return 
+            raise RuntimeError ("[Error: Claude API key not set. Go to Settings > Providers.]")
 
         max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         url =f"{self ._base_url .rstrip ('/')}/messages"
@@ -96,8 +95,7 @@ class ClaudeProvider (LLMProvider ):
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
                 if response .status_code !=200 :
                     err =await response .aread ()
-                    yield self ._format_error (response .status_code ,err .decode ())
-                    return 
+                    raise RuntimeError (self ._format_error (response .status_code ,err .decode ()))
                 async for line in response .aiter_lines ():
                     if line .startswith ("data: "):
                         json_str =line [6 :].strip ()
@@ -146,9 +144,11 @@ class ClaudeProvider (LLMProvider ):
 
                         except json .JSONDecodeError :
                             pass 
+        except RuntimeError :
+            raise 
         except Exception as e :
             logger .error (f"Claude stream error: {e }")
-            yield f"[Error connecting to Claude: {e }]"
+            raise RuntimeError (f"[Error connecting to Claude: {e }]")from e 
 
     async def generate (self ,messages :list )->str :
         if not self ._api_key :
@@ -184,11 +184,16 @@ class ClaudeProvider (LLMProvider ):
         await self ._client .aclose ()
 
     def _format_error (self ,status_code :int ,body :str )->str :
+        import re as _re 
         try :
             data =json .loads (body )
             err =data .get ("error",{})
             if isinstance (err ,dict ):
-                return err .get ("message",str (err ))
+                msg =err .get ("message",str (err ))
+                first_sentence =_re .split (r'(?<=[.!?])\s+',msg .strip ())[0 ]
+                if status_code ==429 :
+                    return f"API rate limit exceeded. {first_sentence }."
+                return first_sentence 
             return str (err )
         except (json .JSONDecodeError ,KeyError ,TypeError ):
             pass 

@@ -343,13 +343,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (data.finished && currentAssistantMessage?.classList.contains('msg-error')) {
                     _flushStreamBuffer();
-                    
                     if (lastUserMessage) {
-                        const promptText = lastUserMessage.querySelector('.msg-body')?.textContent || '';
-                        chatInput.value = promptText;
-                        lastUserMessage.remove();
+                        chatInput.value = lastUserMessage.querySelector('.msg-body')?.textContent || '';
                     }
-                    currentAssistantMessage.remove();
                     currentAssistantMessage = null;
                     lastUserMessage = null;
                     setStatus('ready');
@@ -423,6 +419,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('typing');
         } else if (data.type === 'stop_typing') {
             if (document.querySelector('#chat-avatar-status')?.textContent === 'Typing...') setStatus('ready');
+        } else if (data.type === 'tool_call') {
+            addMessage('tool', data.text || '');
         } else if (data.type === 'permission_request') {
             const overlay = document.getElementById('shell-permission-overlay');
             const cmdDisplay = document.getElementById('shell-pending-cmd');
@@ -975,10 +973,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (session?.messages?.length) {
                 _sessionHasMessages = true;
-                session.messages.forEach(m => {
+                session.messages.forEach((m, i) => {
+                    let role = m.role;
+                    const content = stripMarkers(m.content);
+                    if (role === 'system' && (content.startsWith('Tool result') || content.startsWith('Tool parse error'))) {
+                        role = 'tool';
+                    }
                     const div = document.createElement('div');
-                    div.className = `msg msg-${m.role}`;
-                    div.innerHTML = getMessageHtml(m.role, stripMarkers(m.content));
+                    div.className = `msg msg-${role}`;
+                    div.dataset.msgId = `msg-loaded-${i}`;
+                    if (role === 'assistant' && isErrorText(content)) {
+                        div.classList.add('msg-error');
+                    }
+                    div.innerHTML = getMessageHtml(role, content);
                     chatMessages.appendChild(div);
                 });
                 chatMessages.scrollTop = chatMessages.scrollHeight;

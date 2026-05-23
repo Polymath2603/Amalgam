@@ -62,8 +62,7 @@ class LlamaCppProvider (LLMProvider ):
             async with self ._client .stream ("POST",url ,json =body )as response :
                 if response .status_code !=200 :
                     err =await response .aread ()
-                    yield f"Error: LlamaCpp returned {response .status_code } - {err .decode ()[:200 ]}"
-                    return 
+                    raise RuntimeError (f"Error: LlamaCpp returned {response .status_code } - {err .decode ()[:200 ]}")
                 async for line in response .aiter_lines ():
                     if line .startswith ("data: "):
                         json_str =line [6 :].strip ()
@@ -78,9 +77,11 @@ class LlamaCppProvider (LLMProvider ):
                                 return 
                         except json .JSONDecodeError :
                             pass 
+        except RuntimeError :
+            raise 
         except Exception as e :
             logger .error (f"LlamaCpp stream error: {e }")
-            yield f"[Error connecting to LlamaCpp: {e }]"
+            raise RuntimeError (f"[Error connecting to LlamaCpp: {e }]")from e 
 
     async def generate (self ,messages :list )->str :
         url =f"{self ._url .rstrip ('/')}/completion"

@@ -51,7 +51,7 @@ export class AvatarRenderer {
         this.vrmPath = vrmPath || '/user_data/avatars/avatar.vrm';
         this.preview = options.preview || false;
         this.animConfig = Object.assign({
-            idle: '/static/animations/idle_loop.vrma',
+            idle: '/static/animations/neutral.vrma',
             greeting: '/static/animations/greeting.vrma',
         }, options.animations || {});
         this.vrm = null;

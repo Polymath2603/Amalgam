@@ -59,8 +59,7 @@ class KoboldAIProvider (LLMProvider ):
             )as response :
                 if response .status_code !=200 :
                     err =await response .aread ()
-                    yield f"Error: KoboldAI returned {response .status_code } - {err .decode ()[:200 ]}"
-                    return 
+                    raise RuntimeError (f"Error: KoboldAI returned {response .status_code } - {err .decode ()[:200 ]}")
                 buffer =""
                 async for chunk in response .aiter_bytes ():
                     buffer +=chunk .decode ()
@@ -75,9 +74,11 @@ class KoboldAIProvider (LLMProvider ):
                                     yield token 
                             except json .JSONDecodeError :
                                 pass 
+        except RuntimeError :
+            raise 
         except Exception as e :
             logger .error (f"KoboldAI stream error: {e }")
-            yield f"[Error connecting to KoboldAI: {e }]"
+            raise RuntimeError (f"[Error connecting to KoboldAI: {e }]")from e 
 
     async def generate (self ,messages :list )->str :
         prompt =self ._build_prompt (messages )

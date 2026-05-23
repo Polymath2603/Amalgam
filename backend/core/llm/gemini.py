@@ -79,8 +79,7 @@ class GeminiProvider (LLMProvider ):
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
                 if response .status_code !=200 :
                     err =await response .aread ()
-                    yield _format_error (response .status_code ,err .decode ())
-                    return 
+                    raise RuntimeError (_format_error (response .status_code ,err .decode ()))
                 async for line in response .aiter_lines ():
                     if line .startswith ("data: "):
                         json_str =line [6 :].strip ()
@@ -129,6 +128,8 @@ class GeminiProvider (LLMProvider ):
 
                         except json .JSONDecodeError :
                             pass 
+        except RuntimeError :
+            raise 
         except Exception as e :
             logger .error (f"Gemini stream error: {e }")
             yield f"[Error connecting to Gemini: {e }]"
@@ -190,6 +191,7 @@ class GeminiProvider (LLMProvider ):
 
 def _format_error (status_code :int ,body :str )->str :
     import json 
+    import re as _re 
     message =body .strip ()
     if not message :
         return f"API Error {status_code }"
@@ -206,9 +208,10 @@ def _format_error (status_code :int ,body :str )->str :
                     code =int (code )
                 except (ValueError ,TypeError ):
                     pass 
+                first_sentence =_re .split (r'(?<=[.!?])\s+',msg .strip ())[0 ]
                 if code ==429 :
-                    return f"Quota exceeded. {msg }"
-                return msg 
+                    return f"API rate limit exceeded. {first_sentence }."
+                return first_sentence 
             return str (err )
     except (json .JSONDecodeError ,IndexError ,KeyError ,TypeError ):
         pass 

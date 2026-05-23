@@ -157,6 +157,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .msg-user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 2px; }
 .msg-assistant { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 2px; }
 .msg-system { align-self: center; background: transparent; color: var(--text-muted); font-size: 0.8rem; font-style: italic; }
+.msg-tool { align-self: center; background: var(--bg-hover); color: var(--text-muted); font-size: 0.75rem; padding: 0.15rem 0.6rem; border-left: 3px solid var(--accent); border-radius: 4px; max-width: 90%; }
 .msg-assistant.msg-error { background: #2d1b1b; border-color: #5c3333; color: #e57373; }
 .thinking-bubble { margin-top: 0.5rem; padding: 0.4rem 0.6rem; background: var(--bg-hover); border-radius: 6px; font-size: 0.75rem; color: var(--text-muted); font-style: italic; border-left: 2px solid var(--accent); }
 
@@ -178,7 +179,8 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 }
 .msg-user .msg-actions { right: 0; }
 .msg-assistant .msg-actions { left: 0; }
-.msg-system .msg-actions { left: 50%; transform: translateX(-50%); }
+.msg-system .msg-actions,
+.msg-tool .msg-actions { left: 50%; transform: translateX(-50%); }
 
 .msg-action {
     width: 28px; height: 28px;

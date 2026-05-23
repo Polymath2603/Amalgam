@@ -172,14 +172,14 @@ class Agent :
                             tool_name =item ["name"]
                             tool_args =item .get ("arguments",{})
                             tool_id =item .get ("id","")
-                            yield f"\n[Calling tool: {tool_name }]\n"
+                            yield ("__tool__",f"Calling tool: {tool_name }")
                             result ="No MCP client"
                             if self .mcp_client :
                                 result =await self .mcp_client .call_tool (tool_name ,tool_args )
                             if result .startswith ("COMMAND_BLOCKED:"):
                                 blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                 yield ("__permission__",blocked_cmd )
-                                yield f"\n[Command blocked — needs permission: {blocked_cmd }]\n"
+                                yield ("__tool__",f"Command blocked — needs permission: {blocked_cmd }")
                                 if accumulated .strip ():
                                     await self .memory .add_turn ("assistant",accumulated .strip ())
                                 current_input =f"Tool result for {tool_name }: BLOCKED — {blocked_cmd }"
@@ -208,14 +208,14 @@ class Agent :
                                         tool_call =json .loads (tool_block_buf [start_idx :end_idx ])
                                         name =tool_call .get ("name")
                                         args =tool_call .get ("arguments",{})
-                                        yield f"\n[Calling tool: {name }]\n"
+                                        yield ("__tool__",f"Calling tool: {name }")
                                         result ="No MCP client"
                                         if self .mcp_client :
                                             result =await self .mcp_client .call_tool (name ,args )
                                         if result .startswith ("COMMAND_BLOCKED:"):
                                             blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                             yield ("__permission__",blocked_cmd )
-                                            yield f"\n[Command blocked — needs permission: {blocked_cmd }]\n"
+                                            yield ("__tool__",f"Command blocked — needs permission: {blocked_cmd }")
                                         if accumulated .strip ():
                                             await self .memory .add_turn ("assistant",accumulated .strip ())
                                         current_input =f"Tool result for {name }: {result }"
@@ -263,7 +263,7 @@ class Agent :
 
             except Exception as e :
                 logger .error (f"agent: stream exception: {type (e ).__name__ }: {e }")
-                yield f"\n[Agent Error: {e }]\n"
+                yield ("__error__",str (e ))
                 if accumulated .strip ():
                     await self .memory .add_turn ("assistant",accumulated .strip ())
                 break 

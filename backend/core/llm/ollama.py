@@ -31,8 +31,7 @@ class OllamaProvider (LLMProvider ):
             json ={"model":self ._model ,"messages":messages ,"stream":True ,"options":{"num_predict":max_tokens }},
             )as response :
                 if response .status_code !=200 :
-                    yield f"Error: Ollama returned {response .status_code }"
-                    return 
+                    raise RuntimeError (f"Error: Ollama returned {response .status_code }")
                 async for line in response .aiter_lines ():
                     if line :
                         try :
@@ -42,9 +41,11 @@ class OllamaProvider (LLMProvider ):
                                 yield msg ["content"]
                         except json .JSONDecodeError :
                             pass 
+        except RuntimeError :
+            raise 
         except Exception as e :
             logger .error (f"Ollama stream error: {e }")
-            yield f"[Error connecting to Ollama: {e }]"
+            raise RuntimeError (f"[Error connecting to Ollama: {e }]")from e 
 
     async def generate (self ,messages :list )->str :
         try :

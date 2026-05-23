@@ -189,6 +189,25 @@ async def handle_chat (websocket :WebSocket ):
                             except Exception :
                                 pass 
                             continue 
+                        if isinstance (item ,tuple )and item [0 ]=='__tool__':
+                            try :
+                                await websocket .send_json ({"type":"tool_call","text":item [1 ]})
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
+                            continue 
+                        if isinstance (item ,tuple )and item [0 ]=='__error__':
+                            try :
+                                await websocket .send_json ({
+                                "type":"chat_append","role":"assistant",
+                                "text":str (item [1 ]),"finished":True ,"error":True 
+                                })
+                            except WebSocketDisconnect :
+                                raise 
+                            except Exception :
+                                pass 
+                            continue 
                         if isinstance (item ,tuple )and item [0 ]=='__permission__':
                             try :
                                 await websocket .send_json ({"type":"permission_request","command":item [1 ]})

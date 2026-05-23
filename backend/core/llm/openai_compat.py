@@ -59,8 +59,7 @@ class OpenAICompatProvider (LLMProvider ):
     self ,messages :list ,tools :List [Dict [str ,Any ]]
     )->AsyncIterator :
         if not self ._api_key :
-            yield f"[Error: {self ._provider } API key not set. Go to Settings > Providers.]"
-            return 
+            raise RuntimeError (f"[Error: {self ._provider } API key not set. Go to Settings > Providers.]")
 
         max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         url =f"{self ._base_url .rstrip ('/')}/chat/completions"
@@ -83,8 +82,7 @@ class OpenAICompatProvider (LLMProvider ):
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
                 if response .status_code !=200 :
                     err =await response .aread ()
-                    yield self ._format_error (response .status_code ,err .decode ())
-                    return 
+                    raise RuntimeError (self ._format_error (response .status_code ,err .decode ()))
                 async for line in response .aiter_lines ():
                     if line .startswith ("data: "):
                         json_str =line [6 :].strip ()
@@ -136,9 +134,11 @@ class OpenAICompatProvider (LLMProvider ):
 
                         except json .JSONDecodeError :
                             pass 
+        except RuntimeError :
+            raise 
         except Exception as e :
             logger .error (f"{self ._provider } stream error: {e }")
-            yield f"[Error connecting to {self ._provider }: {e }]"
+            raise RuntimeError (f"[Error connecting to {self ._provider }: {e }]")from e 
 
     async def generate (self ,messages :list )->str :
         if not self ._api_key :
