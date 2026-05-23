@@ -411,6 +411,9 @@ body { background: var(--bg); color: var(--text); font-family: var(--font); heig
 .mcp-status-icon { font-size: 1.1rem; cursor: default; }
 .mcp-status-icon.online { color: var(--success); }
 .mcp-status-icon.offline { color: var(--text-muted); }
+.conn-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.conn-dot.connected { background: var(--success); box-shadow: 0 0 4px var(--success); }
+.conn-dot.disconnected { background: var(--danger); }
 .mcp-item-info strong { font-size: 0.85rem; }
 .mcp-item-info .muted { font-size: 0.75rem; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

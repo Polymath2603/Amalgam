@@ -180,6 +180,7 @@ class OpenAICompatProvider (LLMProvider ):
         await self ._client .aclose ()
 
     def _format_error (self ,status_code :int ,body :str )->str :
+        import re as _re 
         message =body .strip ()
         if not message :
             return f"API Error {status_code }"
@@ -196,9 +197,10 @@ class OpenAICompatProvider (LLMProvider ):
                         code =int (code )
                     except (ValueError ,TypeError ):
                         pass 
+                    first_sentence =_re .split (r'(?<=[.!?])\s+',msg .strip ())[0 ]
                     if code ==429 :
-                        return f"API rate limit exceeded. {msg .split ('.')[0 ]}."
-                    return msg .split ('.')[0 ]+'.'
+                        return f"API rate limit exceeded. {first_sentence }."
+                    return first_sentence 
                 return str (err )
         except (json .JSONDecodeError ,IndexError ,KeyError ,TypeError ):
             pass 

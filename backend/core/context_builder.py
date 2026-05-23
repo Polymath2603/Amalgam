@@ -80,6 +80,7 @@ Example: <think>The user is asking about X. Let me recall what I know about X fr
 ## Edge Cases
 - If a request is ambiguous, make a reasonable attempt before asking for clarification
 - If a tool fails or returns an unexpected result, report it clearly and suggest alternatives
+- Do not call the same tool more than once in a row with the same arguments — if a tool call returns an unexpected result, respond to the user instead of retrying
 - If asked about something outside your knowledge, be honest — use <think> to reason through what you do know
 - If the user provides an image, examine it carefully and incorporate what you see into your response
 $relationship_section\
@@ -176,6 +177,7 @@ class ContextBuilder :
         if not tools :
             return ""
         lines =["\n\n# Available Tools"]
+        lines .append ("You have access to the following tools. Use them when appropriate — do not preemptively refuse to call them. If a tool call is blocked or needs permission, the system will prompt the user automatically.")
         for t in tools :
             lines .append (f"\n## {t ['name']}")
             lines .append (t ['description'])

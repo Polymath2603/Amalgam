@@ -1288,14 +1288,14 @@ document.addEventListener('DOMContentLoaded', () => {
             servers.servers.forEach(s => {
                 const item = document.createElement('div');
                 item.className = `mcp-item${s.enabled === false ? ' disabled' : ''}`;
-                
                 const icon = s.enabled !== false ? 'check_circle' : 'cancel';
                 const iconClass = s.enabled !== false ? 'online' : 'offline';
+                const connClass = s.connected ? 'connected' : 'disconnected';
                 item.innerHTML = `
                     <div class="mcp-item-info">
                         <span class="material-icons-round mcp-status-icon ${iconClass}">${icon}</span>
                         <div>
-                            <strong>${s.name}</strong>
+                            <strong><span class="conn-dot ${connClass}"></span> ${s.name}</strong>
                             <span class="muted">${(() => { const c = s.command + ' ' + (s.args || []).join(' '); return c.length > 40 ? c.slice(0, 40) + '...' : c; })()}</span>
                         </div>
                     </div>
@@ -1304,7 +1304,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="toggle-slider"></span>
                     </label>
                 `;
-                
                 const checkbox = item.querySelector('.mcp-enabled');
                 checkbox.addEventListener('change', () => {
                     const isEnabled = checkbox.checked;
@@ -1312,8 +1311,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     statusIcon.textContent = isEnabled ? 'check_circle' : 'cancel';
                     statusIcon.className = `material-icons-round mcp-status-icon ${isEnabled ? 'online' : 'offline'}`;
                     item.classList.toggle('disabled', !isEnabled);
-
-                    
                     const server = mcpServersCache.find(srv => srv.name === s.name);
                     if (server) server.enabled = isEnabled;
                     markSettingsDirty();
