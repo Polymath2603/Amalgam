@@ -29,6 +29,7 @@ class Memory :
         os .makedirs (os .path .dirname (db_path ),exist_ok =True )
         self .conn =sqlite3 .connect (db_path ,check_same_thread =False )
         self .cursor =self .conn .cursor ()
+        self ._db_cursor =self .conn .cursor ()
 
         self .cursor .execute ('''
             CREATE TABLE IF NOT EXISTS conversations (
@@ -84,12 +85,12 @@ class Memory :
     async def _db_execute (self ,sql ,params =None ):
         loop =asyncio .get_running_loop ()
         if params is None :
-            return await loop .run_in_executor (self ._db_executor ,self .cursor .execute ,sql )
-        return await loop .run_in_executor (self ._db_executor ,self .cursor .execute ,sql ,params )
+            return await loop .run_in_executor (self ._db_executor ,self ._db_cursor .execute ,sql )
+        return await loop .run_in_executor (self ._db_executor ,self ._db_cursor .execute ,sql ,params )
 
     async def _db_executemany (self ,sql ,seq ):
         loop =asyncio .get_running_loop ()
-        return await loop .run_in_executor (self ._db_executor ,self .cursor .executemany ,sql ,seq )
+        return await loop .run_in_executor (self ._db_executor ,self ._db_cursor .executemany ,sql ,seq )
 
     def _sync_execute (self ,sql ,params =None ):
         if params is None :
@@ -283,7 +284,7 @@ class Memory :
                 loop =asyncio .get_running_loop ()
                 rows =await loop .run_in_executor (
                 self ._db_executor ,
-                lambda :self .cursor .execute (
+                lambda :self ._db_cursor .execute (
                 'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT ?',
                 (session_id ,keep )
                 ).fetchall ()
@@ -308,8 +309,8 @@ class Memory :
                     await loop .run_in_executor (
                     self ._db_executor ,
                     lambda :[
-                    self .cursor .execute ('INSERT INTO summaries (summary) VALUES (?)',(summary ,)),
-                    self .cursor .execute ('DELETE FROM conversations WHERE id <= ? AND session_id = ?',(last_id ,session_id )),
+                    self ._db_cursor .execute ('INSERT INTO summaries (summary) VALUES (?)',(summary ,)),
+                    self ._db_cursor .execute ('DELETE FROM conversations WHERE id <= ? AND session_id = ?',(last_id ,session_id )),
                     self .conn .commit ()
                     ]
                     )
@@ -349,8 +350,8 @@ class Memory :
             logger .debug (f"Fact extraction skipped: {e }")
 
     def _insert_facts_with_dedup (self ,facts :list ,session_id :str ):
-        self ._sync_execute ('SELECT fact FROM facts')
-        existing =[r [0 ].lower ()for r in self .cursor .fetchall ()]
+        self ._db_cursor .execute ('SELECT fact FROM facts')
+        existing =[r [0 ].lower ()for r in self ._db_cursor .fetchall ()]
         for f in facts :
             fact_text =str (f ["fact"])
             fact_lower =fact_text .lower ()
@@ -365,7 +366,7 @@ class Memory :
                     is_duplicate =True 
                     break 
             if not is_duplicate :
-                self .cursor .execute (
+                self ._db_cursor .execute (
                 'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
                 (fact_text ,str (f .get ("category","general")),
                 min (1.0 ,max (0.0 ,float (f .get ("importance",0.5 )))),session_id )
@@ -418,9 +419,9 @@ class Memory :
         await loop .run_in_executor (
         self ._db_executor ,
         lambda :[
-        self .cursor .execute ('DELETE FROM conversations'),
-        self .cursor .execute ('DELETE FROM summaries'),
-        self .cursor .execute ('DELETE FROM facts'),
+        self ._db_cursor .execute ('DELETE FROM conversations'),
+        self ._db_cursor .execute ('DELETE FROM summaries'),
+        self ._db_cursor .execute ('DELETE FROM facts'),
         self .conn .commit ()
         ]
         )
