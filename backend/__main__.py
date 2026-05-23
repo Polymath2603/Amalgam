@@ -11,7 +11,6 @@ import logging
 sys .path .insert (0 ,os .path .dirname (os .path .dirname (os .path .abspath (__file__ ))))
 
 logging .basicConfig (level =logging .INFO ,format ='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
 for _noise in ("httpx","huggingface_hub","urllib3","httpcore","filelock","transformers",
 "jieba","melo","openvoice","wavmark","torch","numba","librosa"):
     logging .getLogger (_noise ).setLevel (logging .WARNING )
@@ -33,7 +32,6 @@ def _kill_port (port ):
                 logger .debug (f"Killing existing process {pid } on port {port }")
                 subprocess .run (["kill","-9",pid ],capture_output =True )
     except FileNotFoundError :
-
         try :
             subprocess .run (["fuser","-k",f"{port }/tcp"],capture_output =True )
         except FileNotFoundError :
@@ -48,7 +46,7 @@ def main ():
     logger .debug (f"Chat UI: http://localhost:{port }")
     logger .debug ("Avatar: Three.js VRM (browser-rendered)")
     uvicorn .run (
-    "backend.api.server:app",
+    "backend.app:app",
     host =host ,
     port =port ,
     log_level ="warning",
