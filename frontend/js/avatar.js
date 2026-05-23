@@ -89,6 +89,10 @@ export class AvatarRenderer {
         this._lastHeadScreenPos = null;
 
         
+        this._hitAreaEnabled = !this.preview;
+        this._idleBehaviorTimer = null;
+
+        
         this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
         const initW = this.container.clientWidth || 800;
         const initH = this.container.clientHeight || 600;
@@ -139,6 +143,9 @@ export class AvatarRenderer {
 
         this._loadVRM();
         this._animate();
+        if (this._hitAreaEnabled) {
+            this._setupHitAreas();
+        }
     }
 
     loadVRM(newPath) {
@@ -262,6 +269,10 @@ export class AvatarRenderer {
                     await this._loadIdleAnimation();
                 } catch(e) {
                     console.warn('VRMA animations not available, using procedural idle:', e);
+                }
+
+                if (this._hitAreaEnabled) {
+                    this._startIdleBehaviorLoop();
                 }
 
             },
@@ -698,10 +709,81 @@ export class AvatarRenderer {
         return this._frequencyAnalyzer.analyze();
     }
 
+    
+
+    _setupHitAreas() {
+        const canvas = this.renderer.domElement;
+        canvas.style.cursor = 'pointer';
+        this._boundClickHandler = (event) => this._onCanvasClick(event);
+        canvas.addEventListener('click', this._boundClickHandler);
+    }
+
+    _onCanvasClick(event) {
+        if (!this.vrm?.humanoid || !this.ready) return;
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
+
+        const intersects = raycaster.intersectObjects(this.vrm.scene.children, true);
+        if (intersects.length === 0) return;
+
+        const hitPoint = intersects[0].point;
+        this._playHitAreaAnimation(hitPoint);
+    }
+
+    _playHitAreaAnimation(point) {
+        const head = this.vrm.humanoid.getNormalizedBoneNode('head');
+        const hips = this.vrm.humanoid.getNormalizedBoneNode('hips');
+        if (!head || !hips) return;
+
+        const headPos = new THREE.Vector3();
+        const hipsPos = new THREE.Vector3();
+        head.getWorldPosition(headPos);
+        hips.getWorldPosition(hipsPos);
+        const hitY = point.y;
+
+        let hitArea;
+        if (hitY > headPos.y - 0.1) hitArea = 'head';
+        else if (hitY > hipsPos.y + 0.3) hitArea = 'chest';
+        else if (hitY > hipsPos.y - 0.1) hitArea = 'groin';
+        else hitArea = 'leg';
+
+        this.playAnimation(`/characters/default/anim/hitarea_${hitArea}.vrma`);
+    }
+
+    
+
+    _startIdleBehaviorLoop() {
+        if (this._idleBehaviorTimer) clearInterval(this._idleBehaviorTimer);
+        const microAnims = ['curiosity', 'amusement', 'admiration', 'optimism', 'relief', 'realization', 'confusion'];
+        const scheduleNext = () => {
+            const delay = 8000 + Math.random() * 7000;
+            this._idleBehaviorTimer = setTimeout(() => {
+                if (!this.ready || this.currentEmotion !== 'neutral' || this._frequencyAnalyzerActive) {
+                    scheduleNext();
+                    return;
+                }
+                const anim = microAnims[Math.floor(Math.random() * microAnims.length)];
+                this.playAnimation(`/characters/default/anim/${anim}.vrma`, () => {
+                    if (this._idleAction) this._fadeToAction(this._idleAction, 1);
+                    scheduleNext();
+                });
+            }, delay);
+        };
+        scheduleNext();
+    }
+
     destroy() {
         if (this._rafId) cancelAnimationFrame(this._rafId);
         if (this._resizeObserver) this._resizeObserver.disconnect();
         if (this.renderer) this.renderer.dispose();
         if (this.container) this.container.innerHTML = '';
+        if (this._idleBehaviorTimer) clearTimeout(this._idleBehaviorTimer);
+        if (this._boundClickHandler && this.renderer) {
+            this.renderer.domElement.removeEventListener('click', this._boundClickHandler);
+        }
     }
 }

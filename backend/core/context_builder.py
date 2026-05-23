@@ -220,6 +220,9 @@ class ContextBuilder :
         interaction_style =character .get ("interaction_style","")if character else ""
         vocabulary =character .get ("vocabulary",[])if character else []
         dialogue_examples =character .get ("dialogue_examples",[])if character else []
+        quirks =character .get ("quirks",[])if character else []
+        memory_bias =character .get ("memory_bias",[])if character else []
+        forbidden =character .get ("forbidden",[])if character else []
 
         identity =system_prompt or f"You are {name }, a helpful AI assistant."
         style_parts =[]
@@ -231,6 +234,12 @@ class ContextBuilder :
             style_parts .append (f"Style: {interaction_style }")
         if vocabulary :
             style_parts .append (f"Signature phrases: {' '.join (f'\"{p }\"'for p in vocabulary )}")
+        if quirks :
+            style_parts .append (f"Quirks: {'; '.join (quirks )}")
+        if memory_bias :
+            style_parts .append (f"Always remember: {'; '.join (memory_bias )}")
+        if forbidden :
+            style_parts .append (f"Forbidden: {'; '.join (forbidden )}")
         character_style ="\n".join (style_parts )if style_parts else "Be warm, natural, and engaging."
 
         if dialogue_examples :

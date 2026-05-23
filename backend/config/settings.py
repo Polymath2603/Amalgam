@@ -174,6 +174,12 @@ DEFAULTS ={
 "command":"npx",
 "args":["-y","obsidian-mcp",str (VAULT_DIR )],
 "enabled":True 
+},
+{
+"name":"system",
+"command":"python3",
+"args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"system"/"server.py")],
+"enabled":True 
 }
 ]
 }
@@ -194,6 +200,11 @@ _DEFAULT_CHARACTER ={
 "User: Hello! Assistant: Hello there! [happy] How can I assist you today?",
 "User: Can you help me with a problem? Assistant: Of course! [relaxed] Tell me all about it, and I'll do my best to help."
 ],
+"quirks":[],
+"memory_bias":[],
+"forbidden":[],
+"mood_baseline":0.6 ,
+"mood_volatility":0.3 ,
 }
 
 def _load_single_character (char_dir :str )->Dict [str ,Dict ]|None :

@@ -1,6 +1,7 @@
 """
 MCP Client — connects to MCP servers via stdio transport, discovers tools, and calls them.
 Supports both JSON config file and settings-based server lists.
+Also integrates local skills as virtual tools.
 """
 import json 
 import asyncio 
@@ -21,6 +22,9 @@ class MCPClient :
         self .server_tool_map :Dict [str ,str ]={}
         self .exit_stack =AsyncExitStack ()
         self ._reconnect_tasks ={}
+        self ._skill_loader =None 
+        self ._skill_tools :List [Dict [str ,Any ]]=[]
+        self ._skill_names :set =set ()
 
     async def connect_servers (self ,config_path :str ):
         """Connect to MCP servers defined in a JSON config file."""
@@ -112,6 +116,12 @@ class MCPClient :
             task =asyncio .create_task (self ._reconnect (name ,cmd ,args ,env ,delay =min (delay *2 ,16 )))
             self ._reconnect_tasks [name ]=task 
 
+    def register_skill_loader (self ,skill_loader ):
+        self ._skill_loader =skill_loader 
+        self ._skill_loader .discover ()
+        self ._skill_tools =self ._skill_loader .get_tools ()
+        self ._skill_names ={t ["name"]for t in self ._skill_tools }
+
     def get_tool_schema (self )->List [Dict [str ,Any ]]:
         schema =[]
         for name ,tool in self .tools_cache .items ():
@@ -120,9 +130,15 @@ class MCPClient :
             "description":tool .description ,
             "parameters":tool .inputSchema 
             })
+        schema .extend (self ._skill_tools )
         return schema 
 
     async def call_tool (self ,name :str ,arguments :dict )->str :
+        if name in self ._skill_names :
+            if self ._skill_loader :
+                return await self ._skill_loader .execute (name ,arguments )
+            return f"Error: Skill {name } not loaded"
+
         if name not in self .server_tool_map :
             return f"Error: Tool {name } not found"
 
