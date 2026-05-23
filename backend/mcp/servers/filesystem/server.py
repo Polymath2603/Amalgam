@@ -5,20 +5,19 @@ from pathlib import Path
 
 app =Server ("filesystem-server")
 
-ALLOWED_PATHS =[Path ("/tmp"),Path .cwd (),Path ("/etc/passwd").parent ]
+
+
+_ALLOWED_ENV =os .environ .get ("AMALGAM_ALLOWED_PATHS","")
+if _ALLOWED_ENV :
+    _allowed_dirs =[Path (p ).resolve ()for p in _ALLOWED_ENV .split (":")if p .strip ()]
+else :
+    _allowed_dirs =[Path .cwd ().resolve (),Path ("/tmp").resolve ()]
+
 
 def is_allowed (path :Path )->bool :
-
     try :
         resolved =path .resolve ()
-        for allowed in ALLOWED_PATHS :
-            if str (resolved ).startswith (str (allowed .resolve ())):
-
-
-                pass 
-
-        allowed_dirs =[Path ("/tmp").resolve (),Path .cwd ().resolve ()]
-        for allowed in allowed_dirs :
+        for allowed in _allowed_dirs :
             if str (resolved ).startswith (str (allowed )):
                 return True 
         return False 

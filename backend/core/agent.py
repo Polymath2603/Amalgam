@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
-from backend .core .llm_router import LLMRouter 
+from backend .core .llm import LLMRouter 
 
 logger =logging .getLogger (__name__ )
 
@@ -74,7 +74,7 @@ class Agent :
             character_id =None 
             additional_prompt =""
             if self .settings :
-                character_id =self .settings .get ("character.active","amalgam")
+                character_id =self .settings .get ("character.active","default")
                 additional_prompt =self .settings .get ("character.system_prompt","")
 
             messages =self .context_builder .build (
@@ -213,7 +213,12 @@ class Agent :
                 logger .error (f"agent: llm.stream exception: {type (e ).__name__ }: {e }")
                 yield f"\n[Agent Error: {e }]\n"
             finally :
-                if not in_tool_block :
+                if in_tool_block :
+                    yield "\n[Tool block was not closed — response may be incomplete]\n"
+                    in_tool_block =False 
+                    if full_response .strip ():
+                        await self .memory .add_turn ("assistant",full_response .strip ())
+                else :
 
                     remaining =full_response [clean_yielded :]if len (full_response )>clean_yielded else ""
                     if remaining :
@@ -232,9 +237,6 @@ class Agent :
                             yield remaining 
                     if full_response .strip ():
                         await self .memory .add_turn ("assistant",full_response .strip ())
-
-            if not in_tool_block :
-                return 
 
         if iterations >=5 :
             yield "\n[Max tool iterations reached.]\n"

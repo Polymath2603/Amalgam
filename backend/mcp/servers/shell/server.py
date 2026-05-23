@@ -2,8 +2,40 @@ from mcp .server import Server
 from mcp .types import Tool ,TextContent 
 import subprocess 
 import asyncio 
+import os 
+import shlex 
 
 app =Server ("shell-server")
+
+
+
+SHELL_MODE =os .environ .get ("AMALGAM_SHELL_MODE","safe").lower ()
+ALLOWED_PREFIXES_ENV =os .environ .get ("AMALGAM_SHELL_ALLOWED_COMMANDS","")
+
+_DEFAULT_ALLOWED =[
+"echo ","ls ","cat ","pwd","date",
+"find ","grep ","head ","tail ","wc ",
+"mkdir ","cp ","mv ","rm ","touch ",
+"curl ","wget ",
+"python3 ","python ",
+"pip ","pip3 ",
+"git status","git log","git diff",
+"whoami","uname",
+]
+
+if ALLOWED_PREFIXES_ENV :
+    ALLOWED_PREFIXES =[p .strip ()+" "if not p .strip ().endswith (" ")else p .strip ()for p in ALLOWED_PREFIXES_ENV .split (",")]
+else :
+    ALLOWED_PREFIXES =_DEFAULT_ALLOWED 
+
+def _is_allowed (cmd :str )->bool :
+    if SHELL_MODE =="unrestricted":
+        return True 
+    trimmed =cmd .lstrip ()
+    for prefix in ALLOWED_PREFIXES :
+        if trimmed ==prefix .strip ()or trimmed .startswith (prefix ):
+            return True 
+    return False 
 
 @app .list_tools ()
 async def list_tools ()->list [Tool ]:
@@ -28,12 +60,8 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         if not cmd :
             raise ValueError ("Command is required")
 
-
-        allowed_prefixes =["echo ","ls ","cat ","pwd","date"]
-        is_safe =any (cmd .startswith (prefix )or cmd ==prefix .strip ()for prefix in allowed_prefixes )
-
-        if not is_safe :
-            return [TextContent (type ="text",text =f"Command not allowed: {cmd }")]
+        if not _is_allowed (cmd ):
+            return [TextContent (type ="text",text =f"Command not allowed (mode={SHELL_MODE }): {cmd }")]
 
         process =await asyncio .create_subprocess_shell (
         cmd ,

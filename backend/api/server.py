@@ -8,6 +8,9 @@ import json
 import logging 
 import os 
 import sys 
+import base64 
+import struct 
+import re 
 
 from fastapi import FastAPI ,WebSocket ,WebSocketDisconnect 
 from fastapi .staticfiles import StaticFiles 
@@ -17,7 +20,7 @@ from fastapi .middleware .cors import CORSMiddleware
 sys .path .insert (0 ,os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ )))))
 
 from backend .config .settings import Settings ,BUILTIN_VOICES 
-from backend .core .llm_router import LLMRouter 
+from backend .core .llm import LLMRouter 
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .agent import Agent 
@@ -25,6 +28,7 @@ from backend .core .relationship import Relationship
 from backend .mcp .client import MCPClient 
 from backend .voice .tts import TTS 
 from backend .voice .pipeline import VoicePipeline 
+from backend .paths import FRONTEND_DIR ,CHARACTERS_DIR ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
 
 logging .basicConfig (level =logging .WARNING ,format ='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger =logging .getLogger (__name__ )
@@ -98,8 +102,6 @@ app .add_middleware (CORSMiddleware ,allow_origins =["*"],allow_methods =["*"],a
 
 
 
-
-FRONTEND_DIR =os .path .join (os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ )))),"frontend")
 
 
 
@@ -244,7 +246,7 @@ async def startup ():
         except Exception as e :
             logger .warning (f"OpenVoice preload failed: {e }")
 
-    vault_path =settings ().get ("vault.path","user_data/vault")
+    vault_path =settings ().get ("vault.path",str (VAULT_DIR ))
     os .makedirs (vault_path ,exist_ok =True )
 
 
@@ -260,11 +262,6 @@ async def startup ():
             await mcp ().connect_from_settings (mcp_servers )
         except Exception as e :
             logger .warning (f"MCP servers from settings failed: {e }")
-    else :
-        try :
-            await mcp ().connect_servers ("backend/config/mcp_servers.json")
-        except Exception as e :
-            logger .warning (f"MCP servers from file failed: {e }")
 
 
 @app .get ("/")
@@ -273,7 +270,7 @@ async def index ():
 
 
 
-CHAR_DEFAULT_ANIM =os .path .join (os .path .dirname (FRONTEND_DIR ),"characters","default","anim")
+CHAR_DEFAULT_ANIM =str (CHARACTERS_DIR /"default"/"anim")
 if os .path .exists (CHAR_DEFAULT_ANIM ):
     app .mount ("/static/animations",StaticFiles (directory =CHAR_DEFAULT_ANIM ),name ="default_animations")
 
@@ -282,14 +279,12 @@ if os .path .exists (FRONTEND_DIR ):
     app .mount ("/static",StaticFiles (directory =FRONTEND_DIR ),name ="static")
 
 
-USER_DATA_DIR =os .path .join (os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ )))),"user_data")
-if os .path .exists (USER_DATA_DIR ):
-    app .mount ("/user_data",StaticFiles (directory =USER_DATA_DIR ),name ="user_data")
+if os .path .exists (DATA_DIR ):
+    app .mount ("/user_data",StaticFiles (directory =str (DATA_DIR )),name ="user_data")
 
 
-CHARACTERS_DIR =os .path .join (os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ )))),"characters")
-if os .path .exists (CHARACTERS_DIR ):
-    app .mount ("/characters",StaticFiles (directory =CHARACTERS_DIR ),name ="characters")
+if os .path .exists (str (CHARACTERS_DIR )):
+    app .mount ("/characters",StaticFiles (directory =str (CHARACTERS_DIR )),name ="characters")
 
 
 
@@ -378,16 +373,13 @@ async def get_character (character_id :str ):
 
 
 
-PROJECT_ROOT =os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ ))))
-
-
 @app .get ("/api/animations")
 async def get_animations (char_id :str =None ):
     """Return available VRMA animation files.
     Merges default/anim/*.vrma with per-character animations from
     characters/<char_id>/anim/*.vrma if char_id is provided.
     """
-    default_dir =os .path .join (PROJECT_ROOT ,"characters","default","anim")
+    default_dir =str (CHARACTERS_DIR /"default"/"anim")
     animations ={"default":[],"character":[]}
 
     if os .path .exists (default_dir ):
@@ -401,7 +393,7 @@ async def get_animations (char_id :str =None ):
                 })
 
     if char_id and char_id !="default":
-        char_anim_dir =os .path .join (PROJECT_ROOT ,"characters",char_id ,"anim")
+        char_anim_dir =str (CHARACTERS_DIR /char_id /"anim")
         if os .path .exists (char_anim_dir ):
             for f in sorted (os .listdir (char_anim_dir )):
                 if f .endswith (".vrma"):
@@ -553,7 +545,7 @@ async def get_mcp_tools ():
 
 @app .get ("/api/rules")
 async def get_rules ():
-    vault_path =settings ().get ("vault.path","user_data/vault")
+    vault_path =settings ().get ("vault.path",str (VAULT_DIR ))
     rules_path =os .path .join (vault_path ,"rules.md")
     if os .path .exists (rules_path ):
         with open (rules_path ,"r")as f :
@@ -563,7 +555,7 @@ async def get_rules ():
 
 @app .post ("/api/rules")
 async def save_rules (body :dict ):
-    vault_path =settings ().get ("vault.path","user_data/vault")
+    vault_path =settings ().get ("vault.path",str (VAULT_DIR ))
     os .makedirs (vault_path ,exist_ok =True )
     rules_path =os .path .join (vault_path ,"rules.md")
     with open (rules_path ,"w")as f :
@@ -573,7 +565,7 @@ async def save_rules (body :dict ):
 
 @app .get ("/api/vault/files")
 async def list_vault_files ():
-    vault_path =settings ().get ("vault.path","user_data/vault")
+    vault_path =settings ().get ("vault.path",str (VAULT_DIR ))
     if not os .path .exists (vault_path ):
         return {"files":[]}
     files =[]
@@ -600,14 +592,21 @@ async def get_session_messages (session_id :str ):
     messages =memory ().get_session_messages (session_id )
     return {"messages":messages ,"session_id":session_id }
 
+@app .post ("/api/memory/session/{session_id}/activate")
+async def activate_session (session_id :str ):
+    """Switch the active session to an existing one."""
+    memory ().set_current_session (session_id )
+    messages =memory ().get_session_messages (session_id )
+    return {"session_id":session_id ,"messages":messages ,"status":"ok"}
+
 @app .delete ("/api/memory/session/{session_id}")
 async def delete_session (session_id :str ):
-    memory ().delete_session (session_id )
+    await memory ().delete_session (session_id )
     return {"status":"ok"}
 
 @app .post ("/api/memory/clear")
 async def clear_memory ():
-    memory ().clear ()
+    await memory ().clear ()
     memory ().start_session ()
     return {"status":"ok"}
 
@@ -632,7 +631,7 @@ async def get_facts (category :str =None ,limit :int =100 ):
 
 @app .delete ("/api/facts/{fact_id}")
 async def delete_fact (fact_id :int ):
-    memory ().delete_fact (fact_id )
+    await memory ().delete_fact (fact_id )
     return {"status":"ok"}
 
 
@@ -646,9 +645,69 @@ async def get_relationship (character_id :str ):
 
 
 
+_ws_stream_idx =0 
+
+
+async def _synthesize_sentence (sentence_text :str ,sentence_idx :int ,stream_id :int ,
+ws :WebSocket ,emotion :str ="neutral"):
+    """TTS a single sentence and send audio over WebSocket. Module-level so it's not re-created per message."""
+    try :
+        if stream_id !=_ws_stream_idx :
+            logger .debug (f"TTS sentence {sentence_idx }: skipped (stale stream)")
+            return 
+        char =settings ().get_active_character ()
+        ref_audio =None 
+        if tts ().engine =="openvoice":
+            ref_audio =char .get ("voice_ref")if char else None 
+            if not ref_audio :
+                char_dir =char .get ("_dir","")if char else ""
+                if char_dir :
+                    for name in ("voice.pth","voice.wav"):
+                        candidate =os .path .join (char_dir ,name )
+                        if os .path .exists (candidate ):
+                            ref_audio =candidate 
+                            break 
+            if not ref_audio :
+                logger .warning ("No voice_ref for OpenVoice, skipping TTS")
+                return 
+        result =await asyncio .wait_for (
+        tts ().synthesize (sentence_text ,ref_audio =ref_audio ),
+        timeout =60.0 
+        )
+        audio_np ,_ ,sr =result 
+        logger .debug (f"TTS sentence {sentence_idx }: {len (audio_np )} samples, sr={sr }")
+        if len (audio_np )>0 :
+            pcm =(audio_np *32767 ).astype ("int16").tobytes ()
+            data_size =len (pcm )
+            header =struct .pack (
+            '<4sI4s4sIHHIIHH4sI',
+            b'RIFF',36 +data_size ,b'WAVE',
+            b'fmt ',16 ,1 ,1 ,sr ,sr *1 *16 //8 ,
+            1 *16 //8 ,16 ,
+            b'data',data_size 
+            )
+            wav_bytes =header +pcm 
+            b64_audio =base64 .b64encode (wav_bytes ).decode ()
+            duration =len (audio_np )/sr 
+            await ws .send_json ({
+            "type":"tts_audio",
+            "audio":b64_audio ,
+            "format":"wav",
+            "duration":round (duration ,2 ),
+            "sentence_idx":sentence_idx ,
+            "emotion":emotion 
+            })
+            logger .debug (f"TTS sentence {sentence_idx }: sent {duration :.2f}s audio (emotion={emotion })")
+        else :
+            logger .warning (f"TTS sentence {sentence_idx }: empty audio")
+    except asyncio .TimeoutError :
+        logger .error (f"TTS sentence {sentence_idx }: timed out after 60s")
+    except Exception as tts_err :
+        logger .error (f"TTS error for sentence {sentence_idx }: {type (tts_err ).__name__ }: {tts_err }")
+
+
 async def _synthesize_now (text :str ,ws :WebSocket ):
     """Synthesize TTS for text and send audio directly (used by speak button)."""
-    import base64 ,struct 
     try :
         char =settings ().get_active_character ()
         ref_audio =None 
@@ -696,10 +755,19 @@ async def _synthesize_now (text :str ,ws :WebSocket ):
 async def ws_chat (websocket :WebSocket ):
     await websocket .accept ()
     logger .warning ("Chat WebSocket connected")
+
+    try :
+        await websocket .send_json ({
+        "type":"session",
+        "id":memory ().get_current_session ()
+        })
+    except Exception :
+        pass 
     voice_output_enabled =False 
     voice_pipeline =None 
     voice_task =None 
-    _stream_idx =0 
+    global _ws_stream_idx 
+    _ws_stream_idx =0 
 
     try :
         while True :
@@ -784,7 +852,7 @@ async def ws_chat (websocket :WebSocket ):
                     continue 
 
                 if text =="/clear":
-                    memory ().clear ()
+                    await memory ().clear ()
                     memory ().start_session ()
                     await websocket .send_json (
                     {"type":"chat_append","role":"system","text":"Memory cleared.","finished":True })
@@ -802,13 +870,12 @@ async def ws_chat (websocket :WebSocket ):
                 await websocket .send_json ({"type":"expression","expression":"neutral"})
 
 
-                _stream_idx +=1 
-                current_stream =_stream_idx 
+                global _ws_stream_idx 
+                _ws_stream_idx +=1 
+                current_stream =_ws_stream_idx 
 
+                tts_tasks =[]
                 try :
-                    import base64 as _b64 
-                    import struct as _struct 
-                    import re as _re 
                     full_response =""
                     sentence_buffer =""
                     sentence_idx =0 
@@ -823,69 +890,8 @@ async def ws_chat (websocket :WebSocket ):
                             if tts ().voice !=char_voice :
                                 tts ().voice =char_voice 
 
-                    async def synthesize_and_send (sentence_text ,idx ,stream_id ,emotion ="neutral"):
-                        """TTS a single sentence and send audio over WebSocket."""
-                        nonlocal sentence_idx 
-                        try :
 
-                            if stream_id !=_stream_idx :
-                                logger .debug (f"TTS sentence {idx }: skipped (stale stream)")
-                                return 
-                            char =settings ().get_active_character ()
-                            ref_audio =None 
-                            if tts ().engine =="openvoice":
-                                ref_audio =char .get ("voice_ref")if char else None 
-                                if not ref_audio :
-                                    char_dir =char .get ("_dir","")if char else ""
-                                    if char_dir :
-                                        for name in ("voice.pth","voice.wav"):
-                                            candidate =os .path .join (char_dir ,name )
-                                            if os .path .exists (candidate ):
-                                                ref_audio =candidate 
-                                                break 
-                                if not ref_audio :
-                                    logger .warning ("No voice_ref for OpenVoice, skipping TTS")
-                                    return 
-                            result =await asyncio .wait_for (
-                            tts ().synthesize (sentence_text ,ref_audio =ref_audio ),
-                            timeout =60.0 
-                            )
-                            audio_np ,_ ,sr =result 
-                            logger .debug (f"TTS sentence {idx }: {len (audio_np )} samples, sr={sr }")
-                            if len (audio_np )>0 :
-                                pcm =(audio_np *32767 ).astype ("int16").tobytes ()
-                                data_size =len (pcm )
-                                header =_struct .pack (
-                                '<4sI4s4sIHHIIHH4sI',
-                                b'RIFF',36 +data_size ,b'WAVE',
-                                b'fmt ',16 ,1 ,1 ,sr ,sr *1 *16 //8 ,
-                                1 *16 //8 ,16 ,
-                                b'data',data_size 
-                                )
-                                wav_bytes =header +pcm 
-                                b64 =_b64 .b64encode (wav_bytes ).decode ()
-                                duration =len (audio_np )/sr 
-                                await websocket .send_json ({
-                                "type":"tts_audio",
-                                "audio":b64 ,
-                                "format":"wav",
-                                "duration":round (duration ,2 ),
-                                "sentence_idx":idx ,
-                                "emotion":emotion 
-                                })
-                                logger .debug (f"TTS sentence {idx }: sent {duration :.2f}s audio (emotion={emotion })")
-                            else :
-                                logger .warning (f"TTS sentence {idx }: empty audio")
-                        except asyncio .TimeoutError :
-                            logger .error (f"TTS sentence {idx }: timed out after 60s")
-                        except Exception as tts_err :
-                            logger .error (f"TTS error for sentence {idx }: {type (tts_err ).__name__ }: {tts_err }")
-
-
-                    tts_tasks =[]
-
-
-                    char_id =settings ().get ("character.active","amalgam")
+                    char_id =settings ().get ("character.active","default")
                     rel_context =relationship ().get_context_string (char_id )
                     logger .debug (f"ws:user_message - calling agent.handle_user_input for char_id={char_id }, text={text [:50 ]}")
 
@@ -965,9 +971,9 @@ async def ws_chat (websocket :WebSocket ):
 
 
 
-                        if voice_output_enabled and _re .search (r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}',sentence_buffer ):
+                        if voice_output_enabled and re .search (r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}',sentence_buffer ):
 
-                            parts =_re .split (r'(?<=[.!?。！？])\s',sentence_buffer )
+                            parts =re .split (r'(?<=[.!?。！？])\s',sentence_buffer )
                             if len (parts )>1 :
                                 complete =parts [0 ].strip ()
                                 sentence_buffer =' '.join (parts [1 :])
@@ -978,7 +984,7 @@ async def ws_chat (websocket :WebSocket ):
                                         raise 
                                     except Exception :
                                         pass 
-                                    task =asyncio .create_task (synthesize_and_send (complete ,sentence_idx ,current_stream ,current_emotion ))
+                                    task =asyncio .create_task (_synthesize_sentence (complete ,sentence_idx ,current_stream ,websocket ,current_emotion ))
                                     tts_tasks .append (task )
                                     sentence_idx +=1 
 
@@ -1007,7 +1013,7 @@ async def ws_chat (websocket :WebSocket ):
                             raise 
                         except Exception :
                             pass 
-                        task =asyncio .create_task (synthesize_and_send (sentence_buffer .strip (),sentence_idx ,current_stream ,current_emotion ))
+                        task =asyncio .create_task (_synthesize_sentence (sentence_buffer .strip (),sentence_idx ,current_stream ,websocket ,current_emotion ))
                         tts_tasks .append (task )
                         sentence_idx +=1 
 
@@ -1044,9 +1050,8 @@ async def ws_chat (websocket :WebSocket ):
                             break 
 
                     try :
-                        import json as _json 
                         if error_text .startswith ('{'):
-                            err_obj =_json .loads (error_text )
+                            err_obj =json .loads (error_text )
                             error_text =err_obj .get ('message',error_text )
                     except Exception :
                         pass 
@@ -1111,8 +1116,6 @@ async def tts_preview (body :dict ):
         audio ,_ ,sr =await temp_tts .synthesize (text )
 
     if len (audio )>0 :
-        import base64 
-        import struct 
         pcm =(audio *32767 ).astype ("int16").tobytes ()
         nch =1 
         bps =16 

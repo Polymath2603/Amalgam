@@ -8,6 +8,7 @@ import yaml
 import glob 
 import logging 
 from typing import Any ,Dict ,List 
+from backend .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR 
 
 logger =logging .getLogger (__name__ )
 
@@ -63,7 +64,7 @@ DEFAULTS ={
 }
 },
 "character":{
-"active":"amalgam",
+"active":"default",
 "system_prompt":"",
 "rules":""
 },
@@ -118,7 +119,7 @@ DEFAULTS ={
 "scale":1.0 
 },
 "vault":{
-"path":"user_data/vault"
+"path":str (VAULT_DIR )
 },
 "ui":{
 "theme":"dark",
@@ -132,13 +133,13 @@ DEFAULTS ={
 {
 "name":"shell",
 "command":"python3",
-"args":["backend/mcp/servers/shell/server.py"],
+"args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"shell"/"server.py")],
 "enabled":True 
 },
 {
 "name":"screenshot",
 "command":"python3",
-"args":["backend/mcp/servers/screenshot/server.py"],
+"args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"screenshot"/"server.py")],
 "enabled":True 
 },
 {
@@ -156,14 +157,14 @@ DEFAULTS ={
 {
 "name":"obsidian",
 "command":"npx",
-"args":["-y","obsidian-mcp","user_data/vault"],
+"args":["-y","obsidian-mcp",str (VAULT_DIR )],
 "enabled":True 
 }
 ]
 }
 }
 
-CHARACTERS_DIR =os .path .join (os .path .dirname (os .path .dirname (os .path .dirname (os .path .abspath (__file__ )))),"characters")
+
 
 _DEFAULT_CHARACTER ={
 "name":"Assistant",
@@ -197,7 +198,7 @@ def _load_single_character (char_dir :str )->Dict [str ,Dict ]|None :
         icon_path =os .path .join (CHARACTERS_DIR ,char_dir ,"icon.png")
         model_path =os .path .join (CHARACTERS_DIR ,char_dir ,"model.vrm")
         char_data ["_dir"]=os .path .join (CHARACTERS_DIR ,char_dir )
-        char_data ["icon_url"]=f"/characters/{char_id }/icon.png"if os .path .exists (icon_path )else "/static/icons/logo.png"
+        char_data ["icon_url"]=f"/characters/{char_id }/icon.png"if os .path .exists (icon_path )else "/icons/logo.png"
         char_data ["model_url"]=f"/characters/{char_id }/model.vrm"if os .path .exists (model_path )else ""
 
         if not char_data .get ("voice_ref"):
@@ -235,7 +236,7 @@ def load_characters_from_yaml ()->Dict [str ,Dict ]:
 
 
     if "default"not in characters :
-        characters ["default"]={**_DEFAULT_CHARACTER ,"icon_url":"/static/icons/logo.png","model_url":"","_dir":""}
+        characters ["default"]={**_DEFAULT_CHARACTER ,"icon_url":"/icons/logo.png","model_url":"","_dir":""}
 
     return characters 
 
@@ -261,7 +262,7 @@ BUILTIN_VOICES =[
 {"id":"ar-SA-ZariyahNeural","name":"Zariyah","gender":"Female","locale":"ar-SA"},
 ]
 
-SETTINGS_PATH ="user_data/settings.json"
+
 
 
 class Settings :
@@ -328,7 +329,7 @@ class Settings :
 
     def get_active_character (self )->Dict :
         """Get the active character's full definition, falling back to default."""
-        active_id =self .get ("character.active","amalgam")
+        active_id =self .get ("character.active","default")
         char =self ._characters .get (active_id )
         if char :
             return char 

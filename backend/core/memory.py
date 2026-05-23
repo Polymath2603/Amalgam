@@ -1,6 +1,7 @@
 import sqlite3 
 import json 
 import asyncio 
+import concurrent .futures 
 import numpy as np 
 import logging 
 import uuid 
@@ -9,8 +10,11 @@ from typing import List ,Dict ,Optional
 logger =logging .getLogger (__name__ )
 
 class Memory :
-    def __init__ (self ,llm_router =None ,db_path ="user_data/conversations.db"):
+    def __init__ (self ,llm_router =None ,db_path =None ):
         import os 
+        from backend .paths import CONVERSATIONS_DB 
+        if db_path is None :
+            db_path =CONVERSATIONS_DB 
         self .llm =llm_router 
         os .makedirs (os .path .dirname (db_path ),exist_ok =True )
         self .conn =sqlite3 .connect (db_path ,check_same_thread =False )
@@ -61,6 +65,26 @@ class Memory :
 
         self .summarizing =False 
         self ._current_session :Optional [str ]=None 
+        self ._db_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="mem_db")
+
+    async def _db_commit (self ):
+        loop =asyncio .get_running_loop ()
+        await loop .run_in_executor (self ._db_executor ,self .conn .commit )
+
+    async def _db_execute (self ,sql ,params =None ):
+        loop =asyncio .get_running_loop ()
+        if params is None :
+            return await loop .run_in_executor (self ._db_executor ,self .cursor .execute ,sql )
+        return await loop .run_in_executor (self ._db_executor ,self .cursor .execute ,sql ,params )
+
+    async def _db_executemany (self ,sql ,seq ):
+        loop =asyncio .get_running_loop ()
+        return await loop .run_in_executor (self ._db_executor ,self .cursor .executemany ,sql ,seq )
+
+    def _sync_execute (self ,sql ,params =None ):
+        if params is None :
+            return self .cursor .execute (sql )
+        return self .cursor .execute (sql ,params )
 
     def start_session (self )->str :
         """Start a new conversation session and return its ID."""
@@ -85,18 +109,18 @@ class Memory :
             if embedding :
                 embedding_json =json .dumps (embedding )
 
-        self .cursor .execute (
+        await self ._db_execute (
         'INSERT INTO conversations (session_id, role, content, embedding) VALUES (?, ?, ?, ?)',
         (session_id ,role ,content ,embedding_json )
         )
-        self .conn .commit ()
+        await self ._db_commit ()
 
 
         asyncio .create_task (self .check_and_summarize ())
 
     def get_sessions (self )->List [Dict ]:
         """Get all sessions with preview text and message count."""
-        self .cursor .execute ('''
+        self ._sync_execute ('''
             SELECT session_id,
                    MIN(timestamp) as started,
                    MAX(timestamp) as last_active,
@@ -126,22 +150,22 @@ class Memory :
 
     def get_session_messages (self ,session_id :str )->List [Dict ]:
         """Get all messages for a specific session."""
-        self .cursor .execute (
+        self ._sync_execute (
         'SELECT id, role, content, timestamp FROM conversations WHERE session_id = ? ORDER BY id ASC',
         (session_id ,)
         )
         return [{"id":r [0 ],"role":r [1 ],"content":r [2 ],"timestamp":r [3 ]}for r in self .cursor .fetchall ()]
 
-    def delete_session (self ,session_id :str )->bool :
+    async def delete_session (self ,session_id :str )->bool :
         """Delete all messages in a session."""
-        self .cursor .execute ('DELETE FROM conversations WHERE session_id = ?',(session_id ,))
-        self .conn .commit ()
+        await self ._db_execute ('DELETE FROM conversations WHERE session_id = ?',(session_id ,))
+        await self ._db_commit ()
         return self .cursor .rowcount >0 
 
     def get_recent (self ,n :int =50 )->List [Dict [str ,str ]]:
         """Get recent messages from current session for context building."""
         session_id =self .get_current_session ()
-        self .cursor .execute (
+        self ._sync_execute (
         'SELECT id, role, content, timestamp FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?',
         (session_id ,n )
         )
@@ -150,17 +174,17 @@ class Memory :
 
     def get_all_recent (self ,n :int =50 )->List [Dict [str ,str ]]:
         """Get recent messages across all sessions (for context fallback)."""
-        self .cursor .execute ('SELECT id, role, content, timestamp FROM conversations ORDER BY id DESC LIMIT ?',(n ,))
+        self ._sync_execute ('SELECT id, role, content, timestamp FROM conversations ORDER BY id DESC LIMIT ?',(n ,))
         rows =self .cursor .fetchall ()
         return [{"id":row [0 ],"role":row [1 ],"content":row [2 ],"timestamp":row [3 ]}for row in reversed (rows )]
 
-    def delete_message (self ,msg_id :int )->bool :
-        self .cursor .execute ('DELETE FROM conversations WHERE id = ?',(msg_id ,))
-        self .conn .commit ()
+    async def delete_message (self ,msg_id :int )->bool :
+        await self ._db_execute ('DELETE FROM conversations WHERE id = ?',(msg_id ,))
+        await self ._db_commit ()
         return self .cursor .rowcount >0 
 
     def get_summary (self )->str :
-        self .cursor .execute ('SELECT summary FROM summaries ORDER BY id DESC LIMIT 1')
+        self ._sync_execute ('SELECT summary FROM summaries ORDER BY id DESC LIMIT 1')
         row =self .cursor .fetchone ()
         return row [0 ]if row else ""
 
@@ -173,7 +197,7 @@ class Memory :
         q_vec =np .array (query_emb )
         session_id =self .get_current_session ()
 
-        self .cursor .execute (
+        self ._sync_execute (
         'SELECT role, content, embedding FROM conversations WHERE embedding IS NOT NULL AND session_id = ?',
         (session_id ,)
         )
@@ -206,11 +230,14 @@ class Memory :
                 logger .debug ("Auto-summarizing older memories...")
 
 
-                self .cursor .execute (
+                loop =asyncio .get_running_loop ()
+                rows =await loop .run_in_executor (
+                self ._db_executor ,
+                lambda :self .cursor .execute (
                 'SELECT id, role, content FROM conversations WHERE session_id = ? ORDER BY id ASC LIMIT 25',
                 (session_id ,)
+                ).fetchall ()
                 )
-                rows =self .cursor .fetchall ()
 
                 if not rows :
                     return 
@@ -227,9 +254,15 @@ class Memory :
                         prompt =f"Combine these two summaries into one coherent overview:\n1. {existing }\n2. {summary }\n\nCombined Summary:"
                         summary =await self .llm .generate ([{"role":"user","content":prompt }])
 
-                    self .cursor .execute ('INSERT INTO summaries (summary) VALUES (?)',(summary ,))
-                    self .cursor .execute ('DELETE FROM conversations WHERE id <= ? AND session_id = ?',(last_id ,session_id ))
+                    loop =asyncio .get_running_loop ()
+                    await loop .run_in_executor (
+                    self ._db_executor ,
+                    lambda :[
+                    self .cursor .execute ('INSERT INTO summaries (summary) VALUES (?)',(summary ,)),
+                    self .cursor .execute ('DELETE FROM conversations WHERE id <= ? AND session_id = ?',(last_id ,session_id )),
                     self .conn .commit ()
+                    ]
+                    )
                     logger .debug ("Summarization complete.")
             except Exception as e :
                 logger .error (f"Summarization failed: {e }")
@@ -255,36 +288,40 @@ class Memory :
                     raw =raw .split ("\n",1 )[-1 ].rsplit ("```",1 )[0 ]
                 facts =json .loads (raw )
                 session_id =self .get_current_session ()
-                for f in facts :
-                    imp =min (1.0 ,max (0.0 ,float (f .get ("importance",0.5 ))))
-                    self .cursor .execute (
-                    'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
-                    (str (f ["fact"]),str (f .get ("category","general")),imp ,session_id )
-                    )
-                self .conn .commit ()
+                loop =asyncio .get_running_loop ()
+                await loop .run_in_executor (
+                self ._db_executor ,
+                lambda :[
+                self .cursor .execute (
+                'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
+                (str (f ["fact"]),str (f .get ("category","general")),
+                min (1.0 ,max (0.0 ,float (f .get ("importance",0.5 )))),session_id )
+                )for f in facts 
+                ]+[self .conn .commit ()]
+                )
         except (json .JSONDecodeError ,Exception )as e :
             logger .debug (f"Fact extraction skipped: {e }")
 
-    def delete_fact (self ,fact_id :int ):
-        self .cursor .execute ('DELETE FROM facts WHERE id = ?',(fact_id ,))
-        self .conn .commit ()
+    async def delete_fact (self ,fact_id :int ):
+        await self ._db_execute ('DELETE FROM facts WHERE id = ?',(fact_id ,))
+        await self ._db_commit ()
 
-    def add_fact (self ,fact :str ,category :str ="general",importance :float =0.5 ):
+    async def add_fact (self ,fact :str ,category :str ="general",importance :float =0.5 ):
         session_id =self .get_current_session ()
-        self .cursor .execute (
+        await self ._db_execute (
         'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
         (fact ,category ,min (1.0 ,max (0.0 ,importance )),session_id )
         )
-        self .conn .commit ()
+        await self ._db_commit ()
 
     def get_facts (self ,category :str =None ,min_importance :float =0.0 ,limit :int =50 ):
         if category :
-            self .cursor .execute (
+            self ._sync_execute (
             'SELECT id, fact, category, importance, timestamp FROM facts WHERE category = ? AND importance >= ? ORDER BY importance DESC, timestamp DESC LIMIT ?',
             (category ,min_importance ,limit )
             )
         else :
-            self .cursor .execute (
+            self ._sync_execute (
             'SELECT id, fact, category, importance, timestamp FROM facts WHERE importance >= ? ORDER BY importance DESC, timestamp DESC LIMIT ?',
             (min_importance ,limit )
             )
@@ -292,7 +329,7 @@ class Memory :
 
     async def get_relevant_facts (self ,query :str ,top_k :int =5 ):
         query_words =set (query .lower ().split ())
-        self .cursor .execute ('SELECT id, fact, category, importance FROM facts')
+        self ._sync_execute ('SELECT id, fact, category, importance FROM facts')
         rows =self .cursor .fetchall ()
         scored =[]
         for fid ,fact ,cat ,imp in rows :
@@ -305,8 +342,14 @@ class Memory :
         scored .sort (key =lambda x :x [0 ],reverse =True )
         return [{"id":s [1 ],"fact":s [2 ],"category":s [3 ],"importance":s [4 ]}for s in scored [:top_k ]]
 
-    def clear (self ):
-        self .cursor .execute ('DELETE FROM conversations')
-        self .cursor .execute ('DELETE FROM summaries')
-        self .cursor .execute ('DELETE FROM facts')
+    async def clear (self ):
+        loop =asyncio .get_running_loop ()
+        await loop .run_in_executor (
+        self ._db_executor ,
+        lambda :[
+        self .cursor .execute ('DELETE FROM conversations'),
+        self .cursor .execute ('DELETE FROM summaries'),
+        self .cursor .execute ('DELETE FROM facts'),
         self .conn .commit ()
+        ]
+        )

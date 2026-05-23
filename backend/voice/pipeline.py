@@ -19,6 +19,7 @@ class VoicePipeline :
         self ._vad =None 
         self ._stt =STTRouter (engine =stt_engine )
         self ._stt_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="stt")
+        self ._stream =None 
 
     def configure_openai_stt (self ,api_key :str ,model :str ="whisper-1"):
         self ._stt .configure_openai (api_key ,model )
@@ -64,7 +65,7 @@ class VoicePipeline :
                 logger .warning (f"Audio input status: {status }")
             audio_q .put (bytes (indata ))
 
-        stream =sd .RawInputStream (
+        self ._stream =sd .RawInputStream (
         samplerate =16000 ,blocksize =480 ,dtype ='int16',channels =1 ,
         callback =audio_callback 
         )
@@ -75,7 +76,7 @@ class VoicePipeline :
         FRAME_SIZE =960 
 
         try :
-            with stream :
+            with self ._stream :
                 while not self ._stop_event .is_set ():
                     try :
                         chunk =audio_q .get (timeout =0.1 )
@@ -120,4 +121,9 @@ class VoicePipeline :
 
     def stop_listening (self ):
         self ._stop_event .set ()
+        if self ._stream is not None :
+            try :
+                self ._stream .close ()
+            except Exception :
+                pass 
         self ._stt_executor .shutdown (wait =False )

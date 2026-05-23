@@ -41,14 +41,16 @@ def _kill_port (port ):
 
 
 def main ():
-    _kill_port (8000 )
+    port =int (os .environ .get ("AMALGAM_PORT","8000"))
+    host =os .environ .get ("AMALGAM_HOST","0.0.0.0")
+    _kill_port (port )
     logger .debug ("Starting Amalgam...")
-    logger .debug ("Chat UI: http://localhost:8000")
+    logger .debug (f"Chat UI: http://localhost:{port }")
     logger .debug ("Avatar: Three.js VRM (browser-rendered)")
     uvicorn .run (
     "backend.api.server:app",
-    host ="0.0.0.0",
-    port =8000 ,
+    host =host ,
+    port =port ,
     log_level ="warning",
     reload =False 
     )

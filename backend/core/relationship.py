@@ -2,6 +2,8 @@ import sqlite3
 import json 
 import math 
 import os 
+import asyncio 
+import concurrent .futures 
 import logging 
 import re 
 from datetime import datetime ,timezone 
@@ -41,7 +43,10 @@ STAGES =[
 
 
 class Relationship :
-    def __init__ (self ,db_path :str ="user_data/relationship.db"):
+    def __init__ (self ,db_path :str =None ):
+        from backend .paths import RELATIONSHIP_DB 
+        if db_path is None :
+            db_path =RELATIONSHIP_DB 
         os .makedirs (os .path .dirname (db_path ),exist_ok =True )
         self .conn =sqlite3 .connect (db_path ,check_same_thread =False )
         self .cursor =self .conn .cursor ()
@@ -54,6 +59,7 @@ class Relationship :
         ''')
         self .conn .commit ()
         self ._cache :Dict [str ,Dict ]={}
+        self ._db_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="rel_db")
 
     def _default_stats (self )->Dict :
         now =datetime .now (timezone .utc ).isoformat ()
@@ -81,17 +87,22 @@ class Relationship :
             return stats 
         stats =self ._default_stats ()
         self ._cache [character_id ]=stats 
-        self ._save (character_id ,stats )
         return stats 
 
-    def _save (self ,character_id :str ,stats :Dict ):
+    async def _save (self ,character_id :str ,stats :Dict ):
         stats ["updated_at"]=datetime .now (timezone .utc ).isoformat ()
         self ._cache [character_id ]=stats 
+        loop =asyncio .get_running_loop ()
+        await loop .run_in_executor (
+        self ._db_executor ,
+        lambda :[
         self .cursor .execute (
         'INSERT OR REPLACE INTO relationships (character_id, stats, updated_at) VALUES (?, ?, ?)',
         (character_id ,json .dumps (stats ),stats ["updated_at"])
-        )
+        ),
         self .conn .commit ()
+        ]
+        )
 
     def _apply_time_decay (self ,stats :Dict ):
         last =datetime .fromisoformat (stats ["last_interaction"])
@@ -139,7 +150,13 @@ class Relationship :
         elif role =="assistant":
             stats ["total_words_assistant"]+=len (content .split ())
 
-        self ._save (character_id ,stats )
+
+        try :
+            loop =asyncio .get_event_loop ()
+            if loop .is_running ():
+                asyncio .ensure_future (self ._save (character_id ,stats ))
+        except RuntimeError :
+            pass 
 
     def get_stage (self ,character_id :str )->str :
         stats =self ._load (character_id )

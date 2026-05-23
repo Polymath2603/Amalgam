@@ -136,7 +136,14 @@ class MCPClient :
             result =await session .call_tool (name ,arguments )
             if not result .content :
                 return ""
-            return "\n".join (c .text for c in result .content if c .type =="text")
+            parts =[]
+            for c in result .content :
+                if c .type =="text":
+                    parts .append (c .text )
+                elif c .type =="image":
+                    parts .append (f"[Image: {c .mimeType } data={len (c .data )} bytes]")
+                    parts .append (f"data:{c .mimeType };base64,{c .data }")
+            return "\n".join (parts )
         except Exception as e :
             return f"Error calling tool {name }: {e }"
 

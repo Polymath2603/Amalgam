@@ -1,5 +1,5 @@
 from mcp .server import Server 
-from mcp .types import Tool ,TextContent 
+from mcp .types import Tool ,TextContent ,ImageContent 
 import base64 
 from io import BytesIO 
 
@@ -10,7 +10,7 @@ async def list_tools ()->list [Tool ]:
     return [
     Tool (
     name ="capture_screen",
-    description ="Take a screenshot of the display",
+    description ="Take a screenshot of the display. Returns the image that the LLM can see.",
     inputSchema ={
     "type":"object",
     "properties":{}
@@ -19,7 +19,7 @@ async def list_tools ()->list [Tool ]:
     ]
 
 @app .call_tool ()
-async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
+async def call_tool (name :str ,arguments :dict )->list :
     if name =="capture_screen":
         try :
             import mss 
@@ -33,11 +33,14 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
 
                 buffered =BytesIO ()
                 img .save (buffered ,format ="PNG")
-                img_str =base64 .b64encode (buffered .getvalue ()).decode ()
+                img_b64 =base64 .b64encode (buffered .getvalue ()).decode ()
 
-                return [TextContent (type ="text",text =img_str )]
+                return [
+                TextContent (type ="text",text =f"Screenshot captured ({img .size [0 ]}x{img .size [1 ]}px)."),
+                ImageContent (type ="image",data =img_b64 ,mimeType ="image/png"),
+                ]
         except ImportError :
-            return [TextContent (type ="text",text ="iVBOR... (Mocked screenshot due to missing dependencies)")]
+            return [TextContent (type ="text",text ="Screenshot not available (missing dependencies: mss/PIL)")]
 
     raise ValueError (f"Unknown tool: {name }")
 

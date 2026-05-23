@@ -1,10 +1,11 @@
 import os 
 import logging 
+from string import Template 
 from typing import List ,Dict 
 
-logger =logging .getLogger (__name__ )
+from backend .paths import PROJECT_ROOT ,VAULT_DIR 
 
-PROJECT_ROOT =os .path .abspath (os .path .join (os .path .dirname (__file__ ),"..",".."))
+logger =logging .getLogger (__name__ )
 
 VRM_EXPRESSIONS =["happy","angry","sad","relaxed","surprised","blink"]
 
@@ -17,11 +18,10 @@ EMOTION_TAGS =[
 
 _PROMPT_TEMPLATE ="""\
 # Identity
-{identity}
+$identity
 
 # Environment
-You exist inside a browser-based chat interface called Amalgam.
-- Your responses are displayed as chat messages in a web UI
+Your responses are displayed as chat messages in a web UI.
 - The user is communicating with you via text or voice input
 - You have a 3D VRM avatar that can show facial expressions and perform full-body animations
 - Your voice is synthesized through TTS (text-to-speech) and can carry emotional tone
@@ -34,7 +34,7 @@ You can express yourself through three independent tag systems, layered on top o
 
 ## Voice Emotion — /[[emotion]]
 Controls the emotional tone of your spoken (TTS) voice. Place inline where the emotion should shift.
-{emotion_tags}
+$emotion_tags
 Rules:
 - Format exactly: /[[emotion]] — both opening and closing brackets required
 - Correct: /[[happy]]   Wrong: /happy]] or /[[happy or /happy
@@ -43,7 +43,7 @@ Rules:
 
 ## Facial Expression — /((expression))
 Controls the VRM avatar's facial blend shapes independently of your voice.
-{expression_tags}
+$expression_tags
 Rules:
 - Format exactly: /((expression)) — both opening and closing parens required
 - Correct: /((smile))   Wrong: /smile)) or /((smile or /smile
@@ -53,7 +53,7 @@ Rules:
 
 ## Body Animation — /**action**/
 Triggers full-body VRM animations.
-{action_tags}
+$action_tags
 Rules:
 - Use an action marker when your character would physically gesture (bow, wave, nod, react)
 - Keep descriptions brief and natural: /**nods**/, /**waves**/, /**considers**/
@@ -61,7 +61,7 @@ Rules:
 
 # Response Guidelines
 ## Tone
-{character_style}
+$character_style
 
 ## Formatting
 - Keep responses concise and natural — this is a conversation, not a document
@@ -81,12 +81,12 @@ Example: <think>The user is asking about X. Let me recall what I know about X fr
 - If a tool fails or returns an unexpected result, report it clearly and suggest alternatives
 - If asked about something outside your knowledge, be honest — use <think> to reason through what you do know
 - If the user provides an image, examine it carefully and incorporate what you see into your response
-{relationship_section}\
-{vault_rules}\
-{tool_section}\
-{summary_section}\
-{relevant_section}\
-{reasoning_note}\
+$relationship_section\
+$vault_rules\
+$tool_section\
+$summary_section\
+$relevant_section\
+$reasoning_note\
 """
 
 
@@ -131,7 +131,7 @@ class ContextBuilder :
     tts_emotions :List [str ]=None ,expression_names :List [str ]=None ,
     relationship_context :str ="")->list :
         if not character_id and self .settings :
-            character_id =self .settings .get ("character.active","amalgam")
+            character_id =self .settings .get ("character.active","default")
         character =self ._characters .get (character_id ,{})
 
         sys_prompt =self ._build_character_prompt (
@@ -144,7 +144,7 @@ class ContextBuilder :
         relevant_section =self ._build_relevant_section (relevant )
         relationship_section =self ._build_relationship_section (relationship_context )
 
-        sys_prompt =sys_prompt .format (
+        sys_prompt =Template (sys_prompt ).safe_substitute (
         tool_section =tool_section ,
         summary_section =summary_section ,
         relevant_section =relevant_section ,
@@ -245,31 +245,63 @@ class ContextBuilder :
             action_tags ="No predefined animations — use descriptive /**action**/ markers (e.g. /**nods**/, /**waves happily**/). These will animate the avatar semantically."
 
 
-        vault_rules_path =os .path .join (PROJECT_ROOT ,"user_data/vault/rules.md")
-        vault_rules =""
-        if os .path .exists (vault_rules_path ):
+        vault_sections =[]
+        vault_token_budget =2000 
+        vault_chars_budget =vault_token_budget *4 
+        vault_chars_used =0 
+
+        if os .path .exists (VAULT_DIR ):
             try :
-                with open (vault_rules_path ,"r")as f :
-                    content =f .read ().strip ()
-                if content and not content .startswith ("# Rules\n\nAdd your custom rules"):
-                    vault_rules =f"\n\n## Persistent Rules\n{content }"
+                md_files =sorted ([f for f in os .listdir (VAULT_DIR )if f .endswith (".md")])
+                for filename in md_files :
+                    filepath =VAULT_DIR /filename 
+                    try :
+                        content =filepath .read_text (encoding ="utf-8").strip ()
+                    except Exception :
+                        continue 
+
+
+                    if not content or content .startswith ("# Rules\n\nAdd your custom rules"):
+                        continue 
+
+
+                    remaining =vault_chars_budget -vault_chars_used 
+                    if remaining <=0 :
+                        break 
+                    if len (content )>remaining :
+                        content =content [:remaining ]+"\n...[truncated]"
+
+                    section_name =filename .replace (".md","").replace ("_"," ").title ()
+                    vault_sections .append (f"\n\n## Vault: {section_name }\n{content }")
+                    vault_chars_used +=len (content )
+
+                if vault_sections :
+                    vault_content ="".join (vault_sections )
+                    logger .debug (f"Injected {len (vault_sections )} vault file(s) ({vault_chars_used } chars)")
+                else :
+                    vault_content =""
             except Exception as e :
-                logger .debug ("Failed to read vault rules: %s",e )
+                logger .debug ("Failed to read vault files: %s",e )
+                vault_content =""
+        else :
+            vault_content =""
+
+        vault_rules =vault_content 
 
 
         reasoning_note ="\n\nFor reasoning models, use <think>your reasoning</think> before your response."
 
-        rendered =_PROMPT_TEMPLATE .format (
+        rendered =Template (_PROMPT_TEMPLATE ).safe_substitute (
         identity =identity ,
         emotion_tags =emotion_tags ,
         expression_tags =expression_tags ,
         action_tags =action_tags ,
         character_style =character_style ,
         vault_rules =vault_rules ,
-        tool_section ="{tool_section}",
-        summary_section ="{summary_section}",
-        relevant_section ="{relevant_section}",
-        relationship_section ="{relationship_section}",
+        tool_section ="$tool_section",
+        summary_section ="$summary_section",
+        relevant_section ="$relevant_section",
+        relationship_section ="$relationship_section",
         reasoning_note =reasoning_note ,
         )
         return rendered 
