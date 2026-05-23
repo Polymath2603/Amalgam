@@ -962,7 +962,7 @@ document.addEventListener('DOMContentLoaded', () => {
             chatMessages.innerHTML = '';
             if (session?.exists === false) {
                 const res = await api('/api/memory/new-session', { method: 'POST' });
-                if (res?.session_id) location.hash = res.session_id;
+                if (res?.session_id) location.hash = 'chat/' + res.session_id;
                 return;
             }
             if (session?.messages?.length) {
@@ -976,21 +976,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
             _currentSessionId = session?.session_id || sessionId;
-            if (_currentSessionId) location.hash = _currentSessionId;
+            if (_currentSessionId) location.hash = 'chat/' + _currentSessionId;
             updateSessionButtons();
         } catch (e) {
             chatMessages.innerHTML = '';
             const res = await api('/api/memory/new-session', { method: 'POST' });
-            if (res?.session_id) location.hash = res.session_id;
+            if (res?.session_id) location.hash = 'chat/' + res.session_id;
             _currentSessionId = res?.session_id || sessionId;
             updateSessionButtons();
         }
     }
 
     window.addEventListener('hashchange', () => {
-        const hashId = location.hash.replace('#', '');
-        if (hashId && hashId !== _currentSessionId) {
-            loadSession(hashId);
+        const parts = location.hash.replace('#', '').split('/');
+        if (parts[0] === 'chat' && parts[1] && parts[1] !== _currentSessionId) {
+            loadSession(parts[1]);
         }
     });
 
@@ -1001,8 +1001,9 @@ document.addEventListener('DOMContentLoaded', () => {
         await fetchAnimationMap();
 
         
-        const hashId = location.hash.replace('#', '');
-        await loadSession(hashId || 'current');
+        const parts = location.hash.replace('#', '').split('/');
+        const sessionId = parts[0] === 'chat' && parts[1] ? parts[1] : null;
+        await loadSession(sessionId || 'current');
         
         loadHistory();
         
@@ -1704,7 +1705,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('new-chat-btn').addEventListener('click', async () => {
         const res = await api('/api/memory/new-session', { method: 'POST' });
-        if (res?.session_id) location.hash = res.session_id;
+        if (res?.session_id) location.hash = 'chat/' + res.session_id;
         showToast('New conversation started');
     });
 
@@ -1723,7 +1724,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('new-session-btn').addEventListener('click', async () => {
         const res = await api('/api/memory/new-session', { method: 'POST' });
-        if (res?.session_id) location.hash = res.session_id;
+        if (res?.session_id) location.hash = 'chat/' + res.session_id;
         historyPanel.classList.remove('open');
         showToast('New conversation started');
     });
@@ -1732,7 +1733,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!confirm('Clear all conversation history?')) return;
         await api('/api/memory/clear', { method: 'POST' });
         const res = await api('/api/memory/session/current');
-        if (res?.session_id) location.hash = res.session_id;
+        if (res?.session_id) location.hash = 'chat/' + res.session_id;
         historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center">No conversations yet</div>';
         updateHistoryToggle();
         showToast('History cleared');
@@ -1769,7 +1770,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <button class="history-delete" title="Delete conversation"><span class="material-icons-round" style="font-size:1rem">close</span></button>
                 `;
                 item.querySelector('.history-content').addEventListener('click', async () => {
-                    location.hash = session.id;
+                    location.hash = 'chat/' + session.id;
                     historyPanel.classList.remove('open');
                 });
                 item.querySelector('.history-delete').addEventListener('click', async (e) => {
@@ -1777,9 +1778,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!confirm('Delete this conversation?')) return;
                     await api(`/api/memory/session/${session.id}`, { method: 'DELETE' });
                     item.remove();
-                    if (location.hash.replace('#', '') === session.id) {
+                    if (location.hash.replace('#', '').split('/')[1] === session.id) {
                         const res = await api('/api/memory/new-session', { method: 'POST' });
-                        if (res?.session_id) location.hash = res.session_id;
+                        if (res?.session_id) location.hash = 'chat/' + res.session_id;
                     }
                     updateHistoryToggle();
                 });
