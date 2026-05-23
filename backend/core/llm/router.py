@@ -109,7 +109,9 @@ class LLMRouter :
     async def get_embedding (self ,text :str )->List [float ]:
         if self .provider =="gemini":
             return await self ._gemini .get_embedding (text )
-        return await self ._ollama .get_embedding (text )
+        if self .provider =="ollama":
+            return await self ._ollama .get_embedding (text )
+        return []
 
     async def fetch_ollama_models (self )->List [str ]:
         return await self ._ollama .fetch_models ()

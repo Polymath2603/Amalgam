@@ -10,10 +10,7 @@ import logging
 
 sys .path .insert (0 ,os .path .dirname (os .path .dirname (os .path .abspath (__file__ ))))
 
-logging .basicConfig (level =logging .INFO ,format ='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-for _noise in ("httpx","huggingface_hub","urllib3","httpcore","filelock","transformers",
-"jieba","melo","openvoice","wavmark","torch","numba","librosa"):
-    logging .getLogger (_noise ).setLevel (logging .WARNING )
+logging .basicConfig (level =logging .WARNING ,format ='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger =logging .getLogger (__name__ )
 
 

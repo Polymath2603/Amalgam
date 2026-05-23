@@ -137,6 +137,7 @@ class Agent :
             tool_called =False 
             in_tool_block =False 
             accumulated =""
+            _last_clean =""
 
             try :
                 logger .debug (f"agent: starting llm stream provider={self .llm .provider }, native_tools={native_tools }")
@@ -148,7 +149,6 @@ class Agent :
                         token_count +=1 
                         if isinstance (item ,str ):
                             accumulated +=item 
-
                             in_think ='<think>'in accumulated and '</think>'not in accumulated 
                             if in_think :
                                 continue 
@@ -156,9 +156,16 @@ class Agent :
                             cleaned =self ._strip_all_tags (accumulated )
                             for tag_type ,tag_val in tags :
                                 yield (tag_type ,tag_val )
-
-                            if len (cleaned )>0 :
-                                yield cleaned 
+                            common_len =0 
+                            for a ,b in zip (cleaned ,_last_clean ):
+                                if a ==b :
+                                    common_len +=1 
+                                else :
+                                    break 
+                            delta =cleaned [common_len :]
+                            if delta :
+                                yield delta 
+                            _last_clean =cleaned 
                             accumulated =cleaned 
                         elif isinstance (item ,dict )and item .get ("type")=="tool_use":
                             tool_called =True 
