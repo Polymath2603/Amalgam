@@ -13,7 +13,9 @@ logger =logging .getLogger (__name__ )
 class OpenVoiceEngine :
     """Wraps MeloTTS + OpenVoice ToneColorConverter for voice cloning."""
 
-    def __init__ (self ,checkpoints_dir ="checkpoints_v2",device ="cpu",language ="EN"):
+    def __init__ (self ,checkpoints_dir =None ,device ="cpu",language ="EN"):
+        if checkpoints_dir is None :
+            checkpoints_dir =os .path .join (os .path .dirname (__file__ ),"checkpoints")
         self .device =device 
         self .language =language 
         self .checkpoints_dir =checkpoints_dir 
@@ -57,7 +59,7 @@ class OpenVoiceEngine :
             "  3. pip install git+https://github.com/myshell-ai/MeloTTS.git\n"
             "  4. python -m unidic download\n"
             "  5. Download checkpoints_v2/ from the OpenVoice README S3 link\n"
-            "     and place it in the project root"
+            "     and place it in backend/voice/checkpoints/"
             )from e 
 
         ckpt_dir =os .path .join (self .checkpoints_dir ,"converter")

@@ -10,7 +10,8 @@ __pycache__/
 
 # Private/user data
 user_data/
-checkpoints_v2/
+backend/voice/checkpoints/
+.remember/
 processed/
 
 # Environment / secrets
