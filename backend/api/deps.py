@@ -12,7 +12,7 @@ from backend .core .vault import VaultManager
 from backend .core .agent import Agent 
 from backend .core .relationship import Relationship 
 from backend .mcp .client import MCPClient 
-from backend .skills import SkillLoader 
+from backend .skills .loader import SkillLoader 
 from backend .voice .tts import TTS 
 
 logger =logging .getLogger (__name__ )
