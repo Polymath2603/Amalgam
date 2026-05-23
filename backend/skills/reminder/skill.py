@@ -33,7 +33,7 @@ class ReminderSkill (Skill ):
 
         timer_id =f"reminder_{id (text )}_{delay }"
         if timer_id in _active_timers :
-            return f"Timer already exists for this reminder"
+            return "Timer already exists for this reminder"
 
         async def _fire ():
             try :

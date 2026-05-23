@@ -5,7 +5,6 @@ All settings have defaults so the app always boots even if the file is missing.
 import json 
 import os 
 import yaml 
-import glob 
 import logging 
 from typing import Any ,Dict ,List 
 from backend .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR 

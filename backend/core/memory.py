@@ -332,16 +332,35 @@ class Memory :
                 loop =asyncio .get_running_loop ()
                 await loop .run_in_executor (
                 self ._db_executor ,
-                lambda :[
-                self .cursor .execute (
-                'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
-                (str (f ["fact"]),str (f .get ("category","general")),
-                min (1.0 ,max (0.0 ,float (f .get ("importance",0.5 )))),session_id )
-                )for f in facts 
-                ]+[self .conn .commit ()]
+                lambda :self ._insert_facts_with_dedup (facts ,session_id )
                 )
         except (json .JSONDecodeError ,Exception )as e :
             logger .debug (f"Fact extraction skipped: {e }")
+
+    def _insert_facts_with_dedup (self ,facts :list ,session_id :str ):
+        self ._sync_execute ('SELECT fact FROM facts')
+        existing =[r [0 ].lower ()for r in self .cursor .fetchall ()]
+        for f in facts :
+            fact_text =str (f ["fact"])
+            fact_lower =fact_text .lower ()
+            fact_words =set (fact_lower .split ())
+            is_duplicate =False 
+            for existing_fact in existing :
+                existing_words =set (existing_fact .split ())
+                common =len (fact_words &existing_words )
+                total =len (fact_words |existing_words )
+                similarity =common /max (total ,1 )
+                if similarity >0.65 :
+                    is_duplicate =True 
+                    break 
+            if not is_duplicate :
+                self .cursor .execute (
+                'INSERT INTO facts (fact, category, importance, source_session) VALUES (?, ?, ?, ?)',
+                (fact_text ,str (f .get ("category","general")),
+                min (1.0 ,max (0.0 ,float (f .get ("importance",0.5 )))),session_id )
+                )
+                existing .append (fact_lower )
+        self .conn .commit ()
 
     async def delete_fact (self ,fact_id :int ):
         await self ._db_execute ('DELETE FROM facts WHERE id = ?',(fact_id ,))

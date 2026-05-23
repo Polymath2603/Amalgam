@@ -39,7 +39,7 @@ class NoteSkill (Skill ):
         header =f"# {title }\n"
         if tags :
             header +=f"Tags: {tags }\n"
-        header +=f"---\n\n"
+        header +="---\n\n"
 
         full_content =header +content 
 

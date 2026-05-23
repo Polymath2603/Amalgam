@@ -7,7 +7,7 @@ import concurrent .futures
 import logging 
 import re 
 from datetime import datetime ,timezone 
-from typing import Dict ,Optional 
+from typing import Dict 
 
 logger =logging .getLogger (__name__ )
 

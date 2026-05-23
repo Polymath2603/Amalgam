@@ -1,7 +1,7 @@
 """LlamaCpp provider — local server with /completion endpoint."""
 import json 
 import logging 
-from typing import AsyncIterator ,List 
+from typing import AsyncIterator 
 
 import httpx 
 
@@ -49,10 +49,11 @@ class LlamaCppProvider (LLMProvider ):
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         url =f"{self ._url .rstrip ('/')}/completion"
         prompt =self ._build_prompt (messages )
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         body ={
         "prompt":prompt ,
         "stream":True ,
-        "n_predict":400 ,
+        "n_predict":max_tokens ,
         "temperature":self .temperature ,
         "cache_prompt":True ,
         "stop":self ._get_stop_tokens (),
@@ -84,10 +85,11 @@ class LlamaCppProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         url =f"{self ._url .rstrip ('/')}/completion"
         prompt =self ._build_prompt (messages )
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         body ={
         "prompt":prompt ,
         "stream":False ,
-        "n_predict":400 ,
+        "n_predict":max_tokens ,
         "temperature":self .temperature ,
         "stop":self ._get_stop_tokens (),
         }

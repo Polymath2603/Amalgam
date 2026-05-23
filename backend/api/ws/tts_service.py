@@ -20,7 +20,6 @@ _ws_stream_idx =0
 async def synthesize_sentence (sentence_text :str ,sentence_idx :int ,stream_id :int ,
 ws :WebSocket ,emotion :str ="neutral"):
     """TTS a single sentence and send audio over WebSocket."""
-    global _ws_stream_idx 
     try :
         if stream_id !=_ws_stream_idx :
             logger .debug (f"TTS sentence {sentence_idx }: skipped (stale stream)")
@@ -123,7 +122,6 @@ async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
 
 
 def get_stream_idx ()->int :
-    global _ws_stream_idx 
     return _ws_stream_idx 
 
 

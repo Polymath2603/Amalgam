@@ -78,7 +78,6 @@ class OpenAICompatProvider (LLMProvider ):
 
 
         pending_tool_calls :Dict [int ,dict ]={}
-        finished_tool_calls :List [dict ]=[]
 
         try :
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :

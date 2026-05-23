@@ -24,10 +24,11 @@ class OllamaProvider (LLMProvider ):
 
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         try :
+            max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
             async with self ._client .stream (
             "POST",
             f"{self ._url }/api/chat",
-            json ={"model":self ._model ,"messages":messages ,"stream":True },
+            json ={"model":self ._model ,"messages":messages ,"stream":True ,"options":{"num_predict":max_tokens }},
             )as response :
                 if response .status_code !=200 :
                     yield f"Error: Ollama returned {response .status_code }"
@@ -47,9 +48,10 @@ class OllamaProvider (LLMProvider ):
 
     async def generate (self ,messages :list )->str :
         try :
+            max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
             response =await self ._client .post (
             f"{self ._url }/api/chat",
-            json ={"model":self ._model ,"messages":messages ,"stream":False },
+            json ={"model":self ._model ,"messages":messages ,"stream":False ,"options":{"num_predict":max_tokens }},
             )
             if response .status_code ==200 :
                 msg =response .json ().get ("message",{})

@@ -1,7 +1,7 @@
 """KoboldAI provider — local server with /api/v1/generate or streaming."""
 import json 
 import logging 
-from typing import AsyncIterator ,List 
+from typing import AsyncIterator 
 
 import httpx 
 
@@ -49,12 +49,13 @@ class KoboldAIProvider (LLMProvider ):
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         prompt =self ._build_prompt (messages )
         stop =self ._get_stop_sequence ()
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
 
         try :
             async with self ._client .stream (
             "POST",
             f"{self ._url .rstrip ('/')}/api/extra/generate/stream",
-            json ={"prompt":prompt ,"stop_sequence":stop },
+            json ={"prompt":prompt ,"stop_sequence":stop ,"max_length":max_tokens },
             )as response :
                 if response .status_code !=200 :
                     err =await response .aread ()
@@ -81,10 +82,11 @@ class KoboldAIProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         prompt =self ._build_prompt (messages )
         stop =self ._get_stop_sequence ()
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         try :
             response =await self ._client .post (
             f"{self ._url .rstrip ('/')}/api/v1/generate",
-            json ={"prompt":prompt ,"stop_sequence":stop },
+            json ={"prompt":prompt ,"stop_sequence":stop ,"max_length":max_tokens },
             )
             if response .status_code ==200 :
                 results =response .json ().get ("results",[])

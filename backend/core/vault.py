@@ -3,7 +3,6 @@ Standalone vault manager.
 Reads/writes markdown files in the vault directory and provides
 search functionality independent of any MCP server.
 """
-import os 
 import re 
 import logging 
 from pathlib import Path 

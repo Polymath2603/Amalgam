@@ -1,8 +1,7 @@
 import json 
 import logging 
 import re 
-import asyncio 
-from typing import AsyncIterator ,List ,Dict ,Any 
+from typing import AsyncIterator 
 
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
@@ -135,7 +134,6 @@ class Agent :
                     content .append ({"type":"image_url","image_url":{"url":img }})
                 messages [-1 ]["content"]=content 
 
-            full_response =""
             tool_called =False 
             in_tool_block =False 
             accumulated =""

@@ -8,7 +8,7 @@ import logging
 
 from fastapi import WebSocket ,WebSocketDisconnect 
 from backend .api .deps import settings ,memory ,tts ,agent ,relationship 
-from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now ,increment_stream_idx ,get_stream_idx ,set_stream_idx 
+from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now ,increment_stream_idx ,set_stream_idx 
 from backend .voice .pipeline import VoicePipeline 
 
 logger =logging .getLogger (__name__ )
