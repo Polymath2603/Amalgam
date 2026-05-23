@@ -130,8 +130,8 @@ async def handle_chat (websocket :WebSocket ):
                 await websocket .send_json ({"type":"expression","expression":"neutral"})
 
                 current_stream =increment_stream_idx ()
-
                 tts_tasks =[]
+
                 try :
                     full_response =""
                     sentence_buffer =""

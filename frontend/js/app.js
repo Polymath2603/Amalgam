@@ -1601,6 +1601,24 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    
+    const addFactBtn = document.getElementById('add-fact-btn');
+    if (addFactBtn) {
+        addFactBtn.addEventListener('click', async () => {
+            const input = document.getElementById('fact-input');
+            const cat = document.getElementById('fact-category');
+            if (!input || !input.value.trim()) return;
+            await api('/api/memory/facts', {
+                method: 'POST',
+                body: JSON.stringify({ fact: input.value.trim(), category: cat?.value?.trim() || 'general' })
+            });
+            input.value = '';
+            if (cat) cat.value = '';
+            loadFacts();
+            showToast('Fact added');
+        });
+    }
+
     async function loadSessions() {
         const data = await api('/api/memory/sessions');
         const container = document.getElementById('sessions-list');
@@ -1642,11 +1660,76 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         container.innerHTML = files.map(f => `
-            <div class="data-session-item">
+            <div class="data-session-item" style="cursor:pointer" data-file="${escHtml(f.name)}">
                 <span>${escHtml(f.name)}</span>
                 <span class="muted">${f.size} bytes</span>
             </div>
         `).join('');
+        container.querySelectorAll('[data-file]').forEach(el => {
+            el.addEventListener('click', () => loadVaultFileEdit(el.dataset.file));
+        });
+    }
+
+    let _vaultCurrentFile = '';
+
+    async function loadVaultFileEdit(filename) {
+        _vaultCurrentFile = filename;
+        const editor = document.getElementById('vault-editor');
+        const saveBtn = document.getElementById('vault-save-btn');
+        const delBtn = document.getElementById('vault-delete-btn');
+        if (!editor) return;
+        const data = await api(`/api/vault/files/${encodeURIComponent(filename)}`);
+        editor.value = data?.content || '';
+        if (saveBtn) saveBtn.disabled = false;
+        if (delBtn) delBtn.disabled = false;
+        document.getElementById('vault-filename-input').value = filename;
+    }
+
+    
+    const vaultNewBtn = document.getElementById('vault-new-btn');
+    if (vaultNewBtn) {
+        vaultNewBtn.addEventListener('click', () => {
+            _vaultCurrentFile = '';
+            document.getElementById('vault-editor').value = '';
+            document.getElementById('vault-filename-input').value = '';
+            document.getElementById('vault-save-btn').disabled = false;
+            document.getElementById('vault-delete-btn').disabled = true;
+        });
+    }
+
+    
+    const vaultSaveBtn = document.getElementById('vault-save-btn');
+    if (vaultSaveBtn) {
+        vaultSaveBtn.addEventListener('click', async () => {
+            const nameInput = document.getElementById('vault-filename-input');
+            const editor = document.getElementById('vault-editor');
+            if (!nameInput || !nameInput.value.trim()) return showToast('Enter a filename', 'danger');
+            const filename = nameInput.value.trim();
+            if (!filename.endsWith('.md')) return showToast('Filename must end in .md', 'danger');
+            const ok = await api(`/api/vault/files/${encodeURIComponent(filename)}`, {
+                method: 'POST',
+                body: JSON.stringify({ content: editor?.value || '' })
+            });
+            _vaultCurrentFile = filename;
+            loadVaultFiles();
+            showToast('File saved');
+        });
+    }
+
+    
+    const vaultDeleteBtn = document.getElementById('vault-delete-btn');
+    if (vaultDeleteBtn) {
+        vaultDeleteBtn.addEventListener('click', async () => {
+            if (!_vaultCurrentFile || !confirm(`Delete ${_vaultCurrentFile}?`)) return;
+            await api(`/api/vault/files/${encodeURIComponent(_vaultCurrentFile)}`, { method: 'DELETE' });
+            _vaultCurrentFile = '';
+            document.getElementById('vault-editor').value = '';
+            document.getElementById('vault-filename-input').value = '';
+            vaultDeleteBtn.disabled = true;
+            vaultSaveBtn.disabled = true;
+            loadVaultFiles();
+            showToast('File deleted');
+        });
     }
 
     async function loadRules() {
@@ -1655,7 +1738,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const r = await fetch('/api/rules');
             const data = await r.json();
-            editor.value = data?.rules || '';
+            editor.value = data?.content || '';
         } catch {
             editor.value = 'Failed to load rules.';
         }
@@ -1669,7 +1752,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetch('/api/rules', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ rules: editor.value })
+                body: JSON.stringify({ content: editor.value })
             });
             showToast('Rules saved');
         });

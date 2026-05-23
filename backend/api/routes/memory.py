@@ -67,6 +67,16 @@ async def get_facts (category :str =None ,limit :int =100 ):
     return {"facts":facts }
 
 
+@router .post ("/api/memory/facts")
+async def add_fact_endpoint (body :dict ):
+    await memory ().add_fact (
+    str (body .get ("fact","")),
+    category =str (body .get ("category","general")),
+    importance =float (body .get ("importance",0.5 )),
+    )
+    return {"status":"ok"}
+
+
 @router .delete ("/api/facts/{fact_id}")
 async def delete_fact (fact_id :int ):
     await memory ().delete_fact (fact_id )

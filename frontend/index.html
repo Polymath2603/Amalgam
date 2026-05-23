@@ -615,6 +615,11 @@
                             <!-- Stored Facts -->
                             <details class="data-details">
                                 <summary>Stored Facts <span class="muted" id="facts-count"></span></summary>
+                                <div style="padding:0.5rem 0.75rem;display:flex;gap:0.4rem;flex-wrap:wrap">
+                                    <input id="fact-input" type="text" placeholder="New fact..." style="flex:1;min-width:120px;padding:0.3rem 0.5rem;font-size:0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)">
+                                    <input id="fact-category" type="text" placeholder="category" style="width:80px;padding:0.3rem 0.5rem;font-size:0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)">
+                                    <button class="btn-sm" id="add-fact-btn">Add</button>
+                                </div>
                                 <div id="facts-list">
                                     <p class="muted">Loading...</p>
                                 </div>
@@ -633,6 +638,20 @@
                                 <summary>Vault Files <span class="muted" id="vault-count"></span></summary>
                                 <div id="vault-files-list">
                                     <p class="muted">Loading...</p>
+                                </div>
+                            </details>
+
+                            <!-- Vault File Editor -->
+                            <details class="data-details">
+                                <summary>Vault File Editor</summary>
+                                <div style="padding:0.5rem 0.75rem;display:flex;gap:0.4rem;flex-wrap:wrap">
+                                    <input id="vault-filename-input" type="text" placeholder="filename.md" style="flex:1;min-width:100px;padding:0.3rem 0.5rem;font-size:0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)">
+                                    <button class="btn-sm" id="vault-new-btn">New</button>
+                                </div>
+                                <textarea id="vault-editor" rows="6" placeholder="Select or create a file..." style="width:100%;padding:0.5rem;border:none;background:var(--bg);color:var(--text);font-size:0.8rem;font-family:var(--font);resize:vertical"></textarea>
+                                <div style="padding:0.5rem 0.75rem;display:flex;gap:0.4rem">
+                                    <button class="btn-sm" id="vault-save-btn" disabled>Save</button>
+                                    <button class="btn-sm btn-danger" id="vault-delete-btn" disabled>Delete</button>
                                 </div>
                             </details>
 
