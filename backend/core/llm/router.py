@@ -1,5 +1,5 @@
 import logging 
-from typing import AsyncIterator ,List 
+from typing import AsyncIterator ,List ,Dict ,Any 
 
 from .gemini import GeminiProvider 
 from .ollama import OllamaProvider 
@@ -14,6 +14,7 @@ logger =logging .getLogger (__name__ )
 class LLMRouter :
     OPENAI_COMPAT ={"openrouter","zai","siliconflow","groq","chatgpt"}
     NATIVE_PROVIDERS ={"gemini","ollama","claude","koboldai","llamacpp"}
+    NATIVE_TOOL_PROVIDERS ={"gemini","claude"}|OPENAI_COMPAT 
 
     def __init__ (self ,settings =None ):
         self .settings =settings 
@@ -58,6 +59,11 @@ class LLMRouter :
             return self ._openai_compat .get (self .provider )
         return self ._gemini 
 
+    def supports_native_tools (self )->bool :
+        """Check if the current provider supports native tool calling."""
+        inst =self ._provider_instance ()
+        return inst .supports_native_tools ()if hasattr (inst ,'supports_native_tools')else False 
+
     def _apply_temperature (self ,inst ):
         temp =self .settings .get ("llm.temperature",0.7 )if self .settings else 0.7 
         inst .temperature =temp 
@@ -70,6 +76,27 @@ class LLMRouter :
             self ._apply_temperature (inst )
         async for token in inst .stream (messages ):
             yield token 
+
+    async def stream_with_tools (
+    self ,messages :list ,tools :List [Dict [str ,Any ]],temperature :float =None 
+    )->AsyncIterator :
+        """Stream response with native tool calling when supported.
+        
+        Yields strings (text tokens) and dicts (tool call requests).
+        Falls back to regular stream for providers without native tool support.
+        """
+        inst =self ._provider_instance ()
+        if temperature is not None :
+            inst .temperature =temperature 
+        else :
+            self ._apply_temperature (inst )
+
+        if hasattr (inst ,'stream_with_tools')and self .supports_native_tools ():
+            async for item in inst .stream_with_tools (messages ,tools ):
+                yield item 
+        else :
+            async for token in inst .stream (messages ):
+                yield token 
 
     async def generate (self ,messages :list ,temperature :float =None )->str :
         inst =self ._provider_instance ()

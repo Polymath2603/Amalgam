@@ -2,14 +2,13 @@ import json
 import logging 
 import re 
 import asyncio 
-from typing import AsyncIterator 
+from typing import AsyncIterator ,List ,Dict ,Any 
 
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
 from backend .core .llm import LLMRouter 
 
 logger =logging .getLogger (__name__ )
-
 
 DEFAULT_EMOTION_TAGS =[
 "happy","sad","angry","surprised","thinking","relaxed",
@@ -58,11 +57,51 @@ class Agent :
         self .settings =settings 
         self .context_builder .settings =settings 
 
+    def _process_tags (self ,text :str ):
+        """Find and extract tag markers from text. Yields (tag_type, value) tuples."""
+        for m in THINK_RE .finditer (text ):
+            yield ('__thinking__',m .group (1 ).strip ())
+        for m in self ._emotion_re .finditer (text ):
+            yield ('__emotion__',m .group (1 ))
+        for m in self ._expression_re .finditer (text ):
+            yield ('__expression__',m .group (1 ))
+        for m in ACTION_RE .finditer (text ):
+            content =m .group (1 ).strip ()
+            if content :
+                yield ('__roleplay__',content )
+
+    def _strip_all_tags (self ,text :str )->str :
+        text =THINK_RE .sub ('',text )
+        text =self ._emotion_re .sub ('',text )
+        text =self ._expression_re .sub ('',text )
+        text =ACTION_RE .sub ('',text )
+        text =re .sub (r'/\[\[.*?\]\]','',text )
+        text =re .sub (r'/\(\(.*?\)\)','',text )
+        text =re .sub (r'\[\[.*?\]\]','',text )
+        text =re .sub (r'\(\(.*?\)\)','',text )
+        text =re .sub (r'/[a-zA-Z]+\]\]','',text )
+        text =re .sub (r'/[a-zA-Z]+\)\)','',text )
+        return text 
+
+    def _clean_remaining_tags (self ,text :str )->str :
+        text =re .sub (r'/\[\[[^\]\s]*','',text )
+        text =re .sub (r'/\(\([^\)\s]*','',text )
+        text =re .sub (r'\[\[[^\]\s]*','',text )
+        text =re .sub (r'\(\([^\)\s]*','',text )
+        text =re .sub (r'/[a-zA-Z]+\]\]','',text )
+        text =re .sub (r'/[a-zA-Z]+\)\)','',text )
+        text =re .sub (r'/ [a-zA-Z]+','',text )
+        text =re .sub (r'[a-zA-Z]*\]\]','',text )
+        text =re .sub (r'[a-zA-Z]*\)\)','',text )
+        text =re .sub (r'\s*/\s*$','',text )
+        return text .strip ()
+
     async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [str ]:
         await self .memory .add_turn ("user",text )
 
         iterations =0 
         current_input =text 
+        native_tools =self .llm .supports_native_tools ()
 
         while iterations <5 :
             iterations +=1 
@@ -86,6 +125,7 @@ class Agent :
             tts_emotions =self ._emotion_tags ,
             expression_names =self ._expression_names ,
             relationship_context =relationship_context ,
+            native_tools_available =native_tools ,
             )
 
             if images :
@@ -96,147 +136,112 @@ class Agent :
                 messages [-1 ]["content"]=content 
 
             full_response =""
-            clean_yielded =0 
-            tool_detected =False 
-            tool_block =""
-            in_tool_block =False 
+            tool_called =False 
+            accumulated =""
 
             try :
-                logger .debug (f"agent: starting llm.stream, model={self .llm .provider }")
+                logger .debug (f"agent: starting llm stream provider={self .llm .provider }, native_tools={native_tools }")
                 token_count =0 
-                async for token in self .llm .stream (messages ):
-                    token_count +=1 
-                    if token_count ==1 :
-                        logger .debug (f"agent: first token received")
-                    if not tool_detected and "```tool"in full_response +token :
-                        in_tool_block =True 
-                        tool_detected =True 
 
-                    if in_tool_block :
-                        tool_block +=token 
-                        if "```\n"in tool_block [7 :]or tool_block .endswith ("```"):
-                            try :
-                                start_idx =tool_block .find ("{")
-                                end_idx =tool_block .rfind ("}")+1 
-                                if start_idx !=-1 and end_idx !=-1 :
-                                    tool_call =json .loads (tool_block [start_idx :end_idx ])
-                                    name =tool_call .get ("name")
-                                    args =tool_call .get ("arguments",{})
+                if native_tools and tools :
+                    logger .debug (f"agent: using native tool calling with {len (tools )} tools")
+                    async for item in self .llm .stream_with_tools (messages ,tools ):
+                        token_count +=1 
+                        if isinstance (item ,str ):
+                            accumulated +=item 
 
-                                    yield f"\n[Calling tool: {name }]\n"
+                            in_think ='<think>'in accumulated and '</think>'not in accumulated 
+                            if in_think :
+                                continue 
+                            tags =list (self ._process_tags (accumulated ))
+                            cleaned =self ._strip_all_tags (accumulated )
+                            for tag_type ,tag_val in tags :
+                                yield (tag_type ,tag_val )
 
-                                    result ="No MCP client"
-                                    if self .mcp_client :
-                                        result =await self .mcp_client .call_tool (name ,args )
-
-                                    current_input =f"Tool result for {name }: {result }"
-                                    await self .memory .add_turn ("assistant",full_response )
-                                    await self .memory .add_turn ("system",current_input )
-                                    break 
-                            except Exception as e :
-                                yield f"\n[Error parsing tool call: {e }]\n"
-                                if full_response .strip ():
-                                    await self .memory .add_turn ("assistant",full_response .strip ())
-                                current_input =f"Tool parse error: {e }"
-                                break 
-                    else :
-                        full_response +=token 
-
-
-                        in_think ='<think>'in full_response and '</think>'not in full_response 
-                        if in_think :
-                            continue 
-
-
-                        think_match =THINK_RE .search (full_response )
-                        if think_match :
-                            yield ('__thinking__',think_match .group (1 ).strip ())
-                            full_response =THINK_RE .sub ('',full_response )
-                            clean_yielded =0 
-
-
-                        for m in self ._emotion_re .finditer (full_response ):
-                            yield ('__emotion__',m .group (1 ))
-                        full_response =self ._emotion_re .sub ('',full_response )
-
-
-                        for m in self ._expression_re .finditer (full_response ):
-                            yield ('__expression__',m .group (1 ))
-                        full_response =self ._expression_re .sub ('',full_response )
-
-
-                        action_found =False 
-                        first_action_pos =len (full_response )
-                        for m in ACTION_RE .finditer (full_response ):
-                            content =m .group (1 ).strip ()
-                            if content :
-                                yield ('__roleplay__',content )
-                                action_found =True 
-                                if m .start ()<first_action_pos :
-                                    first_action_pos =m .start ()
-                        if action_found :
-                            full_response =ACTION_RE .sub ('',full_response )
-                            clean_yielded =min (clean_yielded ,first_action_pos )
-
-
-                        full_response =re .sub (r'/\[\[.*?\]\]','',full_response )
-                        full_response =re .sub (r'/\(\(.*?\)\)','',full_response )
-
-                        full_response =re .sub (r'\[\[.*?\]\]','',full_response )
-                        full_response =re .sub (r'\(\(.*?\)\)','',full_response )
-
-                        full_response =re .sub (r'/[a-zA-Z]+\]\]','',full_response )
-                        full_response =re .sub (r'/[a-zA-Z]+\)\)','',full_response )
-
-
-                        if len (full_response )>clean_yielded :
-                            chunk =full_response [clean_yielded :]
-
-                            incomplete_emotion =re .search (r'/\[\[[^\[\]]*$',chunk )
-                            incomplete_expr =re .search (r'/\(\([^()]*$',chunk )
-                            incomplete_action =re .search (r'/\*\*[^*]*$',chunk )
-                            incomplete_bare_slash =re .search (r'/$',chunk )
-                            incomplete_open_parens =re .search (r'\(\([^()]*$',chunk )
-                            incomplete_open_brackets =re .search (r'\[\[[^\[\]]*$',chunk )
-                            starts =[]
-                            for m in [incomplete_emotion ,incomplete_expr ,incomplete_action ,incomplete_bare_slash ,incomplete_open_parens ,incomplete_open_brackets ]:
-                                if m :
-                                    starts .append (m .start ())
-                            if starts :
-                                cutoff =min (starts )
-                                yield chunk [:cutoff ]
-                                clean_yielded +=cutoff 
-                            else :
-                                yield chunk 
-                                clean_yielded =len (full_response )
-            except Exception as e :
-                logger .error (f"agent: llm.stream exception: {type (e ).__name__ }: {e }")
-                yield f"\n[Agent Error: {e }]\n"
-            finally :
-                if in_tool_block :
-                    yield "\n[Tool block was not closed — response may be incomplete]\n"
-                    in_tool_block =False 
-                    if full_response .strip ():
-                        await self .memory .add_turn ("assistant",full_response .strip ())
+                            if len (cleaned )>0 :
+                                yield cleaned 
+                            accumulated =cleaned 
+                        elif isinstance (item ,dict )and item .get ("type")=="tool_use":
+                            tool_called =True 
+                            tool_name =item ["name"]
+                            tool_args =item .get ("arguments",{})
+                            tool_id =item .get ("id","")
+                            yield f"\n[Calling tool: {tool_name }]\n"
+                            result ="No MCP client"
+                            if self .mcp_client :
+                                result =await self .mcp_client .call_tool (tool_name ,tool_args )
+                            await self .memory .add_turn ("assistant",accumulated .strip ())
+                            current_input =f"Tool result for {tool_name } (call_id={tool_id }): {result }"
+                            await self .memory .add_turn ("system",current_input )
+                            break 
                 else :
+                    logger .debug (f"agent: using text-fenced tool calling (tools={bool (tools )}, native={native_tools })")
+                    tool_block_buf =""
+                    in_tool_block =False 
+                    async for token in self .llm .stream (messages ):
+                        token_count +=1 
+                        if not in_tool_block and "```tool"in accumulated +token +tool_block_buf :
+                            in_tool_block =True 
 
-                    remaining =full_response [clean_yielded :]if len (full_response )>clean_yielded else ""
+                        if in_tool_block :
+                            tool_block_buf +=token 
+                            if "```\n"in tool_block_buf or tool_block_buf .endswith ("```"):
+                                try :
+                                    start_idx =tool_block_buf .find ("{")
+                                    end_idx =tool_block_buf .rfind ("}")+1 
+                                    if start_idx !=-1 and end_idx !=-1 :
+                                        tool_call =json .loads (tool_block_buf [start_idx :end_idx ])
+                                        name =tool_call .get ("name")
+                                        args =tool_call .get ("arguments",{})
+                                        yield f"\n[Calling tool: {name }]\n"
+                                        result ="No MCP client"
+                                        if self .mcp_client :
+                                            result =await self .mcp_client .call_tool (name ,args )
+                                        await self .memory .add_turn ("assistant",accumulated .strip ())
+                                        current_input =f"Tool result for {name }: {result }"
+                                        await self .memory .add_turn ("system",current_input )
+                                        tool_called =True 
+                                        break 
+                                except Exception as e :
+                                    yield f"\n[Error parsing tool call: {e }]\n"
+                                    if accumulated .strip ():
+                                        await self .memory .add_turn ("assistant",accumulated .strip ())
+                                    current_input =f"Tool parse error: {e }"
+                                    await self .memory .add_turn ("system",current_input )
+                                    tool_called =True 
+                                    break 
+                            else :
+                                accumulated +=token 
+                        else :
+                            accumulated +=token 
+
+                            in_think ='<think>'in accumulated and '</think>'not in accumulated 
+                            if in_think :
+                                continue 
+                            tags =list (self ._process_tags (accumulated ))
+                            cleaned =self ._strip_all_tags (accumulated )
+                            for tag_type ,tag_val in tags :
+                                yield (tag_type ,tag_val )
+                            if len (cleaned )>0 :
+                                yield cleaned 
+                            accumulated =cleaned 
+
+                if not tool_called :
+
+                    remaining =self ._strip_all_tags (accumulated )
+                    remaining =self ._clean_remaining_tags (remaining )
                     if remaining :
-                        remaining =re .sub (r'/\[\[[^\]\s]*','',remaining )
-                        remaining =re .sub (r'/\(\([^\)\s]*','',remaining )
-                        remaining =re .sub (r'\[\[[^\]\s]*','',remaining )
-                        remaining =re .sub (r'\(\([^\)\s]*','',remaining )
-                        remaining =re .sub (r'/[a-zA-Z]+\]\]','',remaining )
-                        remaining =re .sub (r'/[a-zA-Z]+\)\)','',remaining )
-                        remaining =re .sub (r'/ [a-zA-Z]+','',remaining )
-                        remaining =re .sub (r'[a-zA-Z]*\]\]','',remaining )
-                        remaining =re .sub (r'[a-zA-Z]*\)\)','',remaining )
-                        remaining =re .sub (r'\s*/\s*$','',remaining )
-                        remaining =remaining .strip ()
-                        if remaining :
-                            yield remaining 
-                    if full_response .strip ():
-                        await self .memory .add_turn ("assistant",full_response .strip ())
+                        yield remaining 
+                    if accumulated .strip ():
+                        await self .memory .add_turn ("assistant",accumulated .strip ())
+                    break 
+
+            except Exception as e :
+                logger .error (f"agent: stream exception: {type (e ).__name__ }: {e }")
+                yield f"\n[Agent Error: {e }]\n"
+                if accumulated .strip ():
+                    await self .memory .add_turn ("assistant",accumulated .strip ())
+                break 
 
         if iterations >=5 :
             yield "\n[Max tool iterations reached.]\n"

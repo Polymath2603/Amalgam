@@ -1,7 +1,9 @@
-"""Anthropic Claude provider via Messages API."""
+"""Anthropic Claude provider via Messages API.
+Supports native tool_use via the tools parameter.
+"""
 import json 
 import logging 
-from typing import AsyncIterator ,List 
+from typing import AsyncIterator ,List ,Dict ,Any 
 
 import httpx 
 
@@ -25,6 +27,20 @@ class ClaudeProvider (LLMProvider ):
             self ._model =self .settings .get ("provider.claude.model","claude-sonnet-4-20250514")
             self ._base_url =self .settings .get ("provider.claude.base_url","https://api.anthropic.com/v1")
 
+    def supports_native_tools (self )->bool :
+        return bool (self ._api_key )
+
+    def _convert_tools (self ,tools :List [Dict [str ,Any ]])->list :
+        """Convert our tool schema to Claude's tools format."""
+        claude_tools =[]
+        for t in tools :
+            claude_tools .append ({
+            "name":t ["name"],
+            "description":t .get ("description",""),
+            "input_schema":t .get ("parameters",{"type":"object","properties":{}}),
+            })
+        return claude_tools 
+
     def _build_messages (self ,messages :list )->list :
         result =[]
         for m in messages :
@@ -42,26 +58,40 @@ class ClaudeProvider (LLMProvider ):
         return ""
 
     async def stream (self ,messages :list )->AsyncIterator [str ]:
+        async for item in self .stream_with_tools (messages ,[]):
+            if isinstance (item ,str ):
+                yield item 
+
+    async def stream_with_tools (
+    self ,messages :list ,tools :List [Dict [str ,Any ]]
+    )->AsyncIterator :
         if not self ._api_key :
             yield "[Error: Claude API key not set. Go to Settings > Providers.]"
             return 
 
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         url =f"{self ._base_url .rstrip ('/')}/messages"
         system =self ._get_system (messages )
         body ={
         "model":self ._model ,
         "messages":self ._build_messages (messages ),
         "stream":True ,
-        "max_tokens":2048 ,
+        "max_tokens":max_tokens ,
         }
         if system :
             body ["system"]=system 
+        if tools :
+            body ["tools"]=self ._convert_tools (tools )
 
         headers ={
         "x-api-key":self ._api_key ,
         "anthropic-version":"2023-06-01",
         "Content-Type":"application/json",
         }
+
+
+        pending_tools :Dict [int ,dict ]={}
+
         try :
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
                 if response .status_code !=200 :
@@ -72,14 +102,48 @@ class ClaudeProvider (LLMProvider ):
                     if line .startswith ("data: "):
                         json_str =line [6 :].strip ()
                         if json_str =="[DONE]":
-                            return 
+                            break 
                         try :
                             data =json .loads (json_str )
-                            if data .get ("type")=="content_block_delta":
+                            event_type =data .get ("type")
+
+                            if event_type =="content_block_start":
+                                idx =data .get ("index",0 )
+                                block =data .get ("content_block",{})
+                                if block .get ("type")=="tool_use":
+                                    pending_tools [idx ]={
+                                    "id":block ["id"],
+                                    "name":block ["name"],
+                                    "arguments":"",
+                                    }
+
+                            elif event_type =="content_block_delta":
+                                idx =data .get ("index",0 )
                                 delta =data .get ("delta",{})
-                                text =delta .get ("text","")
-                                if text :
-                                    yield text 
+                                dt =delta .get ("type")
+                                if dt =="text_delta":
+                                    text =delta .get ("text","")
+                                    if text :
+                                        yield text 
+                                elif dt =="input_json_delta":
+                                    if idx in pending_tools :
+                                        pending_tools [idx ]["arguments"]+=delta .get ("partial_json","")
+
+                            elif event_type =="content_block_stop":
+                                idx =data .get ("index",0 )
+                                if idx in pending_tools :
+                                    pt =pending_tools .pop (idx )
+                                    try :
+                                        args =json .loads (pt ["arguments"])if pt ["arguments"]else {}
+                                    except json .JSONDecodeError :
+                                        args ={}
+                                    yield {
+                                    "type":"tool_use",
+                                    "id":pt ["id"],
+                                    "name":pt ["name"],
+                                    "arguments":args ,
+                                    }
+
                         except json .JSONDecodeError :
                             pass 
         except Exception as e :
@@ -89,12 +153,13 @@ class ClaudeProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         if not self ._api_key :
             return "[Error: Claude API key not set]"
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         url =f"{self ._base_url .rstrip ('/')}/messages"
         system =self ._get_system (messages )
         body ={
         "model":self ._model ,
         "messages":self ._build_messages (messages ),
-        "max_tokens":2048 ,
+        "max_tokens":max_tokens ,
         }
         if system :
             body ["system"]=system 

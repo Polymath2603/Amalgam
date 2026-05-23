@@ -144,7 +144,7 @@ class ContextBuilder :
     character_id :str =None ,additional_prompt :str ="",
     summary :str ="",relevant :List [Dict ]=None ,
     tts_emotions :List [str ]=None ,expression_names :List [str ]=None ,
-    relationship_context :str ="")->list :
+    relationship_context :str ="",native_tools_available :bool =False )->list :
         if not character_id and self .settings :
             character_id =self .settings .get ("character.active","default")
         character =self ._characters .get (character_id ,{})
@@ -154,7 +154,7 @@ class ContextBuilder :
         tts_emotions =tts_emotions ,expression_names =expression_names 
         )
 
-        tool_section =self ._build_tool_section (tools )
+        tool_section =self ._build_tool_section (tools ,native_tools_available =native_tools_available )
         summary_section =self ._build_summary_section (summary )
         relevant_section =self ._build_relevant_section (relevant )
         relationship_section =self ._build_relationship_section (relationship_context )
@@ -173,7 +173,7 @@ class ContextBuilder :
 
         return messages 
 
-    def _build_tool_section (self ,tools :List [Dict ])->str :
+    def _build_tool_section (self ,tools :List [Dict ],native_tools_available :bool =False )->str :
         if not tools :
             return ""
         lines =["\n\n# Available Tools"]
@@ -184,10 +184,11 @@ class ContextBuilder :
                 params =t ['parameters']['properties']
                 for k ,v in params .items ():
                     lines .append (f"  - {k } ({v .get ('type','string')})")
-        lines .append (
-        '\n\nTo invoke a tool, respond with a tool block:\n'
-        '```tool\n{"name": "<tool_name>", "arguments": {"<param>": "<value>"}}\n```'
-        )
+        if not native_tools_available :
+            lines .append (
+            '\n\nTo invoke a tool, respond with a tool block:\n'
+            '```tool\n{"name": "<tool_name>", "arguments": {"<param>": "<value>"}}\n```'
+            )
         return "\n".join (lines )
 
     def _build_summary_section (self ,summary :str )->str :

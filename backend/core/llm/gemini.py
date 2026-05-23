@@ -1,6 +1,10 @@
+"""Gemini provider.
+Uses Gemini's OpenAI-compatible endpoint for streaming.
+Supports native tool calling via the OpenAI-compatible tools format.
+"""
 import json 
 import logging 
-from typing import AsyncIterator ,List 
+from typing import AsyncIterator ,List ,Dict ,Any 
 
 import httpx 
 
@@ -25,15 +29,51 @@ class GeminiProvider (LLMProvider ):
             self ._base_url =self .settings .get ("provider.gemini.base_url",
             "https://generativelanguage.googleapis.com/v1beta")
 
+    def supports_native_tools (self )->bool :
+        return bool (self ._api_key )
+
+    def _convert_tools (self ,tools :List [Dict [str ,Any ]])->list :
+        """Convert our tool schema to OpenAI's tools format (Gemini via OpenAI-compat API)."""
+        openai_tools =[]
+        for t in tools :
+            openai_tools .append ({
+            "type":"function",
+            "function":{
+            "name":t ["name"],
+            "description":t .get ("description",""),
+            "parameters":t .get ("parameters",{"type":"object","properties":{}}),
+            },
+            })
+        return openai_tools 
+
     async def stream (self ,messages :list )->AsyncIterator [str ]:
+        async for item in self .stream_with_tools (messages ,[]):
+            if isinstance (item ,str ):
+                yield item 
+
+    async def stream_with_tools (
+    self ,messages :list ,tools :List [Dict [str ,Any ]]
+    )->AsyncIterator :
         if not self ._api_key :
             logger .warning ("Gemini API key not set — returning error to user")
             yield "[Error: Gemini API key not set. Go to Settings > Providers.]"
             return 
 
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         url =f"{self ._base_url }/openai/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
-        body ={"model":self ._model ,"messages":messages ,"stream":True ,"temperature":self .temperature ,"max_tokens":2048 }
+        body ={
+        "model":self ._model ,
+        "messages":messages ,
+        "stream":True ,
+        "temperature":self .temperature ,
+        "max_tokens":max_tokens ,
+        }
+        if tools :
+            body ["tools"]=self ._convert_tools (tools )
+            body ["tool_choice"]="auto"
+
+        pending_tool_calls :Dict [int ,dict ]={}
 
         try :
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
@@ -48,10 +88,45 @@ class GeminiProvider (LLMProvider ):
                             return 
                         try :
                             data =json .loads (json_str )
-                            for c in data .get ("choices",[]):
-                                content =c .get ("delta",{}).get ("content","")
-                                if content :
-                                    yield content 
+                            choices =data .get ("choices",[])
+                            for c in choices :
+                                delta =c .get ("delta",{})
+
+                                text =delta .get ("content","")
+                                if text :
+                                    yield text 
+
+                                tool_calls =delta .get ("tool_calls",[])
+                                for tc in tool_calls :
+                                    idx =tc .get ("index",0 )
+                                    if idx not in pending_tool_calls :
+                                        pending_tool_calls [idx ]={"id":"","name":"","arguments":""}
+                                    pt =pending_tool_calls [idx ]
+                                    func =tc .get ("function",{})
+                                    if tc .get ("id"):
+                                        pt ["id"]=tc ["id"]
+                                    if func .get ("name"):
+                                        pt ["name"]=func ["name"]
+                                    if func .get ("arguments"):
+                                        pt ["arguments"]+=func ["arguments"]
+
+                                finish_reason =c .get ("finish_reason")
+                                if finish_reason =="tool_calls":
+                                    for idx in sorted (pending_tool_calls .keys ()):
+                                        pt =pending_tool_calls [idx ]
+                                        if pt ["id"]and pt ["name"]:
+                                            try :
+                                                args =json .loads (pt ["arguments"])if pt ["arguments"]else {}
+                                            except json .JSONDecodeError :
+                                                args ={}
+                                            yield {
+                                            "type":"tool_use",
+                                            "id":pt ["id"],
+                                            "name":pt ["name"],
+                                            "arguments":args ,
+                                            }
+                                    pending_tool_calls .clear ()
+
                         except json .JSONDecodeError :
                             pass 
         except Exception as e :
@@ -61,9 +136,10 @@ class GeminiProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         if not self ._api_key :
             return "[Error: Gemini API key not set]"
+        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
         url =f"{self ._base_url }/openai/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
-        body ={"model":self ._model ,"messages":messages ,"temperature":self .temperature ,"max_tokens":2048 }
+        body ={"model":self ._model ,"messages":messages ,"temperature":self .temperature ,"max_tokens":max_tokens }
         try :
             response =await self ._client .post (url ,json =body ,headers =headers )
             if response .status_code ==200 :
