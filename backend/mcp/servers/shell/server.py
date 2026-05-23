@@ -24,7 +24,12 @@ _DEFAULT_ALLOWED =[
 "python3 ","python ",
 "pip ","pip3 ",
 "git status","git log","git diff",
-"whoami","uname",
+"whoami","uname","notify-send",
+"ps ","top ","htop ",
+"df ","du ","free ",
+"which ","type ",
+"kill ","pkill ",
+"xdotool ","xclip ","wl-paste ",
 ]
 
 if ALLOWED_PREFIXES_ENV :
