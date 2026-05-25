@@ -127,6 +127,7 @@ class GeminiProvider (LLMProvider ):
                                     pending_tool_calls .clear ()
 
                         except json .JSONDecodeError :
+                            logger .warning (f"Gemini: failed to parse SSE line: {line [:200 ]}")
                             pass 
         except RuntimeError :
             raise 
@@ -157,10 +158,11 @@ class GeminiProvider (LLMProvider ):
     async def get_embedding (self ,text :str )->List [float ]:
         if not self ._api_key :
             return []
-        url =f"{self ._base_url }/models/text-embedding-004:embedContent?key={self ._api_key }"
+        url =f"{self ._base_url }/models/text-embedding-004:embedContent"
+        headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
         body ={"content":{"parts":[{"text":text }]}}
         try :
-            response =await self ._client .post (url ,json =body )
+            response =await self ._client .post (url ,headers =headers ,json =body )
             if response .status_code ==200 :
                 return response .json ().get ("embedding",{}).get ("values",[])
         except Exception :
@@ -172,8 +174,8 @@ class GeminiProvider (LLMProvider ):
             logger .warning ("Gemini API key not set — cannot fetch models")
             return []
         try :
-            url =f"https://generativelanguage.googleapis.com/v1beta/models?key={self ._api_key }"
-            response =await self ._client .get (url ,timeout =10.0 )
+            url ="https://generativelanguage.googleapis.com/v1beta/models"
+            response =await self ._client .get (url ,headers ={"Authorization":f"Bearer {self ._api_key }"},timeout =10.0 )
             if response .status_code ==200 :
                 models =response .json ().get ("models",[])
                 return [

@@ -14,21 +14,41 @@ class OllamaProvider (LLMProvider ):
         super ().__init__ (settings )
         self ._url ="http://localhost:11434"
         self ._model =""
+        self ._embed_model ="nomic-embed-text"
+        self ._timeout =120.0 
         self ._load_config ()
-        self ._client =httpx .AsyncClient (timeout =httpx .Timeout (120.0 ,connect =10.0 ))
+        self ._client =None 
+        self ._ensure_client ()
+
+    def _ensure_client (self ):
+        if self ._client is None :
+            self ._client =httpx .AsyncClient (timeout =httpx .Timeout (self ._timeout ,connect =10.0 ))
+
+    def _reset_client (self ):
+        if self ._client :
+            try :
+                import asyncio 
+                loop =asyncio .get_event_loop ()
+                if loop .is_running ():
+                    loop .create_task (self ._client .aclose ())
+            except Exception :
+                pass 
+        self ._client =None 
 
     def _load_config (self ):
         if self .settings :
             self ._url =self .settings .get ("provider.ollama.base_url","http://localhost:11434")
             self ._model =self .settings .get ("provider.ollama.model","")
+            self ._embed_model =self .settings .get ("provider.ollama.embed_model","nomic-embed-text")
 
     async def stream (self ,messages :list )->AsyncIterator [str ]:
+        self ._ensure_client ()
         try :
             max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
             async with self ._client .stream (
             "POST",
             f"{self ._url }/api/chat",
-            json ={"model":self ._model ,"messages":messages ,"stream":True ,"options":{"num_predict":max_tokens }},
+            json ={"model":self ._model ,"messages":messages ,"stream":True ,"options":{"num_predict":max_tokens ,"temperature":self .temperature }},
             )as response :
                 if response .status_code !=200 :
                     raise RuntimeError (f"Error: Ollama returned {response .status_code }")
@@ -42,39 +62,46 @@ class OllamaProvider (LLMProvider ):
                         except json .JSONDecodeError :
                             pass 
         except RuntimeError :
+            self ._reset_client ()
             raise 
         except Exception as e :
-            logger .error (f"Ollama stream error: {e }")
-            raise RuntimeError (f"[Error connecting to Ollama: {e }]")from e 
+            logger .error (f"Ollama stream error ({type (e ).__name__ }): {e }")
+            self ._reset_client ()
+            raise RuntimeError (f"[Ollama error: {type (e ).__name__ }: {e }]")from e 
 
     async def generate (self ,messages :list )->str :
+        self ._ensure_client ()
         try :
             max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
             response =await self ._client .post (
             f"{self ._url }/api/chat",
-            json ={"model":self ._model ,"messages":messages ,"stream":False ,"options":{"num_predict":max_tokens }},
+            json ={"model":self ._model ,"messages":messages ,"stream":False ,"options":{"num_predict":max_tokens ,"temperature":self .temperature }},
             )
             if response .status_code ==200 :
                 msg =response .json ().get ("message",{})
                 return msg .get ("content","")
         except Exception as e :
-            logger .error (f"Ollama generate error: {e }")
+            logger .error (f"Ollama generate error ({type (e ).__name__ }): {e }")
+            self ._reset_client ()
             return f"Error: {e }"
         return ""
 
     async def get_embedding (self ,text :str )->List [float ]:
+        self ._ensure_client ()
         try :
             response =await self ._client .post (
             f"{self ._url }/api/embeddings",
-            json ={"model":self ._model ,"prompt":text },
+            json ={"model":self ._embed_model ,"prompt":text },
             )
             if response .status_code ==200 :
                 return response .json ().get ("embedding",[])
         except Exception as e :
-            logger .warning ("Ollama embedding request failed: %s",e )
+            logger .warning ("Ollama embedding request failed (%s): %s",type (e ).__name__ ,e )
+            self ._reset_client ()
         return []
 
     async def fetch_models (self )->List [str ]:
+        self ._ensure_client ()
         try :
             response =await self ._client .get (f"{self ._url }/api/tags",timeout =5.0 )
             if response .status_code ==200 :
@@ -84,4 +111,6 @@ class OllamaProvider (LLMProvider ):
         return []
 
     async def close (self ):
-        await self ._client .aclose ()
+        if self ._client :
+            await self ._client .aclose ()
+            self ._client =None 

@@ -33,10 +33,17 @@ class VaultManager :
                 })
         return files 
 
+    def _safe_path (self ,filename :str )->Optional [Path ]:
+        path =(self ._vault_path /filename ).resolve ()
+        vault_resolved =self ._vault_path .resolve ()
+        if vault_resolved not in path .parents and path !=vault_resolved :
+            logger .warning (f"Path traversal blocked: {filename }")
+            return None 
+        return path 
+
     def read (self ,filename :str )->Optional [str ]:
-        """Read a specific vault file, returning its content or None."""
-        path =self ._vault_path /filename 
-        if not path .exists ()or not path .is_file ():
+        path =self ._safe_path (filename )
+        if not path or not path .exists ()or not path .is_file ():
             return None 
         try :
             return path .read_text (encoding ="utf-8")
@@ -45,9 +52,10 @@ class VaultManager :
             return None 
 
     def write (self ,filename :str ,content :str )->bool :
-        """Write content to a vault file (creates or overwrites)."""
+        path =self ._safe_path (filename )
+        if not path :
+            return False 
         self ._vault_path .mkdir (parents =True ,exist_ok =True )
-        path =self ._vault_path /filename 
         try :
             path .write_text (content ,encoding ="utf-8")
             return True 
@@ -56,9 +64,8 @@ class VaultManager :
             return False 
 
     def delete (self ,filename :str )->bool :
-        """Delete a vault file."""
-        path =self ._vault_path /filename 
-        if not path .exists ():
+        path =self ._safe_path (filename )
+        if not path or not path .exists ():
             return False 
         try :
             path .unlink ()

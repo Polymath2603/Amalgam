@@ -142,7 +142,7 @@ def main ():
     parser .add_argument ("--grpc",action ="store_true",help ="Connect via gRPC")
     parser .add_argument ("--host",default ="localhost",help ="gRPC host")
     parser .add_argument ("--port",type =int ,default =50051 ,help ="gRPC port")
-    args =parser .parse_args ()
+    args ,_ =parser .parse_known_args ()
 
     logging .basicConfig (level =logging .WARNING )
 

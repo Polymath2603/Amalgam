@@ -110,6 +110,14 @@ def create_app ():
             except Exception as e :
                 logger .warning (f"MCP servers from settings failed: {e }")
 
+    @app .on_event ("shutdown")
+    async def shutdown ():
+        logger .warning ("Shutting down Amalgam backend...")
+        try :
+            await mcp ().close ()
+        except Exception as e :
+            logger .warning (f"MCP shutdown error: {e }")
+
     return app 
 
 

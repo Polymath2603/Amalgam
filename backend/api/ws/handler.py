@@ -1,5 +1,5 @@
 """
-WebSocket chat handler — extracted from server.py.
+WebSocket chat handler — per-connection state, proper task tracking.
 """
 import asyncio 
 import json 
@@ -8,7 +8,7 @@ import logging
 
 from fastapi import WebSocket ,WebSocketDisconnect 
 from backend .api .deps import settings ,memory ,tts ,agent ,relationship 
-from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now ,increment_stream_idx ,set_stream_idx 
+from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now 
 from backend .voice .pipeline import VoicePipeline 
 
 logger =logging .getLogger (__name__ )
@@ -19,18 +19,33 @@ async def handle_chat (websocket :WebSocket ):
     logger .warning ("Chat WebSocket connected")
 
 
+    current_stream_idx =0 
+    pending_tasks :set [asyncio .Task ]=set ()
+    voice_output_enabled =False 
+    voice_pipeline =None 
+    voice_task =None 
+
+    def _track_task (t :asyncio .Task ):
+        pending_tasks .add (t )
+        t .add_done_callback (pending_tasks .discard )
+
+    async def _send_json (data :dict ):
+        """Send JSON, raising WebSocketDisconnect and breaking on any failure."""
+        try :
+            await websocket .send_json (data )
+        except WebSocketDisconnect :
+            raise 
+        except Exception :
+            logger .warning ("send_json failed — connection likely dead")
+            raise 
+
     try :
-        await websocket .send_json ({
+        await _send_json ({
         "type":"session",
         "id":memory ().get_current_session ()
         })
     except Exception :
         pass 
-
-    voice_output_enabled =False 
-    voice_pipeline =None 
-    voice_task =None 
-    set_stream_idx (0 )
 
     try :
         while True :
@@ -42,52 +57,60 @@ async def handle_chat (websocket :WebSocket ):
                 if cmd in ("voice_output_on","voice_on"):
                     voice_output_enabled =True 
                     logger .debug ("Voice output enabled by client")
-                    await websocket .send_json ({"type":"voice_state","state":"idle"})
+                    await _send_json ({"type":"voice_state","state":"idle"})
                 elif cmd in ("voice_output_off","voice_off"):
                     voice_output_enabled =False 
                     logger .debug ("Voice output disabled by client")
-                    await websocket .send_json ({"type":"voice_state","state":"idle"})
+                    await _send_json ({"type":"voice_state","state":"idle"})
                 elif cmd =="voice_input_on":
                     stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
                     if stt_engine =="browser":
-                        await websocket .send_json ({"type":"voice_state","state":"recording"})
+                        await _send_json ({"type":"voice_state","state":"recording"})
                         logger .debug ("Voice input started (browser STT)")
                     else :
                         if voice_pipeline is None :
                             _main_loop =asyncio .get_running_loop ()
+
                             def on_transcription (text ):
                                 try :
                                     asyncio .run_coroutine_threadsafe (
-                                    websocket .send_json ({"type":"user_message_from_voice","text":text }),
+                                    _send_json ({"type":"user_message_from_voice","text":text }),
                                     _main_loop 
                                     )
                                 except Exception as e :
                                     logger .error (f"Voice transcription send failed: {e }")
-                            voice_pipeline =VoicePipeline (agent_callback =on_transcription ,stt_engine =stt_engine )
+
+                            voice_cfg =settings ()
+                            voice_pipeline =VoicePipeline (
+                            agent_callback =on_transcription ,
+                            stt_engine =stt_engine ,
+                            settings =voice_cfg ,
+                            )
                             if stt_engine =="openai-whisper":
-                                whisper_key =settings ().get ("voice.openai_whisper.api_key","")
+                                whisper_key =voice_cfg .get ("voice.openai_whisper.api_key","")
                                 if whisper_key :
-                                    whisper_model =settings ().get ("voice.openai_whisper.model","whisper-1")
+                                    whisper_model =voice_cfg .get ("voice.openai_whisper.model","whisper-1")
                                     voice_pipeline .configure_openai_stt (whisper_key ,whisper_model )
                             elif stt_engine =="groq-whisper":
-                                groq_key =settings ().get ("voice.groq_whisper.api_key","")
+                                groq_key =voice_cfg .get ("voice.groq_whisper.api_key","")
                                 if groq_key :
-                                    groq_model =settings ().get ("voice.groq_whisper.model","whisper-large-v3")
-                                    groq_url =settings ().get ("voice.groq_whisper.base_url",None )
+                                    groq_model =voice_cfg .get ("voice.groq_whisper.model","whisper-large-v3")
+                                    groq_url =voice_cfg .get ("voice.groq_whisper.base_url",None )
                                     voice_pipeline .configure_groq_stt (groq_key ,groq_model ,groq_url )
                             elif stt_engine =="whispercpp":
-                                wcpp_url =settings ().get ("voice.whispercpp.url",None )
+                                wcpp_url =voice_cfg .get ("voice.whispercpp.url",None )
                                 voice_pipeline .configure_whispercpp_stt (wcpp_url )
                         if voice_task is None or voice_task .done ():
                             if voice_task and voice_task .exception ():
                                 logger .error (f"Previous voice task failed: {voice_task .exception ()}")
-                            voice_task =asyncio .get_event_loop ().run_in_executor (None ,voice_pipeline .listen_loop )
-                        await websocket .send_json ({"type":"voice_state","state":"recording"})
+                            loop =asyncio .get_running_loop ()
+                            voice_task =loop .run_in_executor (None ,voice_pipeline .listen_loop )
+                        await _send_json ({"type":"voice_state","state":"recording"})
                         logger .debug ("Voice input started")
                 elif cmd =="voice_input_off":
                     stt_engine =settings ().get ("voice.stt_engine","faster-whisper")
                     if stt_engine =="browser":
-                        await websocket .send_json ({"type":"voice_state","state":"idle"})
+                        await _send_json ({"type":"voice_state","state":"idle"})
                         logger .debug ("Voice input stopped (browser STT)")
                     else :
                         if voice_pipeline :
@@ -96,13 +119,14 @@ async def handle_chat (websocket :WebSocket ):
                             voice_task .cancel ()
                             voice_task =None 
                         voice_pipeline =None 
-                        await websocket .send_json ({"type":"voice_state","state":"idle"})
+                        await _send_json ({"type":"voice_state","state":"idle"})
                         logger .debug ("Voice input stopped")
                 elif cmd =="speak":
                     speak_text =data .get ("text","").strip ()
                     if speak_text :
                         logger .debug (f"Speak command: {speak_text [:50 ]}")
-                        asyncio .create_task (synthesize_now (speak_text ,websocket ))
+                        t =asyncio .create_task (synthesize_now (speak_text ,websocket ))
+                        _track_task (t )
                 continue 
 
             if msg_type =="slash_command":
@@ -111,55 +135,58 @@ async def handle_chat (websocket :WebSocket ):
                 if cmd =="clear":
                     await memory ().clear ()
                     memory ().start_session ()
-                    await websocket .send_json (
+                    relationship ()._cache .clear ()
+                    await _send_json (
                     {"type":"chat_append","role":"system","text":"Memory cleared.","finished":True })
                 elif cmd =="new":
-                    await memory ().set_current_session ("")
-                    await websocket .send_json (
-                    {"type":"chat_append","role":"system","text":"New session started.","finished":True })
+                    sid =memory ().start_session ()
+                    await _send_json (
+                    {"type":"chat_append","role":"system","text":f"New session started: {sid }","finished":True })
                 elif cmd =="help":
                     help_text =(
                     "Slash commands:\n"
                     "/clear — clear history\n"
                     "/new — start new session\n"
-                    "/provider &lt;name&gt; — switch provider (gemini, openrouter, ollama, etc.)\n"
-                    "/model &lt;name&gt; — switch model\n"
-                    "/session &lt;id&gt; — load a session\n"
+                    "/provider <name> — switch provider (gemini, openrouter, ollama, etc.)\n"
+                    "/model <name> — switch model\n"
+                    "/session <id> — load a session\n"
                     "/help — show this"
                     )
-                    await websocket .send_json (
+                    await _send_json (
                     {"type":"chat_append","role":"system","text":help_text ,"finished":True })
                 elif cmd =="provider":
                     if args :
+                        loop =asyncio .get_running_loop ()
                         s =settings ()
-                        s .set ("provider.active",args )
-                        await websocket .send_json (
+                        await loop .run_in_executor (None ,lambda :s .set ("provider.active",args ))
+                        await _send_json (
                         {"type":"chat_append","role":"system","text":f"Switched to provider: {args }","finished":True })
                     else :
-                        await websocket .send_json (
+                        await _send_json (
                         {"type":"chat_append","role":"system","text":f"Current provider: {settings ().get ('provider.active','gemini')}","finished":True })
                 elif cmd =="model":
                     if args :
                         provider =settings ().get ("provider.active","gemini")
+                        loop =asyncio .get_running_loop ()
                         s =settings ()
-                        s .set (f"provider.{provider }.model",args )
-                        await websocket .send_json (
+                        await loop .run_in_executor (None ,lambda :s .set (f"provider.{provider }.model",args ))
+                        await _send_json (
                         {"type":"chat_append","role":"system","text":f"Switched model to: {args }","finished":True })
                     else :
                         provider =settings ().get ("provider.active","gemini")
                         model =settings ().get (f"provider.{provider }.model","not set")
-                        await websocket .send_json (
+                        await _send_json (
                         {"type":"chat_append","role":"system","text":f"Current model ({provider }): {model }","finished":True })
                 elif cmd =="session":
                     if args :
-                        await websocket .send_json (
+                        await _send_json (
                         {"type":"chat_append","role":"system","text":f"Load session by navigating to #chat/{args }","finished":True })
                     else :
                         sid =memory ().get_current_session ()
-                        await websocket .send_json (
+                        await _send_json (
                         {"type":"chat_append","role":"system","text":f"Current session: {sid }","finished":True })
                 else :
-                    await websocket .send_json (
+                    await _send_json (
                     {"type":"chat_append","role":"system","text":f"Unknown command: /{cmd }. Try /help","finished":True })
                 continue 
 
@@ -169,12 +196,13 @@ async def handle_chat (websocket :WebSocket ):
                 if not text and not images :
                     continue 
 
+                current_stream_idx +=1 
+                this_stream =current_stream_idx 
 
-                await websocket .send_json ({"type":"chat_start","role":"assistant"})
-                await websocket .send_json ({"type":"emotion","emotion":"neutral"})
-                await websocket .send_json ({"type":"expression","expression":"neutral"})
+                await _send_json ({"type":"chat_start","role":"assistant"})
+                await _send_json ({"type":"emotion","emotion":"neutral"})
+                await _send_json ({"type":"expression","expression":"neutral"})
 
-                current_stream =increment_stream_idx ()
                 tts_tasks =[]
 
                 try :
@@ -201,89 +229,43 @@ async def handle_chat (websocket :WebSocket ):
                         logger .debug (f"ws:item received #{item_count }: {type (item ).__name__ } = {item [:50 ]if isinstance (item ,str )else item }")
                         if isinstance (item ,tuple )and item [0 ]=='__emotion__':
                             current_emotion =item [1 ]
-                            try :
-                                await websocket .send_json ({"type":"emotion","emotion":current_emotion })
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({"type":"emotion","emotion":current_emotion })
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__expression__':
-                            try :
-                                await websocket .send_json ({"type":"expression","expression":item [1 ]})
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({"type":"expression","expression":item [1 ]})
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__thinking__':
-                            try :
-                                await websocket .send_json ({"type":"thinking","text":item [1 ]})
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({"type":"thinking","text":item [1 ]})
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__animation__':
                             anim_name =item [1 ]
-                            try :
-                                anim_url =f"/characters/{char_id }/anim/{anim_name }.vrma"
-                                await websocket .send_json ({"type":"animation","name":anim_name ,"url":anim_url })
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({"type":"animation","name":anim_name ,"url":f"/characters/{char_id }/anim/{anim_name }.vrma"})
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__tool__':
-                            try :
-                                await websocket .send_json ({"type":"tool_call","text":item [1 ]})
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({"type":"tool_call","text":item [1 ]})
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__error__':
-                            try :
-                                await websocket .send_json ({
-                                "type":"chat_append","role":"assistant",
-                                "text":str (item [1 ]),"finished":True ,"error":True 
-                                })
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({
+                            "type":"chat_append","role":"assistant",
+                            "text":str (item [1 ]),"finished":True ,"error":True 
+                            })
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__permission__':
-                            try :
-                                await websocket .send_json ({"type":"permission_request","command":item [1 ]})
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({"type":"permission_request","command":item [1 ]})
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__roleplay__':
                             rp_text =f"*{item [1 ]}* "
                             full_response +=rp_text 
                             sentence_buffer +=rp_text 
-                            try :
-                                await websocket .send_json ({"type":"roleplay","text":item [1 ]})
-                            except WebSocketDisconnect :
-                                raise 
-                            except Exception :
-                                pass 
+                            await _send_json ({"type":"roleplay","text":item [1 ]})
                             continue 
 
                         token =item 
                         full_response +=token 
                         sentence_buffer +=token 
-                        try :
-                            await websocket .send_json ({
-                            "type":"chat_append","role":"assistant","text":token ,"finished":False 
-                            })
-                        except WebSocketDisconnect :
-                            raise 
-                        except Exception :
-                            pass 
+                        await _send_json ({
+                        "type":"chat_append","role":"assistant","text":token ,"finished":False 
+                        })
 
                         if voice_output_enabled and re .search (r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}',sentence_buffer ):
                             parts =re .split (r'(?<=[.!?。！？])\s',sentence_buffer )
@@ -291,50 +273,40 @@ async def handle_chat (websocket :WebSocket ):
                                 complete =parts [0 ].strip ()
                                 sentence_buffer =' '.join (parts [1 :])
                                 if complete :
-                                    try :
-                                        await websocket .send_json ({"type":"voice_state","state":"speaking"})
-                                    except WebSocketDisconnect :
-                                        raise 
-                                    except Exception :
-                                        pass 
-                                    task =asyncio .create_task (synthesize_sentence (complete ,sentence_idx ,current_stream ,websocket ,current_emotion ))
-                                    tts_tasks .append (task )
+                                    await _send_json ({"type":"voice_state","state":"speaking"})
+                                    t =asyncio .create_task (synthesize_sentence (
+                                    complete ,sentence_idx ,this_stream ,current_stream_idx ,
+                                    websocket ,current_emotion ))
+                                    _track_task (t )
+                                    tts_tasks .append (t )
                                     sentence_idx +=1 
-
 
                     if full_response .strip ():
                         try :
                             relationship ().analyze_message ("user",text ,char_id )
                             relationship ().analyze_message ("assistant",full_response ,char_id )
-                            asyncio .create_task (memory ().extract_facts (text ,full_response .strip ()))
+                            t =asyncio .create_task (memory ().extract_facts (text ,full_response .strip ()))
+                            _track_task (t )
                         except Exception as e :
                             logger .warning (f"Relationship/fact tracking error: {e }")
 
-                    try :
-                        await websocket .send_json ({"type":"viseme","value":0.0 })
-                    except WebSocketDisconnect :
-                        raise 
-                    except Exception :
-                        pass 
+                    await _send_json ({"type":"viseme","value":0.0 })
 
                     if voice_output_enabled and sentence_buffer .strip ():
-                        try :
-                            await websocket .send_json ({"type":"voice_state","state":"speaking"})
-                        except WebSocketDisconnect :
-                            raise 
-                        except Exception :
-                            pass 
-                        task =asyncio .create_task (synthesize_sentence (sentence_buffer .strip (),sentence_idx ,current_stream ,websocket ,current_emotion ))
-                        tts_tasks .append (task )
+                        await _send_json ({"type":"voice_state","state":"speaking"})
+                        t =asyncio .create_task (synthesize_sentence (
+                        sentence_buffer .strip (),sentence_idx ,this_stream ,
+                        current_stream_idx ,websocket ,current_emotion ))
+                        _track_task (t )
+                        tts_tasks .append (t )
                         sentence_idx +=1 
 
                     if tts_tasks :
                         await asyncio .gather (*tts_tasks ,return_exceptions =True )
-                        try :
-                            await websocket .send_json ({"type":"voice_state","state":"idle"})
-                        except Exception :
-                            pass 
+                        await _send_json ({"type":"voice_state","state":"idle"})
 
+                except (WebSocketDisconnect ,asyncio .CancelledError ):
+                    raise 
                 except Exception as e :
                     logger .error (f"Agent error: {e }, item_count={item_count if 'item_count'in locals ()else 'unknown'}")
                     for t in tts_tasks :
@@ -349,7 +321,8 @@ async def handle_chat (websocket :WebSocket ):
                     "API key not set":"API key not configured. Go to Settings > Providers to set it.",
                     "401":"Authentication failed. Check your API key.",
                     "402":"Payment required. Check your account billing.",
-                    "429":"Rate limit exceeded. Please wait and try again.",
+                    "Rate limit exceeded":"Rate limit exceeded. Please wait and try again.",
+                    "quota exceeded":"Quota exceeded. Check your plan and billing.",
                     "RESOURCE_EXHAUSTED":"Quota exceeded. Check your plan and billing."
                     }
                     for key ,msg in friendly_errors .items ():
@@ -362,27 +335,25 @@ async def handle_chat (websocket :WebSocket ):
                             error_text =err_obj .get ('message',error_text )
                     except Exception :
                         pass 
-                    await websocket .send_json ({
+                    await _send_json ({
                     "type":"chat_append","role":"assistant",
                     "text":f"Error: {error_text }","finished":True ,"error":True 
                     })
                 else :
-                    try :
-                        await websocket .send_json ({"type":"emotion","emotion":"neutral"})
-                        await websocket .send_json ({"type":"expression","expression":"neutral"})
-                        await websocket .send_json ({
-                        "type":"chat_append","role":"assistant","text":"","finished":True 
-                        })
-                    except WebSocketDisconnect :
-                        raise 
-                    except Exception :
-                        pass 
+                    await _send_json ({"type":"emotion","emotion":"neutral"})
+                    await _send_json ({"type":"expression","expression":"neutral"})
+                    await _send_json ({
+                    "type":"chat_append","role":"assistant","text":"","finished":True 
+                    })
 
     except WebSocketDisconnect :
         logger .warning ("Chat WebSocket disconnected")
     except Exception as e :
         logger .error (f"WebSocket error: {e }")
     finally :
+        for t in pending_tasks :
+            if not t .done ():
+                t .cancel ()
         if voice_pipeline :
             voice_pipeline .stop_listening ()
         if voice_task and not voice_task .done ():

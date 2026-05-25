@@ -55,7 +55,7 @@ class KoboldAIProvider (LLMProvider ):
             async with self ._client .stream (
             "POST",
             f"{self ._url .rstrip ('/')}/api/extra/generate/stream",
-            json ={"prompt":prompt ,"stop_sequence":stop ,"max_length":max_tokens },
+            json ={"prompt":prompt ,"stop_sequence":stop ,"max_length":max_tokens ,"temperature":self .temperature },
             )as response :
                 if response .status_code !=200 :
                     err =await response .aread ()
@@ -87,7 +87,7 @@ class KoboldAIProvider (LLMProvider ):
         try :
             response =await self ._client .post (
             f"{self ._url .rstrip ('/')}/api/v1/generate",
-            json ={"prompt":prompt ,"stop_sequence":stop ,"max_length":max_tokens },
+            json ={"prompt":prompt ,"stop_sequence":stop ,"max_length":max_tokens ,"temperature":self .temperature },
             )
             if response .status_code ==200 :
                 results =response .json ().get ("results",[])

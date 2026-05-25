@@ -1,7 +1,7 @@
 import json 
 import logging 
 import re 
-from typing import AsyncIterator 
+from typing import AsyncIterator ,Union ,Tuple 
 
 from backend .core .memory import Memory 
 from backend .core .context_builder import ContextBuilder 
@@ -58,7 +58,6 @@ class Agent :
         self .context_builder .settings =settings 
 
     def _process_tags (self ,text :str ):
-        """Find and extract tag markers from text. Yields (tag_type, value) tuples."""
         for m in THINK_RE .finditer (text ):
             yield ('__thinking__',m .group (1 ).strip ())
         for m in self ._emotion_re .finditer (text ):
@@ -97,7 +96,6 @@ class Agent :
         return text .strip ()
 
     async def spawn_subagent (self ,prompt :str ,session_id :str =None )->str :
-        """Run a sub-agent with a focused task. Returns the complete response."""
         sub_memory =Memory (llm_router =self .llm )
         if not session_id :
             sub_memory .start_session ()
@@ -116,11 +114,12 @@ class Agent :
                 parts .append (chunk )
         return "".join (parts )
 
-    async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [str ]:
+    async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [Union [str ,Tuple [str ,str ]]]:
         await self .memory .add_turn ("user",text )
 
         iterations =0 
         current_input =text 
+        original_input =text 
         native_tools =self .llm .supports_native_tools ()
         last_tool_call =None 
 
@@ -154,10 +153,11 @@ class Agent :
 
             if images :
                 last_text =messages [-1 ]["content"]
-                content =[{"type":"text","text":last_text }]if last_text else []
-                for img in images :
-                    content .append ({"type":"image_url","image_url":{"url":img }})
-                messages [-1 ]["content"]=content 
+                if isinstance (last_text ,str ):
+                    content =[{"type":"text","text":last_text }]
+                    for img in images :
+                        content .append ({"type":"image_url","image_url":{"url":img }})
+                    messages [-1 ]["content"]=content 
 
             tool_called =False 
             in_tool_block =False 
@@ -165,13 +165,8 @@ class Agent :
             _last_clean =""
 
             try :
-                logger .debug (f"agent: starting llm stream provider={self .llm .provider }, native_tools={native_tools }")
-                token_count =0 
-
                 if native_tools and tools :
-                    logger .debug (f"agent: using native tool calling with {len (tools )} tools")
                     async for item in self .llm .stream_with_tools (messages ,tools ):
-                        token_count +=1 
                         if isinstance (item ,str ):
                             accumulated +=item 
                             in_think ='<think>'in accumulated and '</think>'not in accumulated 
@@ -222,13 +217,16 @@ class Agent :
                             await self .memory .add_turn ("system",current_input )
                             break 
                 else :
-                    logger .debug (f"agent: using text-fenced tool calling (tools={bool (tools )}, native={native_tools })")
                     tool_block_buf =""
                     in_tool_block =False 
                     async for token in self .llm .stream (messages ):
-                        token_count +=1 
                         if not in_tool_block and "```tool"in accumulated +token +tool_block_buf :
                             in_tool_block =True 
+
+                            clean_before =self ._strip_all_tags (accumulated ).strip ()
+                            if clean_before :
+                                await self .memory .add_turn ("assistant",clean_before )
+                            continue 
 
                         if in_tool_block :
                             tool_block_buf +=token 
@@ -240,8 +238,6 @@ class Agent :
                                         tool_call =json .loads (tool_block_buf [start_idx :end_idx ])
                                         name =tool_call .get ("name")
                                         args =tool_call .get ("arguments",{})
-                                        if accumulated .strip ():
-                                            await self .memory .add_turn ("assistant",accumulated .strip ())
                                         tool_sig =(name ,frozenset ((k ,str (v ))for k ,v in sorted (args .items ())))
                                         if tool_sig ==last_tool_call :
                                             msg =f"Repeated identical tool call to {name } — not retrying. Respond based on the previous result."
@@ -266,14 +262,10 @@ class Agent :
                                         break 
                                 except Exception as e :
                                     yield f"\n[Error parsing tool call: {e }]\n"
-                                    if accumulated .strip ():
-                                        await self .memory .add_turn ("assistant",accumulated .strip ())
                                     current_input =f"Tool parse error: {e }"
                                     await self .memory .add_turn ("system",current_input )
                                     tool_called =True 
                                     break 
-                            else :
-                                accumulated +=token 
                         else :
                             accumulated +=token 
                             in_think ='<think>'in accumulated and '</think>'not in accumulated 
@@ -310,7 +302,7 @@ class Agent :
                     await self .memory .add_turn ("assistant",accumulated .strip ())
                 break 
             finally :
-                if in_tool_block :
+                if in_tool_block and not tool_called :
                     logger .warning ("agent: stream ended mid-tool-block")
                     in_tool_block =False 
 

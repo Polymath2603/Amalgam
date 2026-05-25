@@ -41,6 +41,31 @@ class ClaudeProvider (LLMProvider ):
             })
         return claude_tools 
 
+    def _convert_content (self ,content :Any )->Any :
+        if isinstance (content ,str ):
+            return content 
+        if isinstance (content ,list ):
+            converted =[]
+            for block in content :
+                if isinstance (block ,dict )and block .get ("type")=="image_url":
+                    url =block .get ("image_url",{}).get ("url","")
+                    if url .startswith ("data:"):
+                        media_type ,_ ,b64_data =url [5 :].partition (";base64,")
+                        converted .append ({
+                        "type":"image",
+                        "source":{
+                        "type":"base64",
+                        "media_type":media_type ,
+                        "data":b64_data ,
+                        },
+                        })
+                    else :
+                        converted .append (block )
+                else :
+                    converted .append (block )
+            return converted 
+        return content 
+
     def _build_messages (self ,messages :list )->list :
         result =[]
         for m in messages :
@@ -48,7 +73,7 @@ class ClaudeProvider (LLMProvider ):
             content =m .get ("content","")
             if role =="system":
                 continue 
-            result .append ({"role":role ,"content":content })
+            result .append ({"role":role ,"content":self ._convert_content (content )})
         return result 
 
     def _get_system (self ,messages :list )->str :
@@ -76,6 +101,7 @@ class ClaudeProvider (LLMProvider ):
         "messages":self ._build_messages (messages ),
         "stream":True ,
         "max_tokens":max_tokens ,
+        "temperature":self .temperature ,
         }
         if system :
             body ["system"]=system 
@@ -160,6 +186,7 @@ class ClaudeProvider (LLMProvider ):
         "model":self ._model ,
         "messages":self ._build_messages (messages ),
         "max_tokens":max_tokens ,
+        "temperature":self .temperature ,
         }
         if system :
             body ["system"]=system 

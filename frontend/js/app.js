@@ -55,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             import('/static/js/speech-bubble.js').then(({ SpeechBubble }) => {
                 speechBubble = new SpeechBubble(avatarContainer, avatarRenderer);
-            });
+            }).catch(err => console.error('SpeechBubble load failed:', err));
         } catch(err) {
             console.error('Main avatar creation failed:', err);
             avatarContainer.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#e74c3c;font-size:0.8rem;gap:0.5rem;padding:1rem;text-align:center"><span class="material-icons-round" style="font-size:2rem">error</span><span>Avatar error: ${err.message || err}</span></div>`;
@@ -261,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (e.code == 429 || e.status === 'RESOURCE_EXHAUSTED') return 'Quota exceeded. ' + msg;
                 return msg;
             }
-        } catch {}
+        } catch {  }
         
         const m = t.match(/^\[.*?Error[^:]*:\s*([\s\S]*)/i);
         if (m) {
@@ -275,7 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (e.code == 429 || e.status === 'RESOURCE_EXHAUSTED') return 'Quota exceeded. ' + msg;
                     return msg;
                 }
-            } catch {}
+            } catch {  }
             
             const msgMatch = inner.match(/"message"\s*:\s*"([^"]*)/);
             if (msgMatch && msgMatch[1].trim()) {
@@ -343,12 +343,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (data.finished && currentAssistantMessage?.classList.contains('msg-error')) {
                     _flushStreamBuffer();
-                    if (lastUserMessage) {
-                        chatInput.value = lastUserMessage.querySelector('.msg-body')?.textContent || '';
-                    }
                     currentAssistantMessage = null;
                     lastUserMessage = null;
                     setStatus('ready');
+                    showToast('Message failed. You can click edit to retry.', 'danger');
                     return;
                 }
                 if (data.finished) {
@@ -566,14 +564,18 @@ document.addEventListener('DOMContentLoaded', () => {
         chatMessages.querySelectorAll('.msg-assistant.msg-error').forEach(el => el.remove());
     }
 
+    let _sending = false;
     function sendMessage() {
+        if (_sending) { console.log('sendMessage: already sending, ignored'); return; }
+        _sending = true;
         console.log('sendMessage called');
         const text = chatInput.value.trim();
         console.log('Text:', text);
-        if (!text) return;
-        if (!ws) { console.warn('send: ws null'); showToast('Not connected', 'danger'); return; }
-        if (ws.readyState === WebSocket.CONNECTING) { console.warn('send: ws connecting'); showToast('Connecting...', 'danger'); return; }
+        if (!text) { _sending = false; return; }
+        if (!ws) { _sending = false; console.warn('send: ws null'); showToast('Not connected', 'danger'); return; }
+        if (ws.readyState === WebSocket.CONNECTING) { _sending = false; console.warn('send: ws connecting'); showToast('Connecting...', 'danger'); return; }
         if (ws.readyState !== WebSocket.OPEN) {
+            _sending = false;
             console.warn('send: ws state', ws.readyState);
             showToast('Not connected (reconnecting...)', 'danger');
             return;
@@ -587,6 +589,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ws.send(JSON.stringify({ type: 'slash_command', command, args }));
             chatInput.value = '';
             chatInput.style.height = 'auto';
+            _sending = false;
             return;
         }
 
@@ -615,28 +618,67 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         console.log('Adding user message:', text);
         lastUserMessage = addMessage('user', text);
+        const msg = { type: 'user_message', text };
+        if (_pendingImageData) {
+            msg.images = [_pendingImageData];
+            _pendingImageData = null;
+            if (imgPreview) imgPreview.style.display = 'none';
+            if (imgPreviewSrc) imgPreviewSrc.src = '';
+            if (imgInput) imgInput.value = '';
+        }
         try { 
-            console.log('Sending user_message:', JSON.stringify({ type: 'user_message', text }));
-            ws.send(JSON.stringify({ type: 'user_message', text })); 
+            console.log('Sending user_message:', JSON.stringify(msg));
+            ws.send(JSON.stringify(msg));
         } catch (e) { 
             console.warn('send user_message:', e); showToast('Send failed', 'danger'); 
         }
         chatInput.value = '';
         chatInput.style.height = 'auto';
+        _sending = false;
     }
 
     if (sendBtn) {
         sendBtn.addEventListener('click', sendMessage);
-    } else {
-        console.warn('send-btn not found; using delegated click handler');
     }
+
     
-    const chatInputArea = document.querySelector('.chat-input-area');
-    if (chatInputArea) {
-        chatInputArea.addEventListener('click', (e) => {
-            if (e.target.closest && e.target.closest('#send-btn')) sendMessage();
+    let _pendingImageData = null;
+    const imgBtn = document.getElementById('img-btn');
+    const imgInput = document.getElementById('img-input');
+    const imgPreview = document.getElementById('img-preview');
+    const imgPreviewSrc = document.getElementById('img-preview-src');
+    const imgPreviewRemove = document.getElementById('img-preview-remove');
+    if (imgBtn && imgInput) {
+        imgBtn.addEventListener('click', () => imgInput.click());
+        imgInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            console.log('Image input change:', files?.length, 'files');
+            const file = files?.[0];
+            if (!file) { console.log('No file selected'); return; }
+            console.log('Reading file:', file.name, file.size, file.type);
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                console.log('FileReader loaded, result length:', ev.target?.result?.length);
+                _pendingImageData = ev.target?.result;
+                if (imgPreviewSrc && imgPreview) {
+                    imgPreviewSrc.src = _pendingImageData;
+                    imgPreview.style.display = 'flex';
+                    console.log('Preview shown');
+                }
+            };
+            reader.onerror = (err) => console.error('FileReader error:', err);
+            reader.readAsDataURL(file);
         });
     }
+    if (imgPreviewRemove) {
+        imgPreviewRemove.addEventListener('click', () => {
+            _pendingImageData = null;
+            if (imgInput) imgInput.value = '';
+            if (imgPreview) imgPreview.style.display = 'none';
+            if (imgPreviewSrc) imgPreviewSrc.src = '';
+        });
+    }
+
     document.addEventListener('keydown', e => {
         if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
             const tag = e.target.tagName;
@@ -980,7 +1022,10 @@ document.addEventListener('DOMContentLoaded', () => {
             chatMessages.innerHTML = '';
             if (session?.exists === false) {
                 const res = await api('/api/memory/new-session', { method: 'POST' });
-                if (res?.session_id) location.hash = 'chat/' + res.session_id;
+                if (res?.session_id) {
+                    _currentSessionId = res.session_id;
+                    location.hash = 'chat/' + res.session_id;
+                }
                 return;
             }
             if (session?.messages?.length) {
@@ -1008,8 +1053,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             chatMessages.innerHTML = '';
             const res = await api('/api/memory/new-session', { method: 'POST' });
-            if (res?.session_id) location.hash = 'chat/' + res.session_id;
             _currentSessionId = res?.session_id || sessionId;
+            if (res?.session_id) location.hash = 'chat/' + res.session_id;
             updateSessionButtons();
         }
     }
@@ -1023,7 +1068,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function init() {
         const settings = await api('/api/settings');
-        if (settings) { applySettings(settings); markSettingsClean(); }
+        if (settings) { await applySettings(settings); markSettingsClean(); }
         await loadCharacters();
         await fetchAnimationMap();
 

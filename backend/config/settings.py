@@ -422,9 +422,11 @@ class Settings :
         seen =set ()
         for name ,default in defaults_by_name .items ():
             if name in user_by_name :
-
                 entry =default .copy ()
                 entry ["enabled"]=user_by_name [name ].get ("enabled",default .get ("enabled",True ))
+                user_env =user_by_name [name ].get ("env")
+                if user_env :
+                    entry .setdefault ("env",{}).update (user_env )
                 merged .append (entry )
             else :
                 merged .append (default .copy ())

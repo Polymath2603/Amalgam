@@ -9,7 +9,7 @@ from typing import Dict ,Any ,List ,Optional
 from mcp .client .stdio import stdio_client ,StdioServerParameters 
 from mcp .client .sse import sse_client 
 from mcp .client .session import ClientSession 
-from contextlib import AsyncExitStack ,asynccontextmanager 
+from contextlib import AsyncExitStack 
 import os 
 
 logger =logging .getLogger (__name__ )
@@ -21,12 +21,24 @@ class MCPClient :
         self .tools_cache :Dict [str ,Any ]={}
         self .server_tool_map :Dict [str ,str ]={}
         self .exit_stack =AsyncExitStack ()
-        self ._reconnect_tasks ={}
+        self ._reconnect_tasks :Dict [str ,asyncio .Task ]={}
         self ._server_configs :Dict [str ,dict ]={}
+        self ._server_stacks :Dict [str ,AsyncExitStack ]={}
         self ._agent =None 
+        self ._closed =False 
 
     def register_agent (self ,agent ):
         self ._agent =agent 
+
+    async def _close_server (self ,name :str ):
+        """Close an individual server's session and transport."""
+        old_stack =self ._server_stacks .pop (name ,None )
+        if old_stack :
+            try :
+                await old_stack .aclose ()
+            except BaseException as e :
+                logger .debug (f"Error closing server {name } stack: {e }")
+        self .sessions .pop (name ,None )
 
     async def connect_servers (self ,config_path :str ):
         """Connect to MCP servers defined in a JSON config file."""
@@ -57,10 +69,8 @@ class MCPClient :
         """Connect a server from a config dict. Supports stdio and SSE."""
         self ._server_configs [name ]=config 
         if "url"in config :
-
             ok =await self ._connect_sse (name ,config ["url"],config .get ("headers",{}))
         else :
-
             cmd =config .get ("command")
             args =config .get ("args",[])
             env =config .get ("env",None )
@@ -73,63 +83,90 @@ class MCPClient :
     env :Optional [Dict [str ,str ]]=None ,timeout :float =15.0 ):
         """Connect to a stdio-based MCP server."""
         logger .debug (f"Connecting to stdio MCP server: {name }")
+        if self ._closed :
+            return False 
+
+        await self ._close_server (name )
         server_env =os .environ .copy ()
         if env :
             server_env .update (env )
 
         server_params =StdioServerParameters (command =cmd ,args =args ,env =server_env )
+        stack =AsyncExitStack ()
 
         try :
             stdio_transport =await asyncio .wait_for (
-            self .exit_stack .enter_async_context (stdio_client (server_params )),
+            stack .enter_async_context (stdio_client (server_params )),
             timeout =timeout 
             )
             read_stream ,write_stream =stdio_transport 
             session =await asyncio .wait_for (
-            self .exit_stack .enter_async_context (ClientSession (read_stream ,write_stream )),
+            stack .enter_async_context (ClientSession (read_stream ,write_stream )),
             timeout =timeout 
             )
             await asyncio .wait_for (session .initialize (),timeout =timeout )
+            self ._server_stacks [name ]=stack 
             self .sessions [name ]=session 
             await self ._discover_tools (name ,session )
             logger .debug (f"Connected to stdio server {name }")
             return True 
         except asyncio .TimeoutError :
             logger .error (f"Timeout connecting to stdio server {name } ({timeout }s)")
+            await stack .aclose ()
             return False 
-        except Exception as e :
+        except BaseException as e :
             logger .error (f"Failed to connect to stdio server {name }: {e }")
+            await stack .aclose ()
+            if isinstance (e ,(asyncio .CancelledError ,KeyboardInterrupt )):
+                raise 
             return False 
 
     async def _connect_sse (self ,name :str ,url :str ,headers :dict =None ,
     timeout :float =15.0 ):
         """Connect to a remote SSE/HTTP MCP server."""
         logger .debug (f"Connecting to SSE MCP server: {name } at {url }")
+        if self ._closed :
+            return False 
+
+        await self ._close_server (name )
+        stack =AsyncExitStack ()
+
         try :
             transport =await asyncio .wait_for (
-            self .exit_stack .enter_async_context (sse_client (url ,headers =headers or {})),
+            stack .enter_async_context (sse_client (url ,headers =headers or {})),
             timeout =timeout 
             )
             read_stream ,write_stream =transport 
             session =await asyncio .wait_for (
-            self .exit_stack .enter_async_context (ClientSession (read_stream ,write_stream )),
+            stack .enter_async_context (ClientSession (read_stream ,write_stream )),
             timeout =timeout 
             )
             await asyncio .wait_for (session .initialize (),timeout =timeout )
+            self ._server_stacks [name ]=stack 
             self .sessions [name ]=session 
             await self ._discover_tools (name ,session )
             logger .debug (f"Connected to SSE server {name }")
             return True 
         except asyncio .TimeoutError :
             logger .error (f"Timeout connecting to SSE server {name } ({timeout }s)")
+            await stack .aclose ()
             return False 
-        except Exception as e :
+        except BaseException as e :
             logger .error (f"Failed to connect to SSE server {name }: {e }")
+            await stack .aclose ()
+            if isinstance (e ,(asyncio .CancelledError ,KeyboardInterrupt )):
+                raise 
             return False 
 
     async def _discover_tools (self ,name :str ,session :ClientSession ):
         """Discover tools from a connected session."""
         try :
+
+            stale =[t for t ,s in self .server_tool_map .items ()if s ==name ]
+            for t in stale :
+                self .tools_cache .pop (t ,None )
+                self .server_tool_map .pop (t ,None )
+
             tools_response =await session .list_tools ()
             for tool in tools_response .tools :
                 self .tools_cache [tool .name ]=tool 
@@ -140,7 +177,7 @@ class MCPClient :
 
     async def _reconnect_loop (self ,name :str ,delay :int =1 ):
         config =self ._server_configs .get (name ,{})
-        while delay <=15 :
+        while not self ._closed and delay <=15 :
             await asyncio .sleep (delay )
             logger .debug (f"Reconnecting to {name }...")
             if "url"in config :
@@ -153,7 +190,8 @@ class MCPClient :
             if ok :
                 return 
             delay =min (delay *2 ,16 )
-        logger .error (f"Max reconnect delay reached for {name }")
+        if not self ._closed :
+            logger .error (f"Max reconnect delay reached for {name }")
 
     def get_tool_schema (self )->List [Dict [str ,Any ]]:
         schema =[]
@@ -209,4 +247,16 @@ class MCPClient :
             return f"Error calling tool {name }: {e }"
 
     async def close (self ):
+        self ._closed =True 
+        for task in self ._reconnect_tasks .values ():
+            if not task .done ():
+                task .cancel ()
+        self ._reconnect_tasks .clear ()
+        for name in list (self ._server_stacks .keys ()):
+            await self ._close_server (name )
         await self .exit_stack .aclose ()
+        self .sessions .clear ()
+        self .tools_cache .clear ()
+        self .server_tool_map .clear ()
+        self ._server_configs .clear ()
+        self ._agent =None 

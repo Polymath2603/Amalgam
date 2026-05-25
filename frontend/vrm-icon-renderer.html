@@ -38,7 +38,9 @@ const camera = new THREE.PerspectiveCamera(18, 1, 0.1, 20);
 camera.position.set(0, 1.52, 1.2);
 camera.lookAt(0, 1.48, 0);
 
-scene.add(new THREE.DirectionalLight(0xffffff, Math.PI).position.set(1, 1, 1).normalize());
+const dirLight = new THREE.DirectionalLight(0xffffff, Math.PI);
+dirLight.position.set(1, 1, 1).normalize();
+scene.add(dirLight);
 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
 const loader = new GLTFLoader();

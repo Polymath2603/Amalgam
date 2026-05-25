@@ -1,6 +1,5 @@
 """
-TTS synthesis service — module-level functions for sentence streaming and direct speak.
-Extracted from server.py to avoid re-creating closures per message.
+TTS synthesis service — per-connection stream IDs, no global mutable state.
 """
 import asyncio 
 import base64 
@@ -14,14 +13,11 @@ from backend .api .deps import tts ,settings
 logger =logging .getLogger (__name__ )
 
 
-_ws_stream_idx =0 
-
-
-async def synthesize_sentence (sentence_text :str ,sentence_idx :int ,stream_id :int ,
-ws :WebSocket ,emotion :str ="neutral"):
+async def synthesize_sentence (sentence_text :str ,sentence_idx :int ,expected_stream_id :int ,
+current_stream_id :int ,ws :WebSocket ,emotion :str ="neutral"):
     """TTS a single sentence and send audio over WebSocket."""
     try :
-        if stream_id !=_ws_stream_idx :
+        if expected_stream_id !=current_stream_id :
             logger .debug (f"TTS sentence {sentence_idx }: skipped (stale stream)")
             return 
         char =settings ().get_active_character ()
@@ -110,7 +106,7 @@ async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
             duration =len (audio_np )/sr 
             await ws .send_json ({
             "type":"tts_audio","audio":b64_audio ,"format":"wav",
-            "duration":round (duration ,2 ),"sentence_idx":0 ,"emotion":"neutral"
+            "duration":round (duration ,2 ),"sentence_idx":0 ,"emotion":emotion 
             })
             logger .debug (f"Speak TTS: sent {duration :.2f}s audio")
         else :
@@ -119,18 +115,3 @@ async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
         logger .error ("Speak TTS: timed out")
     except Exception as e :
         logger .error (f"Speak TTS error: {e }")
-
-
-def get_stream_idx ()->int :
-    return _ws_stream_idx 
-
-
-def set_stream_idx (val :int ):
-    global _ws_stream_idx 
-    _ws_stream_idx =val 
-
-
-def increment_stream_idx ()->int :
-    global _ws_stream_idx 
-    _ws_stream_idx +=1 
-    return _ws_stream_idx 

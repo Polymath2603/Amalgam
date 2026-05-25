@@ -757,7 +757,7 @@ export class AvatarRenderer {
     
 
     _startIdleBehaviorLoop() {
-        if (this._idleBehaviorTimer) clearInterval(this._idleBehaviorTimer);
+        if (this._idleBehaviorTimer) clearTimeout(this._idleBehaviorTimer);
         const microAnims = ['curiosity', 'amusement', 'admiration', 'optimism', 'relief', 'realization', 'confusion'];
         const scheduleNext = () => {
             const delay = 8000 + Math.random() * 7000;
