@@ -5,7 +5,8 @@ Extracted from server.py into its own module.
 import os 
 import asyncio 
 import logging 
-from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
+from pathlib import Path 
+from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT ,DATA_DIR 
 
 logger =logging .getLogger (__name__ )
 
@@ -53,15 +54,22 @@ def _generate_letter_icon (name :str ,letter :str ,color_hex :str ,output_path :
     return True 
 
 
+def _scan_missing_icons (base_dir :Path )->list :
+    """Return list of character dir names missing icon.png in a single base directory."""
+    if not base_dir .exists ():
+        return []
+    missing =[]
+    for d in sorted (os .listdir (str (base_dir ))):
+        char_path =base_dir /d 
+        if char_path .is_dir ()and not (char_path /"icon.png").exists ():
+            missing .append (str (char_path ))
+    return missing 
+
 async def generate_missing_icons ():
     """Generate icons for characters missing icon.png. Tries VRM renderer first, falls back to letters."""
-    if not os .path .exists (CHARACTERS_DIR ):
-        return 
-    missing =[]
-    for d in sorted (os .listdir (CHARACTERS_DIR )):
-        char_path =os .path .join (CHARACTERS_DIR ,d )
-        if os .path .isdir (char_path )and not os .path .exists (os .path .join (char_path ,"icon.png")):
-            missing .append (d )
+    data_dir =Path (str (CHARACTERS_DIR ))
+    repo_dir =PROJECT_ROOT /"characters"
+    missing =_scan_missing_icons (data_dir )+_scan_missing_icons (repo_dir )
     if not missing :
         return 
     logger .debug (f"Missing icons for {len (missing )} character(s): {', '.join (missing )}")
@@ -90,33 +98,42 @@ async def generate_missing_icons ():
     await loop .run_in_executor (None ,_generate_missing_icons_sync )
 
 
-def _generate_missing_icons_sync ():
-    """Sync icon generation for missing characters."""
+def _generate_icons_in (base_dir :Path )->int :
+    """Generate letter icons for missing characters in a single base directory."""
     try :
         import yaml 
     except ImportError :
-        return 
+        return 0 
+    if not base_dir .exists ():
+        return 0 
     char_dirs =sorted ([
-    d for d in os .listdir (CHARACTERS_DIR )
-    if os .path .isdir (os .path .join (CHARACTERS_DIR ,d ))
+    d for d in os .listdir (str (base_dir ))
+    if (base_dir /d ).is_dir ()
     ])
     generated =0 
     for idx ,char_dir in enumerate (char_dirs ):
-        icon_path =os .path .join (CHARACTERS_DIR ,char_dir ,"icon.png")
-        if os .path .exists (icon_path ):
+        icon_path =base_dir /char_dir /"icon.png"
+        if icon_path .exists ():
             continue 
-        index_path =os .path .join (CHARACTERS_DIR ,char_dir ,"index.yaml")
+        index_path =base_dir /char_dir /"index.yaml"
         name =char_dir 
-        if os .path .exists (index_path ):
+        if index_path .exists ():
             try :
-                with open (index_path ,'r')as f :
+                with open (str (index_path ),'r')as f :
                     data =yaml .safe_load (f )or {}
                 name =data .get ('name',char_dir )
             except Exception :
                 logger .debug ("Could not parse character index %s",index_path )
         letter =name [0 ].upper ()if name else '?'
         color =PALETTE [idx %len (PALETTE )]
-        if _generate_letter_icon (name ,letter ,color ,icon_path ):
+        if _generate_letter_icon (name ,letter ,color ,str (icon_path )):
             generated +=1 
-    if generated :
-        logger .debug (f"Generated {generated } character icon(s)")
+    return generated 
+
+def _generate_missing_icons_sync ():
+    """Sync icon generation for missing characters."""
+    data_dir =Path (str (CHARACTERS_DIR ))
+    repo_dir =PROJECT_ROOT /"characters"
+    total =_generate_icons_in (data_dir )+_generate_icons_in (repo_dir )
+    if total :
+        logger .debug (f"Generated {total } character icon(s)")

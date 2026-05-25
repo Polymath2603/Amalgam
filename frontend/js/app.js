@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const avatarContainer = document.getElementById('avatar-canvas');
     const avatarPreview = document.getElementById('avatar-preview');
     let _avatarModule = null;
-    let _vrmPath = '/user_data/avatars/avatar.vrm';
+    let _vrmPath = '/characters/default/model.vrm';
     let _mainAvatarCreated = false;
 
     import('/static/js/avatar.js').then(async ({ AvatarRenderer }) => {
@@ -151,6 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
             navItem.classList.add('active');
             panel.classList.add('active');
             panel.focus({ preventScroll: true });
+            sessionStorage.setItem('activeTab', tabId);
             if (tabId === 'settings') loadMCP();
             
             if (tabId === 'avatar') {
@@ -161,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     
     const _hash = window.location.hash.replace('#', '').split('/');
-    switchTab(_hash[0] || 'chat');
+    switchTab(sessionStorage.getItem('activeTab') || _hash[0] || 'chat');
 
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => {
@@ -1199,7 +1200,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.documentElement.style.setProperty('--font-size', fs + 'px');
         }
 
-        document.getElementById('vault-path').value = d.vault?.path || 'user_data/vault';
+        document.getElementById('vault-path').value = d.vault?.path || 'data/vault';
 
         
         const charId = d.character?.active || 'amalgam';
@@ -1570,51 +1571,6 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
     }
 
-    async function loadFacts() {
-        const data = await api('/api/facts?limit=100');
-        const container = document.getElementById('facts-list');
-        const count = document.getElementById('facts-count');
-        if (!container) return;
-        const facts = data?.facts || [];
-        if (count) count.textContent = `(${facts.length})`;
-        if (facts.length === 0) {
-            container.innerHTML = '<p class="muted">No facts stored yet.</p>';
-            return;
-        }
-        container.innerHTML = facts.map(f => `
-            <div class="data-fact-item">
-                <span class="data-fact-text">${escHtml(f.fact)}</span>
-                <span class="data-fact-meta">${f.category} (${f.importance})</span>
-                <span class="data-fact-delete" data-id="${f.id}">delete</span>
-            </div>
-        `).join('');
-        container.querySelectorAll('.data-fact-delete').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                await api(`/api/facts/${btn.dataset.id}`, { method: 'DELETE' });
-                loadFacts();
-                showToast('Fact deleted');
-            });
-        });
-    }
-
-    
-    const addFactBtn = document.getElementById('add-fact-btn');
-    if (addFactBtn) {
-        addFactBtn.addEventListener('click', async () => {
-            const input = document.getElementById('fact-input');
-            const cat = document.getElementById('fact-category');
-            if (!input || !input.value.trim()) return;
-            await api('/api/memory/facts', {
-                method: 'POST',
-                body: JSON.stringify({ fact: input.value.trim(), category: cat?.value?.trim() || 'general' })
-            });
-            input.value = '';
-            if (cat) cat.value = '';
-            loadFacts();
-            showToast('Fact added');
-        });
-    }
-
     async function loadSessions() {
         const data = await api('/api/memory/sessions');
         const container = document.getElementById('sessions-list');
@@ -1760,7 +1716,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const observer = new MutationObserver(() => {
             if (settingsTab.classList.contains('active')) {
                 loadRelationship();
-                loadFacts();
                 loadSessions();
                 loadVaultFiles();
                 loadRules();
@@ -1771,7 +1726,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (settingsTab.classList.contains('active')) {
             loadRelationship();
-            loadFacts();
             loadSessions();
             loadVaultFiles();
             loadRules();

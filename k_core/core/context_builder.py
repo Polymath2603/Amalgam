@@ -3,7 +3,7 @@ import logging
 from string import Template 
 from typing import List ,Dict 
 
-from k_core .paths import PROJECT_ROOT ,VAULT_DIR 
+from k_core .paths import PROJECT_ROOT ,VAULT_DIR ,CHARACTERS_DIR 
 from k_core .core .vault import VaultManager 
 
 logger =logging .getLogger (__name__ )
@@ -70,8 +70,156 @@ For complex questions, internal deliberation, or multi-step reasoning, wrap your
 - If a request is ambiguous, make a reasonable attempt before asking for clarification
 - When you don't know something, say so directly rather than fabricating. If a tool can help, use it before guessing.
 
-## Vault / Notes
-For reading, searching, or writing notes in your vault, use the tools provided by the **obsidian** MCP server (e.g., `read-note`, `search-vault`, `create-note`, `edit-note`). These are always available and handle all vault operations.
+## Vault / Notes — Your Long-Term Memory
+Your vault is a directory of markdown files you manage yourself via the **obsidian** MCP server tools (`read-note`, `search-vault`, `create-note`, `edit-note`, `delete-note`). This is your permanent memory. Use it deliberately.
+
+### What belongs in the vault (permanent)
+- User's name, preferences, habits, recurring requests
+- Project conventions, file paths, architecture decisions
+- Things the user explicitly asks you to remember across sessions
+- Important user data (e.g., "works on Project X, uses Python 3.12")
+- Any knowledge that would be useful weeks from now
+
+### What stays in the session (temporary — NOT in the vault)
+- Running conversation context, observations about the current task
+- "The user tried command X" — this is session history, not a permanent fact
+- Tool execution results, error messages from a single interaction
+- Single-use trivia like "the user's current shell is zsh"
+
+### Vault folder structure
+All notes live under one of these folders. Nest sub-notes under a person or project when a topic has multiple facets (e.g. `people/alice/health.md`, `people/alice/goals.md`, `projects/k-backend/todo.md`).
+
+```
+people/               — info about people the user knows (name, preferences, relationships)
+  {name}/             one subfolder per person when there are multiple facets
+    .md               general bio
+    contact.md        phone, email, address, social
+    preferences.md    tastes, likes, dislikes
+    problems.md       recurring issues, complaints
+    goals.md          their ambitions, things they want
+    health.md         conditions, allergies, medications
+    accounts.md       shared accounts, logins
+
+places/               — locations the user visits or references
+  {name}.md           hours, menu favorites, directions, notes
+
+projects/             — active work, side projects, code repos
+  {name}/
+    .md               overview, stack, status
+    architecture.md   design decisions, file layout
+    todo.md           tasks, roadmap
+    bugs.md           known issues, debugging notes
+    meeting-notes/    per-meeting notes
+
+work/                 — career, job, professional life
+  current-role.md     title, responsibilities, manager
+  skills.md           skills to develop, strengths, gaps
+  colleagues.md       coworkers, their roles
+  career-goals.md     next role, timeline, growth areas
+  meetings/           meeting notes by date
+
+devices/              — computers, phones, peripherals
+  workstation.md      specs, OS, quirks
+  phone.md            model, configs
+  peripherals.md      keyboard, mouse, monitor, audio
+  network.md          router, NAS, IPs, WiFi
+  software.md         licenses, configs, installed tools
+
+health/               — physical and mental health
+  conditions.md       diagnoses, history
+  medications.md      name, dosage, schedule
+  allergies.md        substances, severity
+  doctors.md          providers, appointments, notes
+  fitness.md          workouts, routines, progress
+  sleep.md            patterns, issues, goals
+  mental.md           mood, stress, therapy notes
+
+finance/              — money and financial accounts
+  budget.md           income, expenses, categories
+  accounts.md         bank accounts, routing info
+  subscriptions.md    monthly/yearly services, renewal dates
+  investments.md      stocks, crypto, retirement
+  bills.md            recurring payments, due dates
+  insurance.md        health, auto, home policies
+  tax.md              filings, deductions, documents
+
+accounts/             — online accounts (separate from finance)
+  {service}.md        username, signup email, recovery info, 2FA
+
+learning/             — education, skills, knowledge
+  courses.md          in-progress, completed, planned
+  books.md            reading list, notes, recommendations
+  tutorials.md        saved guides, walkthroughs
+  certifications.md   earned, pursuing
+
+media/                — entertainment and culture
+  movies.md           watched, to-watch, ratings
+  tv-shows.md         current, completed, recommendations
+  music.md            genres, artists, playlists
+  games.md            playing, backlog, preferences
+  podcasts.md         subscribed, episodes
+  reading-list.md     articles, posts to read
+
+references/           — technical and general reference
+  apis/               per-service API notes
+  cheatsheets/        command cheatsheets, shortcuts
+  snippets.md         reusable code/config blocks
+  how-tos.md          step-by-step guides
+
+recipes/              — food and cooking
+  {dish}.md           ingredients, instructions, notes
+
+routines/             — habits, schedules, rituals
+  morning.md          wake-up routine
+  evening.md          wind-down routine
+  weekly.md           regular schedule
+  workout.md          exercise plan
+
+travel/               — trips and destinations
+  past/               past trip notes, itineraries
+  planned/            upcoming trips, bookings
+  wishlist.md         places to visit
+  packing.md          packing checklists
+
+social/               — social life, community
+  events.md           upcoming, attended
+  communities.md      groups, forums, servers
+  gifts.md            gift ideas, given, received
+
+home/                 — living space, possessions
+  maintenance.md      repairs, cleaning schedule, contacts
+  vehicle.md          car info, service records
+  pets.md             pet info, vet, care
+  shopping.md         grocery lists, things to buy
+  documents.md        passport, IDs, contracts, warranties
+
+goals/                — life goals and progress
+  yearly/{year}.md    annual goals
+  long-term.md        big-picture ambitions
+  habits.md           habit tracking, streaks
+
+problems/             — recurring issues and solutions
+  {topic}.md          symptoms, root cause, fix, workaround
+
+ideas/                — brainstorming, inspiration
+  {topic}.md          rough notes, sketches, pros/cons
+
+meetings/             — call and meeting notes
+  {date}-{topic}.md   attendees, decisions, action items
+
+workflows/            — multi-step processes
+  {name}.md           steps, prerequisites, troubleshooting
+
+conventions/          — coding style, naming, project rules
+  {project}.md        language/style-specific conventions
+
+journal/              — personal diary entries
+  {date}.md           daily thoughts, reflections
+```
+- **Use clear headings**: `## Preferences`, `## Project Structure`, `## Recurring Tasks`
+- **Keep notes concise**: bullet points, short paragraphs — not full conversation dumps
+- **Update, don't duplicate**: `search-vault` before `create-note` to find existing notes, then `edit-note` to append or modify
+- **Review periodically**: at the start of a session, `search-vault` for notes relevant to the user's context
 
 ## Edge Cases
 - If asked about something outside your knowledge, be honest — use <think> to reason through what you do know
@@ -104,21 +252,24 @@ class ContextBuilder :
 
     def _get_available_animations (self ,character_id :str =None )->List [str ]:
         names =[]
-        default_dir =os .path .join (PROJECT_ROOT ,"characters","default","anim")
-        if os .path .exists (default_dir ):
-            for f in sorted (os .listdir (default_dir )):
-                if f .endswith (".vrma"):
-                    name =f .replace (".vrma","")
-                    name =name .replace (".bvh","")
-                    names .append (name )
-        if character_id and character_id !="default":
-            char_dir =os .path .join (PROJECT_ROOT ,"characters",character_id ,"anim")
-            if os .path .exists (char_dir ):
-                for f in sorted (os .listdir (char_dir )):
-                    if f .endswith (".vrma"):
-                        name =f .replace (".vrma","")
-                        name =name .replace (".bvh","")
+        seen =set ()
+        for base in [CHARACTERS_DIR ,PROJECT_ROOT /"characters"]:
+            anim_dir =base /"default"/"anim"
+            if anim_dir .exists ():
+                for f in sorted (os .listdir (str (anim_dir ))):
+                    if f .endswith (".vrma")and f not in seen :
+                        seen .add (f )
+                        name =f .replace (".vrma","").replace (".bvh","")
                         names .append (name )
+        if character_id and character_id !="default":
+            for base in [CHARACTERS_DIR ,PROJECT_ROOT /"characters"]:
+                anim_dir =base /character_id /"anim"
+                if anim_dir .exists ():
+                    for f in sorted (os .listdir (str (anim_dir ))):
+                        if f .endswith (".vrma")and f not in seen :
+                            seen .add (f )
+                            name =f .replace (".vrma","").replace (".bvh","")
+                            names .append (name )
         return names 
 
     def _get_vault_path (self )->str :

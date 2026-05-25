@@ -48,10 +48,10 @@ const BLINK_OPEN_MAX = 5;
 export class AvatarRenderer {
     constructor(container, vrmPath, options = {}) {
         this.container = container;
-        this.vrmPath = vrmPath || '/user_data/avatars/avatar.vrm';
+        this.vrmPath = vrmPath || '/characters/default/model.vrm';
         this.preview = options.preview || false;
         this.animConfig = Object.assign({
-            idle: '/static/animations/neutral.vrma',
+            idle: '/static/animations/idle_loop.vrma',
             greeting: '/static/animations/greeting.vrma',
         }, options.animations || {});
         this.vrm = null;

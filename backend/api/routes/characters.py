@@ -6,12 +6,13 @@ import logging
 import asyncio 
 import shutil 
 
+from pathlib import Path 
 from fastapi import APIRouter 
 from fastapi .responses import JSONResponse 
 from backend .api .deps import settings ,llm ,tts 
 from k_core .config .settings import BUILTIN_VOICES 
 from k_core .core .llm import LLMRouter 
-from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
+from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT ,DATA_DIR 
 from backend .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE 
 
 logger =logging .getLogger (__name__ )
@@ -33,15 +34,26 @@ async def get_character (character_id :str ):
     return JSONResponse (status_code =404 ,content ={"error":"Character not found"})
 
 
+def _list_anim_files (base_dir :Path )->list :
+    """List .vrma files in an animation directory, or empty list."""
+    if not base_dir .is_dir ():
+        return []
+    result =[]
+    for f in sorted (os .listdir (str (base_dir ))):
+        if f .endswith (".vrma"):
+            result .append (f )
+    return result 
+
 @router .get ("/api/animations")
 async def get_animations (char_id :str =None ):
     """Return available VRMA animation files."""
-    default_dir =str (CHARACTERS_DIR /"default"/"anim")
     animations ={"default":[],"character":[]}
 
-    if os .path .exists (default_dir ):
-        for f in sorted (os .listdir (default_dir )):
-            if f .endswith (".vrma"):
+    seen =set ()
+    for base in [CHARACTERS_DIR ,PROJECT_ROOT /"characters"]:
+        for f in _list_anim_files (base /"default"/"anim"):
+            if f not in seen :
+                seen .add (f )
                 name =f .replace (".vrma","").replace (".bvh","")
                 animations ["default"].append ({
                 "file":f ,
@@ -50,10 +62,11 @@ async def get_animations (char_id :str =None ):
                 })
 
     if char_id and char_id !="default":
-        char_anim_dir =str (CHARACTERS_DIR /char_id /"anim")
-        if os .path .exists (char_anim_dir ):
-            for f in sorted (os .listdir (char_anim_dir )):
-                if f .endswith (".vrma"):
+        seen =set ()
+        for base in [CHARACTERS_DIR ,PROJECT_ROOT /"characters"]:
+            for f in _list_anim_files (base /char_id /"anim"):
+                if f not in seen :
+                    seen .add (f )
                     name =f .replace (".vrma","").replace (".bvh","")
                     animations ["character"].append ({
                     "file":f ,

@@ -9,7 +9,8 @@ import logging
 from fastapi import WebSocket ,WebSocketDisconnect 
 from backend .api .deps import settings ,memory ,tts ,agent ,relationship 
 from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now 
-from k_core .paths import CHARACTERS_DIR 
+from pathlib import Path 
+from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
 from backend .voice .pipeline import VoicePipeline 
 
 logger =logging .getLogger (__name__ )
@@ -42,12 +43,22 @@ def _normalize_error (error_text :str )->str :
     return error_text 
 
 
+def _animation_dir (char_id :str )->str :
+    """Return the filesystem path to a character's animation directory, checking data/ then repo."""
+    data_dir =CHARACTERS_DIR /char_id /"anim"
+    if data_dir .exists ():
+        return str (data_dir )
+    repo_dir =PROJECT_ROOT /"characters"/char_id /"anim"
+    if repo_dir .exists ():
+        return str (repo_dir )
+    return str (data_dir )
+
 def _resolve_animation (text :str ,char_id :str )->str |None :
     """Resolve an animation URL from roleplay/action text by keyword matching."""
     import os 
     words =text .lower ().split ()
-    char_dir =str (CHARACTERS_DIR /char_id /"anim")
-    default_dir =str (CHARACTERS_DIR /"default"/"anim")
+    char_dir =_animation_dir (char_id )
+    default_dir =_animation_dir ("default")
     candidates =[]
     if os .path .exists (default_dir ):
         candidates .extend (os .listdir (default_dir ))
@@ -375,10 +386,8 @@ async def handle_chat (websocket :WebSocket ):
                         try :
                             relationship ().analyze_message ("user",text ,char_id )
                             relationship ().analyze_message ("assistant",full_response ,char_id )
-                            t =asyncio .create_task (memory ().extract_facts (text ,full_response .strip ()))
-                            _track_task (t )
                         except Exception as e :
-                            logger .warning (f"Relationship/fact tracking error: {e }")
+                            logger .warning (f"Relationship tracking error: {e }")
 
                     await _send_json ({"type":"viseme","value":0.0 })
 

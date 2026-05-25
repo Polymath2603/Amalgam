@@ -7,6 +7,7 @@ import os
 import yaml 
 import logging 
 from typing import Any ,Dict ,List 
+from pathlib import Path 
 from k_core .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
 
 logger =logging .getLogger (__name__ )
@@ -247,58 +248,47 @@ _DEFAULT_CHARACTER ={
 "mood_volatility":0.3 ,
 }
 
-def _load_single_character (char_dir :str )->Dict [str ,Dict ]|None :
-    """Load a single character from its directory."""
-    index_path =os .path .join (CHARACTERS_DIR ,char_dir ,"index.yaml")
-    if not os .path .isfile (index_path ):
-        return None 
-    try :
-        with open (index_path ,"r")as f :
-            char_data =yaml .safe_load (f )or {}
-        char_id =char_dir .lower ()
-
-        for key ,val in _DEFAULT_CHARACTER .items ():
-            if key not in char_data :
-                char_data [key ]=val 
-
-        icon_path =os .path .join (CHARACTERS_DIR ,char_dir ,"icon.png")
-        model_path =os .path .join (CHARACTERS_DIR ,char_dir ,"model.vrm")
-        char_data ["_dir"]=os .path .join (CHARACTERS_DIR ,char_dir )
-        char_data ["icon_url"]=f"/characters/{char_id }/icon.png"if os .path .exists (icon_path )else "/icons/logo.png"
-        char_data ["model_url"]=f"/characters/{char_id }/model.vrm"if os .path .exists (model_path )else ""
-
-        if not char_data .get ("voice_ref"):
-            voice_pth =os .path .join (CHARACTERS_DIR ,char_dir ,"voice.pth")
-            voice_wav =os .path .join (CHARACTERS_DIR ,char_dir ,"voice.wav")
-            if os .path .exists (voice_pth ):
-                char_data ["voice_ref"]=voice_pth 
-            elif os .path .exists (voice_wav ):
-                char_data ["voice_ref"]=voice_wav 
-        return {char_id :char_data }
-    except Exception as e :
-        logger .error (f"Failed to load character from {index_path }: {e }")
-        return None 
+def _scan_characters_in (base_dir :Path )->Dict [str ,Dict ]:
+    """Load all character definitions from a single base directory."""
+    if not base_dir .exists ():
+        return {}
+    characters ={}
+    for char_dir in sorted (os .listdir (str (base_dir ))):
+        index_path =base_dir /char_dir /"index.yaml"
+        if not index_path .is_file ():
+            continue 
+        try :
+            with open (str (index_path ),"r")as f :
+                char_data =yaml .safe_load (f )or {}
+            char_id =char_dir .lower ()
+            for key ,val in _DEFAULT_CHARACTER .items ():
+                if key not in char_data :
+                    char_data [key ]=val 
+            icon_path =base_dir /char_dir /"icon.png"
+            model_path =base_dir /char_dir /"model.vrm"
+            char_data ["_dir"]=str (base_dir /char_dir )
+            char_data ["icon_url"]=f"/characters/{char_id }/icon.png"if icon_path .exists ()else "/icons/logo.png"
+            char_data ["model_url"]=f"/characters/{char_id }/model.vrm"if model_path .exists ()else ""
+            if not char_data .get ("voice_ref"):
+                voice_pth =base_dir /char_dir /"voice.pth"
+                voice_wav =base_dir /char_dir /"voice.wav"
+                if voice_pth .exists ():
+                    char_data ["voice_ref"]=str (voice_pth )
+                elif voice_wav .exists ():
+                    char_data ["voice_ref"]=str (voice_wav )
+            characters [char_id ]=char_data 
+        except Exception as e :
+            logger .error (f"Failed to load character from {index_path }: {e }")
+    return characters 
 
 def load_characters_from_yaml ()->Dict [str ,Dict ]:
     """Load all character definitions from characters/*/index.yaml."""
     characters ={}
-    if not os .path .exists (CHARACTERS_DIR ):
-        return characters 
 
 
-    for char_dir in sorted (os .listdir (CHARACTERS_DIR )):
-        if char_dir .lower ()=="default":
-            result =_load_single_character (char_dir )
-            if result :
-                characters .update (result )
-            break 
-
-    for char_dir in sorted (os .listdir (CHARACTERS_DIR )):
-        if char_dir .lower ()=="default":
-            continue 
-        result =_load_single_character (char_dir )
-        if result :
-            characters .update (result )
+    repo_dir =PROJECT_ROOT /"characters"
+    characters .update (_scan_characters_in (repo_dir ))
+    characters .update (_scan_characters_in (Path (str (CHARACTERS_DIR ))))
 
 
     if "default"not in characters :

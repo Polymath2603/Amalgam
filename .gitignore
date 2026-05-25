@@ -9,7 +9,7 @@ __pycache__/
 *.egg-info/
 
 # Private/user data
-user_data/
+data/
 backend/voice/checkpoints/
 .remember/
 processed/

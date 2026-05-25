@@ -6,8 +6,10 @@ and startup lifecycle.
 import os 
 import asyncio 
 import logging 
+from pathlib import Path 
 
 from fastapi import FastAPI ,WebSocket 
+from fastapi .responses import FileResponse ,Response 
 from fastapi .staticfiles import StaticFiles 
 from fastapi .middleware .cors import CORSMiddleware 
 
@@ -24,7 +26,7 @@ tts as tts_route ,
 root ,
 )
 from backend .api .deps import settings ,memory ,tts ,mcp 
-from k_core .paths import FRONTEND_DIR ,DATA_DIR ,CHARACTERS_DIR ,VAULT_DIR 
+from k_core .paths import FRONTEND_DIR ,DATA_DIR ,CHARACTERS_DIR ,VAULT_DIR ,PROJECT_ROOT 
 from backend .utils .icon_generator import generate_missing_icons 
 
 logger =logging .getLogger (__name__ )
@@ -47,21 +49,30 @@ def create_app ():
     app .include_router (root .router )
 
 
-    CHAR_DEFAULT_ANIM =str (CHARACTERS_DIR /"default"/"anim")
-    if os .path .exists (CHAR_DEFAULT_ANIM ):
-        app .mount ("/static/animations",StaticFiles (directory =CHAR_DEFAULT_ANIM ),name ="default_animations")
+    REPO_ANIM =str (PROJECT_ROOT /"characters"/"default"/"anim")
+    if os .path .exists (REPO_ANIM ):
+        app .mount ("/static/animations",StaticFiles (directory =REPO_ANIM ),name ="default_animations")
 
 
     if os .path .exists (str (FRONTEND_DIR )):
         app .mount ("/static",StaticFiles (directory =str (FRONTEND_DIR )),name ="static")
 
 
-    if os .path .exists (str (DATA_DIR )):
-        app .mount ("/user_data",StaticFiles (directory =str (DATA_DIR )),name ="user_data")
+    DATA_DIR .mkdir (parents =True ,exist_ok =True )
+    app .mount ("/data",StaticFiles (directory =str (DATA_DIR )),name ="data")
 
 
-    if os .path .exists (str (CHARACTERS_DIR )):
-        app .mount ("/characters",StaticFiles (directory =str (CHARACTERS_DIR )),name ="characters")
+
+    REPO_CHARS =str (PROJECT_ROOT /"characters")
+    @app .get ("/characters/{file_path:path}")
+    async def serve_character_asset (file_path :str ):
+        user_path =CHARACTERS_DIR /file_path 
+        if user_path .exists ()and user_path .is_file ():
+            return FileResponse (str (user_path ))
+        repo_path =Path (REPO_CHARS )/file_path 
+        if repo_path .exists ()and repo_path .is_file ():
+            return FileResponse (str (repo_path ))
+        return Response (status_code =404 )
 
 
     @app .websocket ("/ws/chat")
