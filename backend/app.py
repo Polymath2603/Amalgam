@@ -15,6 +15,7 @@ from backend .api .ws .handler import handle_chat
 from backend .api .routes import (
 settings as settings_route ,
 characters ,
+commands as commands_route ,
 mcp as mcp_route ,
 memory as memory_route ,
 vault ,
@@ -23,7 +24,7 @@ tts as tts_route ,
 root ,
 )
 from backend .api .deps import settings ,memory ,tts ,mcp 
-from backend .paths import FRONTEND_DIR ,DATA_DIR ,CHARACTERS_DIR ,VAULT_DIR 
+from k_core .paths import FRONTEND_DIR ,DATA_DIR ,CHARACTERS_DIR ,VAULT_DIR 
 from backend .utils .icon_generator import generate_missing_icons 
 
 logger =logging .getLogger (__name__ )
@@ -37,6 +38,7 @@ def create_app ():
 
     app .include_router (settings_route .router )
     app .include_router (characters .router )
+    app .include_router (commands_route .router )
     app .include_router (mcp_route .router )
     app .include_router (memory_route .router )
     app .include_router (vault .router )

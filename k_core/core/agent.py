@@ -3,55 +3,34 @@ import logging
 import re 
 from typing import AsyncIterator ,Union ,Tuple 
 
-from backend .core .memory import Memory 
-from backend .core .context_builder import ContextBuilder 
-from backend .core .llm import LLMRouter 
-from backend .core .plugin import get_registry as get_plugin_registry 
+from k_core .core .memory import Memory 
+from k_core .core .context_builder import ContextBuilder 
+from k_core .core .llm import LLMRouter 
+from k_core .core .plugin import get_registry as get_plugin_registry 
 
 logger =logging .getLogger (__name__ )
 
-DEFAULT_EMOTION_TAGS =[
-"happy","sad","angry","surprised","thinking","relaxed",
-"confused","shy","jealous","bored","suspicious","victory",
-"sleep","love","excited"
-]
-DEFAULT_EXPRESSION_NAMES =["happy","angry","sad","relaxed","surprised","blink"]
-
-
-def _build_emotion_re (tags ):
-    return re .compile (r'/\[\[('+'|'.join (re .escape (t )for t in tags )+r')\]\]',re .IGNORECASE )
-
-def _build_expression_re (names ):
-    return re .compile (r'/\(\(('+'|'.join (re .escape (n )for n in names )+r')\)\)',re .IGNORECASE )
-
-ACTION_RE =re .compile (r'/\*\*(.+?)\*\*/?',re .DOTALL )
 THINK_RE =re .compile (r'<think>(.*?)</think>',re .DOTALL )
 
 
+_LEGACY_EMOTION_RE =re .compile (r'/\[\[.*?\]\]',re .IGNORECASE )
+_LEGACY_EXPRESSION_RE =re .compile (r'/\(\(.*?\)\)',re .IGNORECASE )
+_LEGACY_ACTION_RE =re .compile (r'/\*\*(.+?)\*\*/?',re .DOTALL )
+
+
 class Agent :
-    def __init__ (self ,mcp_client =None ,llm =None ,memory =None ,context_builder =None ,settings =None ,
-    emotion_tags =None ,expression_names =None ):
+    def __init__ (self ,mcp_client =None ,llm =None ,memory =None ,context_builder =None ,settings =None ):
         self .settings =settings 
         self .llm =llm or LLMRouter (settings =settings )
         self .memory =memory or Memory (llm_router =self .llm )
         self .context_builder =context_builder or ContextBuilder (settings =settings )
         self .mcp_client =mcp_client 
 
-        self ._emotion_tags =emotion_tags or DEFAULT_EMOTION_TAGS 
-        self ._expression_names =expression_names or DEFAULT_EXPRESSION_NAMES 
-        self ._build_regexes ()
-
-    def _build_regexes (self ):
-        self ._emotion_re =_build_emotion_re (self ._emotion_tags )
-        self ._expression_re =_build_expression_re (self ._expression_names )
-
     def update_emotion_tags (self ,tags ):
-        self ._emotion_tags =tags 
-        self ._build_regexes ()
+        pass 
 
     def update_expression_names (self ,names ):
-        self ._expression_names =names 
-        self ._build_regexes ()
+        pass 
 
     def update_settings (self ,settings ):
         self .settings =settings 
@@ -60,38 +39,32 @@ class Agent :
     def _process_tags (self ,text :str ):
         for m in THINK_RE .finditer (text ):
             yield ('__thinking__',m .group (1 ).strip ())
-        for m in self ._emotion_re .finditer (text ):
-            yield ('__emotion__',m .group (1 ))
-        for m in self ._expression_re .finditer (text ):
-            yield ('__expression__',m .group (1 ))
-        for m in ACTION_RE .finditer (text ):
+        for m in _LEGACY_ACTION_RE .finditer (text ):
             content =m .group (1 ).strip ()
             if content :
                 yield ('__roleplay__',content )
 
     def _strip_all_tags (self ,text :str )->str :
         text =THINK_RE .sub ('',text )
-        text =self ._emotion_re .sub ('',text )
-        text =self ._expression_re .sub ('',text )
-        text =ACTION_RE .sub ('',text )
+        text =_LEGACY_ACTION_RE .sub ('',text )
+        text =_LEGACY_EMOTION_RE .sub ('',text )
+        text =_LEGACY_EXPRESSION_RE .sub ('',text )
+        text =re .sub (r'/\*\*.*?\*\*/?','',text ,flags =re .DOTALL )
+        text =re .sub (r'/\*.*?\*/','',text ,flags =re .DOTALL )
         text =re .sub (r'/\[\[.*?\]\]','',text )
         text =re .sub (r'/\(\(.*?\)\)','',text )
         text =re .sub (r'\[\[.*?\]\]','',text )
         text =re .sub (r'\(\(.*?\)\)','',text )
-        text =re .sub (r'/[a-zA-Z]+\]\]','',text )
-        text =re .sub (r'/[a-zA-Z]+\)\)','',text )
-        return text 
+        text =re .sub (r'/\*\*.*','',text )
+        text =re .sub (r'\s*/\s*$','',text )
+        return text .strip ()
 
     def _clean_remaining_tags (self ,text :str )->str :
         text =re .sub (r'/\[\[[^\]\s]*','',text )
         text =re .sub (r'/\(\([^\)\s]*','',text )
         text =re .sub (r'\[\[[^\]\s]*','',text )
         text =re .sub (r'\(\([^\)\s]*','',text )
-        text =re .sub (r'/[a-zA-Z]+\]\]','',text )
-        text =re .sub (r'/[a-zA-Z]+\)\)','',text )
-        text =re .sub (r'/ [a-zA-Z]+','',text )
-        text =re .sub (r'[a-zA-Z]*\]\]','',text )
-        text =re .sub (r'[a-zA-Z]*\)\)','',text )
+        text =re .sub (r'/\*\*.*','',text )
         text =re .sub (r'\s*/\s*$','',text )
         return text .strip ()
 
@@ -144,8 +117,6 @@ class Agent :
             additional_prompt =additional_prompt ,
             summary =summary ,
             relevant =relevant ,
-            tts_emotions =self ._emotion_tags ,
-            expression_names =self ._expression_names ,
             relationship_context =relationship_context ,
             native_tools_available =native_tools ,
             )
@@ -207,6 +178,8 @@ class Agent :
                             if self .mcp_client :
                                 result =await self .mcp_client .call_tool (tool_name ,tool_args )
                             result =await plugins .hook_tool_result (tool_name ,tool_args ,result )
+                            if tool_name .startswith ("avatar_"):
+                                yield ("__avatar__",result )
                             if result .startswith ("COMMAND_BLOCKED:"):
                                 blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                 yield ("__permission__",blocked_cmd )
@@ -252,6 +225,8 @@ class Agent :
                                         if self .mcp_client :
                                             result =await self .mcp_client .call_tool (name ,args )
                                         result =await plugins .hook_tool_result (name ,args ,result )
+                                        if name .startswith ("avatar_"):
+                                            yield ("__avatar__",result )
                                         if result .startswith ("COMMAND_BLOCKED:"):
                                             blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                             yield ("__permission__",blocked_cmd )

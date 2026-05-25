@@ -10,9 +10,28 @@ import logging
 logger =logging .getLogger (__name__ )
 
 
+def _make_console ():
+    from rich .console import Console 
+    return Console ()
+
+
+def _show_banner (console ,session_id ,provider ,model ):
+    from rich .panel import Panel 
+    from rich .table import Table 
+    from rich import box 
+    grid =Table .grid (padding =1 )
+    grid .add_column (style ="cyan")
+    grid .add_column ()
+    grid .add_row ("Session",f"[bold]{session_id [:16 ]}...[/bold]")
+    grid .add_row ("Provider",provider )
+    grid .add_row ("Model",model )
+    console .print (Panel (grid ,title ="[bold yellow]Amalgam[/bold yellow]",border_style ="yellow"))
+    console .print ("[dim]Type /exit to quit, /new for new session, /help for commands[/dim]\n")
+
+
 async def run_cli_direct ():
     """Run the agent directly in-process (no gRPC needed)."""
-    from backend .api .deps import get_shared 
+    from k_core .deps import get_shared 
 
     shared =get_shared ()
     agent =shared ["agent"]
@@ -20,15 +39,16 @@ async def run_cli_direct ():
     settings =shared ["settings"]
 
     session_id =memory .start_session ()
-    print (f"Session: {session_id }")
-    print ("Type /exit to quit, /new for new session, /help for commands")
-    print ()
+    active =settings .get ("provider.active","?")
+    model =settings .get (f"provider.{active }.model","?")
+    con =_make_console ()
+    _show_banner (con ,session_id ,active ,model )
 
     while True :
         try :
-            text =input ("> ").strip ()
+            text =con .input ("[bold cyan]>[/bold cyan] ").strip ()
         except (EOFError ,KeyboardInterrupt ):
-            print ()
+            con .print ()
             break 
 
         if not text :
@@ -38,56 +58,92 @@ async def run_cli_direct ():
             break 
         elif text =="/new":
             session_id =memory .start_session ()
-            print (f"New session: {session_id }")
+            con .print (f"[green]New session:[/green] {session_id [:16 ]}...")
             continue 
         elif text =="/help":
-            print ("Commands: /exit /new /session /provider /model /help")
+            from rich .table import Table 
+            from rich import box 
+            tbl =Table (box =box .SIMPLE ,show_header =False )
+            tbl .add_column ("Command",style ="cyan")
+            tbl .add_column ("Description")
+            for row in [
+            ("/exit","Quit the CLI"),
+            ("/clear","Clear conversation history"),
+            ("/new","Start a new session"),
+            ("/session","Show current session ID"),
+            ("/status","Show provider, model, session info"),
+            ("/compact","Force memory compaction"),
+            ("/provider <name>","Switch AI provider"),
+            ("/model <name>","Switch model for current provider"),
+            ("/help","Show this help"),
+            ]:
+                tbl .add_row (*row )
+            con .print (tbl )
+            continue 
+        elif text =="/clear":
+            await memory .clear ()
+            memory .start_session ()
+            con .print ("[green]Memory cleared.[/green]")
             continue 
         elif text =="/session":
-            print (f"Current session: {memory .get_current_session ()}")
+            con .print (f"[cyan]Session:[/cyan] {memory .get_current_session ()}")
+            continue 
+        elif text =="/status":
+            from rich .table import Table 
+            from rich import box 
+            active =settings .get ("provider.active","?")
+            model =settings .get (f"provider.{active }.model","?")
+            tbl =Table (box =box .SIMPLE ,show_header =False )
+            tbl .add_column ("Key",style ="cyan")
+            tbl .add_column ("Value")
+            tbl .add_row ("Provider",active )
+            tbl .add_row ("Model",model )
+            tbl .add_row ("Session",memory .get_current_session ())
+            con .print (tbl )
+            continue 
+        elif text =="/compact":
+            with con .status ("[yellow]Compacting memory...[/yellow]"):
+                await memory .check_and_summarize ()
+            con .print ("[green]Memory compacted.[/green]")
             continue 
         elif text .startswith ("/provider"):
             parts =text .split ()
             if len (parts )>1 :
                 settings .set ("provider.active",parts [1 ])
-                print (f"Provider set to: {parts [1 ]}")
+                con .print (f"[green]Provider set to:[/green] {parts [1 ]}")
             else :
-                print (f"Current provider: {settings .get ('provider.active')}")
+                con .print (f"Current provider: {settings .get ('provider.active')}")
             continue 
         elif text .startswith ("/model"):
             provider =settings .get ("provider.active","gemini")
             parts =text .split (maxsplit =1 )
             if len (parts )>1 :
                 settings .set (f"provider.{provider }.model",parts [1 ])
-                print (f"Model set to: {parts [1 ]}")
+                con .print (f"[green]Model set to:[/green] {parts [1 ]}")
             else :
-                print (f"Current model: {settings .get (f'provider.{provider }.model','?')}")
+                con .print (f"Current model: {settings .get (f'provider.{provider }.model','?')}")
             continue 
 
+        from rich .panel import Panel 
         async for chunk in agent .handle_user_input (text ):
             if isinstance (chunk ,tuple ):
                 tag_type ,tag_val =chunk 
                 if tag_type =="__thinking__":
-                    print (f"\033[90m[thinking] {tag_val }\033[0m")
-                elif tag_type =="__emotion__":
-                    pass 
-                elif tag_type =="__expression__":
-                    pass 
+                    con .print (f"[dim]\\[thinking] {tag_val }[/dim]")
                 elif tag_type =="__roleplay__":
-                    print (f"\033[93m* {tag_val } *\033[0m")
+                    con .print (f"[yellow]* {tag_val } *[/yellow]")
                 elif tag_type =="__tool__":
-                    print (f"\033[94m[Tool] {tag_val }\033[0m")
+                    con .print (Panel (f"[cyan]{tag_val }[/cyan]",title ="[bold cyan]Tool[/bold cyan]",border_style ="cyan"))
                 elif tag_type =="__permission__":
-                    print (f"\033[91m[Permission needed] {tag_val }\033[0m")
-                    print ("  Options: once / prefix / exact / deny")
-                    action =input ("  > ").strip ().lower ()
-
-                    print (f"  {action }")
+                    from rich .prompt import Prompt 
+                    con .print (Panel (f"[yellow]{tag_val }[/yellow]",title ="[bold yellow]Permission Needed[/bold yellow]",border_style ="yellow"))
+                    action =Prompt .ask ("  Options",choices =["once","prefix","exact","deny"],default ="deny")
+                    con .print (f"  {action }")
                 elif tag_type =="__error__":
-                    print (f"\033[91m[Error] {tag_val }\033[0m")
+                    con .print (Panel (f"[red]{tag_val }[/red]",title ="[bold red]Error[/bold red]",border_style ="red"))
             else :
-                print (chunk ,end ="",flush =True )
-        print ()
+                con .print (chunk ,end ="")
+        con .print ()
 
 
 async def run_cli_grpc (host :str ="localhost",port :int =50051 ):
@@ -95,18 +151,18 @@ async def run_cli_grpc (host :str ="localhost",port :int =50051 ):
     import grpc 
     from backend .grpc import agent_pb2 ,agent_pb2_grpc 
 
+    con =_make_console ()
+
     async with grpc .aio .insecure_channel (f"{host }:{port }")as channel :
         stub =agent_pb2_grpc .AgentServiceStub (channel )
-
-        print (f"Connected to gRPC server at {host }:{port }")
-        print ("Type /exit to quit")
-        print ()
+        con .print (f"[green]Connected to gRPC server at[/green] {host }:{port }")
+        con .print ("[dim]Type /exit to quit[/dim]\n")
 
         while True :
             try :
-                text =input ("> ").strip ()
+                text =con .input ("[bold cyan]>[/bold cyan] ").strip ()
             except (EOFError ,KeyboardInterrupt ):
-                print ()
+                con .print ()
                 break 
 
             if not text :
@@ -117,23 +173,24 @@ async def run_cli_grpc (host :str ="localhost",port :int =50051 ):
             async def send_messages ():
                 yield agent_pb2 .ChatRequest (text =text )
 
+            from rich .panel import Panel 
             async for response in stub .Chat (send_messages ()):
                 which =response .WhichOneof ("payload")
                 if which =="text_chunk":
-                    print (response .text_chunk ,end ="",flush =True )
+                    con .print (response .text_chunk ,end ="")
                 elif which =="thinking":
-                    print (f"\033[90m[thinking] {response .thinking }\033[0m")
+                    con .print (f"[dim]\\[thinking] {response .thinking }[/dim]")
                 elif which =="tool_call":
-                    print (f"\033[94m[Tool] {response .tool_call .name }\033[0m")
+                    con .print (Panel (f"[cyan]{response .tool_call .name }[/cyan]",title ="Tool",border_style ="cyan"))
                 elif which =="permission_request":
                     pr =response .permission_request 
-                    print (f"\033[91m[Permission needed] {pr .cmd }\033[0m")
-                    print (f"  Options: {', '.join (pr .options )}")
-                    action =input ("  > ").strip ().lower ()
+                    con .print (Panel (f"[yellow]{pr .cmd }[/yellow]",title ="Permission Needed",border_style ="yellow"))
+                    from rich .prompt import Prompt 
+                    action =Prompt .ask ("  Options",choices =list (pr .options ),default ="deny")
                 elif which =="error":
-                    print (f"\033[91m[Error] {response .error }\033[0m")
+                    con .print (Panel (f"[red]{response .error }[/red]",title ="Error",border_style ="red"))
                 elif which =="done":
-                    print ()
+                    con .print ()
                     break 
 
 

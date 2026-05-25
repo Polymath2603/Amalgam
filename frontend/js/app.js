@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!sendBtn) console.warn('app:init - send-btn not found in DOM');
 
     
-    let _animationMap = {};
+    
 
     
     const avatarContainer = document.getElementById('avatar-canvas');
@@ -249,56 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    function parseErrorMessage(text) {
-        const t = text.trim();
-        
-        try {
-            let obj = JSON.parse(t);
-            if (Array.isArray(obj)) obj = obj[0];
-            if (obj?.error) {
-                const e = obj.error;
-                const msg = e.message || JSON.stringify(e);
-                if (e.code == 429 || e.status === 'RESOURCE_EXHAUSTED') return 'Quota exceeded. ' + msg;
-                return msg;
-            }
-        } catch {  }
-        
-        const m = t.match(/^\[.*?Error[^:]*:\s*([\s\S]*)/i);
-        if (m) {
-            const inner = m[1].trim();
-            try {
-                let obj = JSON.parse(inner.replace(/\]$/, ''));
-                if (Array.isArray(obj)) obj = obj[0];
-                if (obj?.error) {
-                    const e = obj.error;
-                    const msg = e.message || '';
-                    if (e.code == 429 || e.status === 'RESOURCE_EXHAUSTED') return 'Quota exceeded. ' + msg;
-                    return msg;
-                }
-            } catch {  }
-            
-            const msgMatch = inner.match(/"message"\s*:\s*"([^"]*)/);
-            if (msgMatch && msgMatch[1].trim()) {
-                return msgMatch[1].replace(/[\]\}]+$/, '').trim();
-            }
-            
-            if (/\b429\b/.test(t) || /RESOURCE_EXHAUSTED/i.test(t)) {
-                return 'Quota exceeded. You have exceeded your current quota. Please check your plan and billing details.';
-            }
-            return 'API error. Please try again later.';
-        }
-        
-        const msgMatch = t.match(/"message"\s*:\s*"([^"]*)/);
-        if (msgMatch && msgMatch[1].trim()) {
-            
-            return msgMatch[1].replace(/[\]\}]+$/, '').trim();
-        }
-        return null;
-    }
-
-    function isErrorText(text) {
-        return /^(Quota exceeded|API Error|Error connecting|Error:|\[.*?Error)/i.test(text.trim());
-    }
+    
 
     function handleWSMessage(data) {
         if (data.type === 'user_message_from_voice') {
@@ -332,15 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     _streamBuffer.delete(body);
                 }
                 
-                if (!currentAssistantMessage.classList.contains('msg-error') && body.textContent.trim()) {
-                    const parsed = parseErrorMessage(body.textContent);
-                    if (parsed) {
-                        body.textContent = parsed;
-                        currentAssistantMessage.classList.add('msg-error');
-                    } else if (isErrorText(body.textContent)) {
-                        currentAssistantMessage.classList.add('msg-error');
-                    }
-                }
                 if (data.finished && currentAssistantMessage?.classList.contains('msg-error')) {
                     _flushStreamBuffer();
                     currentAssistantMessage = null;
@@ -385,33 +327,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const expr = (data.expression || 'neutral').toLowerCase();
             if (avatarRenderer) avatarRenderer.setExpression(expr);
             if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression(expr);
-        } else if (data.type === 'animation' || data.type === '__animation__') {
+        } else if (data.type === 'animation') {
             
-            if (data.type === 'animation' && data.url && avatarRenderer) {
+            if (data.url && avatarRenderer) {
                 avatarRenderer.playAnimation(data.url);
-            } else if (data.type === '__animation__' && data.text && avatarRenderer) {
-                
-                const animationUrl = _animationMap[data.text.toLowerCase()];
-                if (animationUrl) {
-                    avatarRenderer.playAnimation(animationUrl);
-                }
             }
         } else if (data.type === 'roleplay') {
             
-            const text = data.text || '';
-            const words = text.toLowerCase().split(/\s+/);
-            let matchedUrl = null;
-            for (const word of words) {
-                if (_animationMap[word]) { matchedUrl = _animationMap[word]; break; }
-            }
-            if (!matchedUrl) {
-                
-                for (const [name, url] of Object.entries(_animationMap)) {
-                    if (text.toLowerCase().includes(name)) { matchedUrl = url; break; }
-                }
-            }
-            if (matchedUrl && avatarRenderer) {
-                avatarRenderer.playAnimation(matchedUrl);
+            if (data.animation_url && avatarRenderer) {
+                avatarRenderer.playAnimation(data.animation_url);
             }
         } else if (data.type === 'typing') {
             setStatus('typing');
@@ -453,20 +377,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     
     function stripMarkers(text) {
+        
         return (text || '')
-            .replace(/\/\*\*[\s\S]+?\*\*\/?/g, '')
+            .replace(/\/\*\*[\s\S]*?(?:\*\*\/?|$)/g, '')
+            .replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
             .replace(/\/\[\[.*?\]\]/g, '')
-            .replace(/\/\(\(.*?\)\)/g, '')
-            .replace(/\[\[.*?\]\]/g, '')
-            .replace(/\(\(.*?\)\)/g, '')
-            .replace(/\/\[\[[^\]\s]*/g, '')
-            .replace(/\/\(\([^\)\s]*/g, '')
-            .replace(/\[\[[^\]\s]*/g, '')
-            .replace(/\(\([^\)\s]*/g, '')
-            .replace(/(\/\[\[|\/\(\(|\/\*\*|\[\[|\(\()[^\]\)]*$/g, '')
-            
-            .replace(/[a-zA-Z]*\]\]/g, '')
-            .replace(/[a-zA-Z]*\)\)/g, '');
+            .replace(/\/\(\(.*?\)\)/g, '');
     }
 
     function getMessageHtml(role, text) {
@@ -692,13 +608,70 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+    let CMD_LIST = [];
+    const cmdSuggestions = document.getElementById('cmd-suggestions');
+    let _cmdSelectedIndex = -1;
+
+    function updateCmdSuggestions() {
+        const val = chatInput.value;
+        if (!val.startsWith('/')) { cmdSuggestions.classList.remove('show'); return; }
+        const partial = val.substring(1).toLowerCase();
+        const matches = CMD_LIST.filter(c => c.name.startsWith(partial));
+        if (!matches.length || partial.includes(' ')) { cmdSuggestions.classList.remove('show'); return; }
+        cmdSuggestions.innerHTML = matches.map((c, i) =>
+            `<div class="cmd-item${i === _cmdSelectedIndex ? ' selected' : ''}" data-index="${i}">
+                <span class="cmd-name">/${c.name}</span>
+                <span class="cmd-desc">${c.desc}</span>
+            </div>`
+        ).join('');
+        cmdSuggestions.classList.add('show');
+        _cmdSelectedIndex = Math.min(_cmdSelectedIndex, matches.length - 1);
+    }
+
     chatInput.addEventListener('keydown', e => {
+        if (cmdSuggestions.classList.contains('show')) {
+            const items = cmdSuggestions.querySelectorAll('.cmd-item');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                _cmdSelectedIndex = Math.min(_cmdSelectedIndex + 1, items.length - 1);
+                items.forEach((el, i) => el.classList.toggle('selected', i === _cmdSelectedIndex));
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                _cmdSelectedIndex = Math.max(_cmdSelectedIndex - 1, 0);
+                items.forEach((el, i) => el.classList.toggle('selected', i === _cmdSelectedIndex));
+                return;
+            }
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                if (_cmdSelectedIndex >= 0 && _cmdSelectedIndex < items.length) {
+                    e.preventDefault();
+                    const name = items[_cmdSelectedIndex].querySelector('.cmd-name')?.textContent || '';
+                    chatInput.value = name + ' ';
+                    chatInput.style.height = 'auto';
+                    chatInput.style.height = chatInput.scrollHeight + 'px';
+                    cmdSuggestions.classList.remove('show');
+                    chatInput.focus();
+                    return;
+                }
+            }
+            if (e.key === 'Escape') {
+                cmdSuggestions.classList.remove('show');
+                return;
+            }
+        }
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
     chatInput.addEventListener('input', function () {
         this.style.height = 'auto';
         this.style.height = this.scrollHeight + 'px';
+        _cmdSelectedIndex = 0;
+        updateCmdSuggestions();
     });
+    chatInput.addEventListener('blur', () => {
+        setTimeout(() => cmdSuggestions.classList.remove('show'), 150);
+    });
+    chatInput.addEventListener('focus', updateCmdSuggestions);
     let _typingTimer;
     chatInput.addEventListener('keydown', () => {
         clearTimeout(_typingTimer);
@@ -863,11 +836,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
         }
-        fetch('/api/settings/set', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: 'ui.voice_output', value: voiceOutputEnabled })
-        });
         showToast(voiceOutputEnabled ? 'Voice output on' : 'Voice output off');
     });
 
@@ -893,11 +861,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             }
-            fetch('/api/settings/set', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ key: 'ui.voice_input', value: voiceInputEnabled })
-            });
             showToast(voiceInputEnabled ? 'Voice input on' : 'Voice input off');
         });
     }
@@ -1002,14 +965,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     
-    async function fetchAnimationMap() {
-        const charId = ((await api('/api/settings'))?.character?.active) || 'amalgam';
-        const data = await api(`/api/animations?char_id=${charId}`);
-        _animationMap = {};
-        const all = [...(data?.default || []), ...(data?.character || [])];
-        for (const a of all) {
-            _animationMap[a.name.toLowerCase()] = a.url;
-        }
+    async function fetchCommands() {
+        try {
+            const data = await api('/api/commands');
+            CMD_LIST = data?.commands || [];
+        } catch { CMD_LIST = []; }
     }
 
     async function loadSession(sessionId) {
@@ -1070,7 +1030,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const settings = await api('/api/settings');
         if (settings) { await applySettings(settings); markSettingsClean(); }
         await loadCharacters();
-        await fetchAnimationMap();
+                await fetchCommands();
 
         
         const parts = location.hash.replace('#', '').split('/');
@@ -1312,7 +1272,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 grid.querySelectorAll('.char-card').forEach(el => el.classList.remove('active'));
                 card.classList.add('active');
                 setCharacterAvatar(charName);
-                await fetchAnimationMap();
+        await fetchCommands();
                 
                 const vrmPath = c.model_url || '/characters/default/model.vrm';
                 if (avatarRenderer) avatarRenderer.loadVRM(vrmPath);
@@ -1470,6 +1430,68 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     
+    const SETTINGS_FIELDS = {
+        'tts-engine': 'voice.engine',
+        'stt-engine': 'voice.stt_engine',
+        'lipsync-toggle': 'voice.lipsync_enabled',
+        'vad-mode': 'voice.vad_mode',
+        'elevenlabs-api-key': 'voice.elevenlabs.api_key',
+        'elevenlabs-model': 'voice.elevenlabs.model',
+        'elevenlabs-voice-id': 'voice.elevenlabs.voice_id',
+        'openai-tts-api-key': 'voice.openai_tts.api_key',
+        'openai-tts-model': 'voice.openai_tts.model',
+        'openai-tts-voice': 'voice.openai_tts.voice',
+        'alltalk-url': 'voice.alltalk.url',
+        'alltalk-voice': 'voice.alltalk.voice',
+        'alltalk-language': 'voice.alltalk.language',
+        'alltalk-version': 'voice.alltalk.version',
+        'alltalk-rvc-voice': 'voice.alltalk.rvc_voice',
+        'alltalk-rvc-pitch': 'voice.alltalk.rvc_pitch',
+        'piper-url': 'voice.piper.url',
+        'coqui-url': 'voice.coqui_local.url',
+        'coqui-speaker-id': 'voice.coqui_local.speaker_id',
+        'kokoro-url': 'voice.kokoro.url',
+        'kokoro-voice': 'voice.kokoro.voice',
+        'openai-whisper-api-key': 'voice.openai_whisper.api_key',
+        'openai-whisper-model': 'voice.openai_whisper.model',
+        'groq-whisper-api-key': 'voice.groq_whisper.api_key',
+        'groq-whisper-model': 'voice.groq_whisper.model',
+        'groq-whisper-base-url': 'voice.groq_whisper.base_url',
+        'whispercpp-url': 'voice.whispercpp.url',
+        'faster-whisper-model': 'voice.faster_whisper.model',
+        'llm-temperature': 'llm.temperature',
+        'theme-select': 'ui.theme',
+        'font-size-range': 'ui.font_size',
+        'vault-path': 'vault.path',
+        'custom-system-prompt': 'character.system_prompt',
+        'gemini-api-key': 'provider.gemini.api_key',
+        'gemini-model': 'provider.gemini.model',
+        'gemini-base-url': 'provider.gemini.base_url',
+        'ollama-url': 'provider.ollama.base_url',
+        'ollama-model': 'provider.ollama.model',
+        'openrouter-api-key': 'provider.openrouter.api_key',
+        'openrouter-model': 'provider.openrouter.model',
+        'openrouter-base-url': 'provider.openrouter.base_url',
+        'zai-api-key': 'provider.zai.api_key',
+        'zai-model': 'provider.zai.model',
+        'zai-base-url': 'provider.zai.base_url',
+        'siliconflow-api-key': 'provider.siliconflow.api_key',
+        'siliconflow-model': 'provider.siliconflow.model',
+        'siliconflow-base-url': 'provider.siliconflow.base_url',
+        'groq-api-key': 'provider.groq.api_key',
+        'groq-model': 'provider.groq.model',
+        'groq-base-url': 'provider.groq.base_url',
+        'chatgpt-api-key': 'provider.chatgpt.api_key',
+        'chatgpt-model': 'provider.chatgpt.model',
+        'chatgpt-base-url': 'provider.chatgpt.base_url',
+        'claude-api-key': 'provider.claude.api_key',
+        'claude-model': 'provider.claude.model',
+        'claude-base-url': 'provider.claude.base_url',
+        'llamacpp-url': 'provider.llamacpp.base_url',
+        'koboldai-url': 'provider.koboldai.base_url',
+    };
+
+    
     document.getElementById('save-all-settings').addEventListener('click', async () => {
         const errors = validateSettings();
         if (errors.length) {
@@ -1485,118 +1507,24 @@ document.addEventListener('DOMContentLoaded', () => {
             if (s) s.enabled = enabled;
         });
 
-        const activeProvider = providerSelect.value;
-        const result = await api('/api/settings', {
+        const settings = {};
+        for (const [fieldId, dotpath] of Object.entries(SETTINGS_FIELDS)) {
+            const el = document.getElementById(fieldId);
+            if (!el) continue;
+            const val = el.type === 'checkbox' ? el.checked : el.value;
+            if (val !== '' && val !== undefined && val !== null) {
+                settings[dotpath] = val;
+            }
+        }
+        settings['provider.active'] = providerSelect.value;
+        settings['ui.voice_input'] = voiceInputEnabled;
+        settings['ui.voice_output'] = voiceOutputEnabled;
+        settings['mcp.servers'] = mcpServersCache;
+
+        const result = await api('/api/settings/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                voice: {
-                    engine: document.getElementById('tts-engine').value,
-                    stt_engine: document.getElementById('stt-engine')?.value || 'browser',
-                    lipsync_enabled: document.getElementById('lipsync-toggle').checked,
-                    vad_mode: parseInt(document.getElementById('vad-mode')?.value || 2),
-                    elevenlabs: {
-                        api_key: document.getElementById('elevenlabs-api-key').value,
-                        model: document.getElementById('elevenlabs-model').value,
-                        voice_id: document.getElementById('elevenlabs-voice-id').value
-                    },
-                    openai_tts: {
-                        api_key: document.getElementById('openai-tts-api-key').value,
-                        model: document.getElementById('openai-tts-model').value,
-                        voice: document.getElementById('openai-tts-voice').value
-                    },
-                    alltalk: {
-                        url: document.getElementById('alltalk-url').value,
-                        voice: document.getElementById('alltalk-voice').value,
-                        language: document.getElementById('alltalk-language').value,
-                        version: document.getElementById('alltalk-version')?.value || 'v2',
-                        rvc_voice: document.getElementById('alltalk-rvc-voice')?.value || '',
-                        rvc_pitch: document.getElementById('alltalk-rvc-pitch')?.value || '0'
-                    },
-                    piper: { url: document.getElementById('piper-url').value },
-                    coqui_local: {
-                        url: document.getElementById('coqui-url').value,
-                        speaker_id: document.getElementById('coqui-speaker-id').value
-                    },
-                    kokoro: {
-                        url: document.getElementById('kokoro-url').value,
-                        voice: document.getElementById('kokoro-voice').value
-                    },
-                    openai_whisper: {
-                        api_key: "REDACTED").value,
-                        model: document.getElementById('openai-whisper-model')?.value || 'whisper-1'
-                    },
-                    groq_whisper: {
-                        api_key: "REDACTED").value,
-                        model: document.getElementById('groq-whisper-model')?.value || 'whisper-large-v3',
-                        base_url: document.getElementById('groq-whisper-base-url')?.value || 'https:
-                    },
-                    whispercpp: { url: document.getElementById('whispercpp-url').value },
-                    faster_whisper: {
-                        model: document.getElementById('faster-whisper-model')?.value || 'base'
-                    }
-                },
-                llm: {
-                    temperature: parseFloat(document.getElementById('llm-temperature')?.value || 0.7)
-                },
-                ui: {
-                    theme: document.getElementById('theme-select').value,
-                    font_size: parseInt(document.getElementById('font-size-range').value),
-                    voice_input: voiceInputEnabled,
-                    voice_output: voiceOutputEnabled
-                },
-                vault: { path: document.getElementById('vault-path').value },
-                character: { system_prompt: document.getElementById('custom-system-prompt').value },
-                provider: {
-                    active: activeProvider,
-                    gemini: {
-                        api_key: document.getElementById('gemini-api-key').value,
-                        model: document.getElementById('gemini-model').value,
-                        base_url: document.getElementById('gemini-base-url').value
-                    },
-                    ollama: {
-                        base_url: document.getElementById('ollama-url').value,
-                        model: document.getElementById('ollama-model').value
-                    },
-                    openrouter: {
-                        api_key: document.getElementById('openrouter-api-key').value,
-                        model: document.getElementById('openrouter-model').value,
-                        base_url: document.getElementById('openrouter-base-url')?.value || 'https:
-                    },
-                    zai: {
-                        api_key: document.getElementById('zai-api-key').value,
-                        model: document.getElementById('zai-model').value,
-                        base_url: document.getElementById('zai-base-url')?.value || 'https:
-                    },
-                    siliconflow: {
-                        api_key: document.getElementById('siliconflow-api-key').value,
-                        model: document.getElementById('siliconflow-model').value,
-                        base_url: document.getElementById('siliconflow-base-url')?.value || 'https:
-                    },
-                    groq: {
-                        api_key: document.getElementById('groq-api-key').value,
-                        model: document.getElementById('groq-model').value,
-                        base_url: document.getElementById('groq-base-url')?.value || 'https:
-                    },
-                    chatgpt: {
-                        api_key: document.getElementById('chatgpt-api-key').value,
-                        model: document.getElementById('chatgpt-model').value,
-                        base_url: document.getElementById('chatgpt-base-url')?.value || 'https:
-                    },
-                    claude: {
-                        api_key: document.getElementById('claude-api-key').value,
-                        model: document.getElementById('claude-model').value,
-                        base_url: document.getElementById('claude-base-url')?.value || 'https:
-                    },
-                    llamacpp: {
-                        base_url: document.getElementById('llamacpp-url').value
-                    },
-                    koboldai: {
-                        base_url: document.getElementById('koboldai-url').value
-                    }
-                },
-                mcp: { servers: mcpServersCache }
-            })
+            body: JSON.stringify({ settings })
         });
         if (result) {
             markSettingsClean();

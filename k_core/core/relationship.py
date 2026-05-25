@@ -44,7 +44,7 @@ STAGES =[
 
 class Relationship :
     def __init__ (self ,db_path :str =None ):
-        from backend .paths import RELATIONSHIP_DB 
+        from k_core .paths import RELATIONSHIP_DB 
         if db_path is None :
             db_path =RELATIONSHIP_DB 
         os .makedirs (os .path .dirname (db_path ),exist_ok =True )

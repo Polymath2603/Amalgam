@@ -6,7 +6,7 @@ summary > relevant facts > relationship > recent history > vault content.
 import logging 
 from typing import List ,Dict ,Optional 
 
-from backend .utils .tokens import estimate_tokens ,estimate_message_list_tokens ,select_messages_within_budget ,truncate_to_token_limit 
+from k_core .utils .tokens import estimate_tokens ,estimate_message_list_tokens ,select_messages_within_budget ,truncate_to_token_limit 
 
 logger =logging .getLogger (__name__ )
 

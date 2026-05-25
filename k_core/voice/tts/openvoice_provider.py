@@ -16,7 +16,7 @@ class OpenVoiceProvider (TTSProvider ):
 
     def _get_engine (self ):
         if self ._ov_engine is None :
-            from backend .voice .openvoice_engine import OpenVoiceEngine 
+            from k_core .voice .openvoice_engine import OpenVoiceEngine 
             self ._ov_engine =OpenVoiceEngine ()
         return self ._ov_engine 
 

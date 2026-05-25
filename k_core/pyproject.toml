@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "k-core"
+version = "0.1.0"
+description = "Shared AI agent core — used by k-webui, k-cli, k-grpc"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+openvoice = ["torch", "openvoice", "melo"]
+sentence-transformers = ["sentence-transformers"]
+tiktoken = ["tiktoken"]
+
+[tool.setuptools.packages.find]
+include = ["k_core*"]

@@ -5,17 +5,14 @@ import logging
 
 from fastapi import APIRouter 
 from backend .api .deps import settings ,llm ,tts ,agent 
-from backend .config .settings import BUILTIN_VOICES 
+from k_core .config .settings import BUILTIN_VOICES 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["settings"])
 
 
 def _sync_emotion_tags ():
-    """Sync TTS engine's supported emotions to the agent."""
-    if agent ()and tts ():
-        supported =tts ().get_supported_emotions ()
-        agent ().update_emotion_tags (supported if supported else agent ()._emotion_tags )
+    """No-op — avatar emotion is now controlled via MCP tools, not tags."""
 
 
 @router .get ("/api/settings")
@@ -80,3 +77,18 @@ async def set_setting (body :dict ):
         _sync_emotion_tags ()
         agent ().update_settings (settings ())
     return {"status":"ok"}
+
+
+@router .post ("/api/settings/batch")
+async def batch_set_settings (body :dict ):
+    """Set multiple settings at once via key-value pairs.
+    Body: {"settings": {"voice.engine": "edge-tts", "provider.active": "ollama", ...}}
+    """
+    pairs =body .get ("settings",{})
+    s =settings ()
+    for key ,value in pairs .items ():
+        s .set (key ,value )
+    llm ().reload_settings ()
+    _sync_emotion_tags ()
+    agent ().update_settings (s )
+    return {"status":"ok","count":len (pairs )}

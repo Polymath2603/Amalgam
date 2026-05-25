@@ -153,7 +153,7 @@ class VaultManager :
         
         Returns empty string if no vault files or vault_path doesn't exist.
         """
-        from backend .utils .tokens import estimate_tokens ,truncate_to_token_limit 
+        from k_core .utils .tokens import estimate_tokens ,truncate_to_token_limit 
 
         if not self ._vault_path .exists ():
             return ""

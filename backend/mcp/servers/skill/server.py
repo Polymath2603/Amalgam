@@ -10,8 +10,6 @@ Knowledge tools (SKILL.md on-demand loading, matching OpenCode/Claude pattern):
 Code-execution tools (migrated from old Python Skill classes):
   - web_search(query, num_results)    Search the web via DuckDuckGo
   - summarize_url(url)                Fetch and extract a webpage
-  - note(title, content, tags)        Save a note to the vault
-  - read_vault(query, filename)       Search/read vault notes
   - reminder(text, delay_seconds)     Set an in-process timer
 """
 import os 
@@ -38,7 +36,6 @@ PROJECT_ROOT =Path (os .path .abspath (os .path .join (os .path .dirname (__file
 BUILTIN_SKILLS =PROJECT_ROOT /"backend"/"skills"
 DATA_DIR =Path (os .environ .get ("AMALGAM_DATA_DIR",str (PROJECT_ROOT /"user_data")))
 USER_SKILLS =DATA_DIR /"skills"
-VAULT_DIR =DATA_DIR /"vault"
 
 
 def _discover_skill_files ()->list [dict ]:
@@ -173,30 +170,6 @@ async def list_tools ()->list [Tool ]:
     "url":{"type":"string","description":"The URL to fetch and extract"},
     },
     "required":["url"],
-    },
-    ),
-    Tool (
-    name ="note",
-    description ="Save a note to the personal knowledge vault as a markdown file. Notes persist and are searchable via read_vault.",
-    inputSchema ={
-    "type":"object",
-    "properties":{
-    "title":{"type":"string","description":"Note title (used as filename)"},
-    "content":{"type":"string","description":"The note content in markdown format"},
-    "tags":{"type":"string","description":"Comma-separated tags (optional)"},
-    },
-    "required":["title","content"],
-    },
-    ),
-    Tool (
-    name ="read_vault",
-    description ="Search for or read notes from the personal knowledge vault. If no query or filename given, lists all files.",
-    inputSchema ={
-    "type":"object",
-    "properties":{
-    "query":{"type":"string","description":"Keywords to search for (optional)"},
-    "filename":{"type":"string","description":"Exact filename to read (optional, overrides query)"},
-    },
     },
     ),
     Tool (
@@ -352,53 +325,6 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         except Exception as e :
             logger .error ("summarize_url failed for %s: %s",url ,e )
             return [TextContent (type ="text",text =f"Failed to fetch {url }: {e }")]
-
-    if name =="note":
-        title =arguments .get ("title","").strip ()
-        content =arguments .get ("content","").strip ()
-        tags =arguments .get ("tags","").strip ()
-        if not title or not content :
-            return [TextContent (type ="text",text ="Error: title and content are required.")]
-        sanitized ="".join (c if c .isalnum ()or c in " _-"else "_"for c in title ).rstrip ()
-        if not sanitized :
-            sanitized ="note"
-        filename =f"{sanitized }.md"
-        os .makedirs (str (VAULT_DIR ),exist_ok =True )
-        header =f"# {title }\n"
-        if tags :
-            header +=f"Tags: {tags }\n"
-        header +="---\n\n"
-        (VAULT_DIR /filename ).write_text (header +content ,encoding ="utf-8")
-        return [TextContent (type ="text",text =f"Note saved: {filename }")]
-
-    if name =="read_vault":
-        query =arguments .get ("query","").strip ()
-        filename =arguments .get ("filename","").strip ()
-        if not VAULT_DIR .is_dir ():
-            return [TextContent (type ="text",text ="Vault directory does not exist.")]
-        if filename :
-            path =VAULT_DIR /filename 
-            if not path .is_file ():
-                return [TextContent (type ="text",text =f"File not found: {filename }")]
-            try :
-                text =path .read_text (encoding ="utf-8")
-                return [TextContent (type ="text",text =f"# {filename }\n\n{text .strip ()}")]
-            except Exception as e :
-                return [TextContent (type ="text",text =f"Error reading {filename }: {e }")]
-        if query :
-            from backend .core .vault import VaultManager 
-            vault =VaultManager (str (VAULT_DIR ))
-            results =vault .search (query )
-            if not results :
-                return [TextContent (type ="text",text =f"No vault entries found for: {query }")]
-            lines =[f"## Vault results for '{query }'"]
-            for r in results [:5 ]:
-                lines .append (f"- **{r .get ('filename','?')}**: {r .get ('snippet','')[:200 ]}")
-            return [TextContent (type ="text",text ="\n".join (lines ))]
-        files =sorted (f .name for f in VAULT_DIR .iterdir ()if f .is_file ())
-        if not files :
-            return [TextContent (type ="text",text ="Vault is empty.")]
-        return [TextContent (type ="text",text ="Available vault files:\n"+"\n".join (f"- {f }"for f in files ))]
 
     if name =="reminder":
         text =arguments .get ("text","")

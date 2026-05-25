@@ -21,7 +21,7 @@ except ImportError :
 class Memory :
     def __init__ (self ,llm_router =None ,db_path =None ,settings =None ):
         import os 
-        from backend .paths import CONVERSATIONS_DB 
+        from k_core .paths import CONVERSATIONS_DB 
         if db_path is None :
             db_path =CONVERSATIONS_DB 
         self .llm =llm_router 
@@ -372,7 +372,7 @@ class Memory :
                 )
                 summary =await self .llm .generate ([{"role":"user","content":prompt }])
 
-                from backend .core .plugin import get_registry as get_plugin_registry 
+                from k_core .core .plugin import get_registry as get_plugin_registry 
                 summary =await get_plugin_registry ().hook_compaction (summary or "")
 
                 if summary and not summary .startswith ("Error"):

@@ -99,12 +99,15 @@
                     <div class="chat-messages" id="chat-messages"></div>
 
                     <!-- Input -->
-                    <div class="chat-input-area">
+                    <div class="chat-input-area" style="position: relative;">
                         <button class="img-btn" id="img-btn" title="Attach image">
                             <span class="material-icons-round">image</span>
                         </button>
                         <input type="file" id="img-input" accept="image/*" hidden>
-                        <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
+                        <div style="flex:1; position: relative;">
+                            <textarea id="chat-input" placeholder="Type a message..." rows="1" style="width:100%;"></textarea>
+                            <div id="cmd-suggestions" class="cmd-suggestions"></div>
+                        </div>
                         <button type="button" class="send-btn" id="send-btn">
                             <span class="material-icons-round">arrow_upward</span>
                         </button>

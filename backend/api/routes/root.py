@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter 
 from fastapi .responses import FileResponse 
-from backend .paths import FRONTEND_DIR ,VAULT_DIR ,CHARACTERS_DIR ,DATA_DIR 
+from k_core .paths import FRONTEND_DIR ,VAULT_DIR ,CHARACTERS_DIR ,DATA_DIR 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["root"])

@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter 
 from backend .api .deps import settings ,vault 
-from backend .paths import VAULT_DIR 
+from k_core .paths import VAULT_DIR 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["vault"])

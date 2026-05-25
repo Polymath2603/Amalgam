@@ -5,7 +5,7 @@ Extracted from server.py into its own module.
 import os 
 import asyncio 
 import logging 
-from backend .paths import CHARACTERS_DIR ,PROJECT_ROOT 
+from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
 
 logger =logging .getLogger (__name__ )
 

@@ -3,18 +3,12 @@ import logging
 from string import Template 
 from typing import List ,Dict 
 
-from backend .paths import PROJECT_ROOT ,VAULT_DIR 
-from backend .core .vault import VaultManager 
+from k_core .paths import PROJECT_ROOT ,VAULT_DIR 
+from k_core .core .vault import VaultManager 
 
 logger =logging .getLogger (__name__ )
 
 VRM_EXPRESSIONS =["happy","angry","sad","relaxed","surprised","blink"]
-
-EMOTION_TAGS =[
-"happy","sad","angry","surprised","thinking","relaxed",
-"confused","shy","jealous","bored","suspicious","victory",
-"sleep","love","excited"
-]
 
 
 _PROMPT_TEMPLATE ="""\
@@ -31,34 +25,26 @@ Your responses are displayed as chat messages in a web UI.
 - You can use connected tools to interact with the local system
 - You have access to conversation history within the current session — refer back to earlier topics when relevant
 
-# Communication System
-You express yourself through three independent tag systems layered on top of your speech.
+# Avatar Control (use MCP tools instead of text tags)
+You control your avatar's expressions, voice emotion, and body animations exclusively through the **avatar** MCP server tools. Do NOT use /[[emotion]] /((expression)) /**action**/ tags — use the tools below instead.
 
-## Voice Emotion — /[[emotion]]
-Controls the emotional tone of your spoken (TTS) voice. Place inline where the emotion should shift.
-$emotion_tags
-Rules:
-- Format exactly: /[[emotion]] — both opening and closing brackets required
-- Use one emotion tag per response to set your vocal tone
-- Express vocal tone only — this does not affect the avatar's face
-- Choose the emotion that genuinely matches what you're saying — don't spam them
+## Voice Emotion — avatar_set_emotion
+Sets the emotional tone of your spoken voice. Call this when your character's emotional state shifts.
+Available emotions: happy, sad, angry, surprised, thinking, relaxed, confused, shy, jealous, bored, suspicious, victory, sleep, love, excited
+- Use one call per response to set your vocal tone
+- Voice emotion is independent of facial expression
 
-## Facial Expression — /((expression))
-Controls the VRM avatar's facial blend shapes independently of your voice.
-$expression_tags
-Rules:
-- Format exactly: /((expression)) — both opening and closing parens required
-- Use one expression tag per response to set the avatar's facial expression
-- Use independently from emotions — a happy voice could have a surprised face
-- The expression persists until changed by a subsequent tag
+## Facial Expression — avatar_set_expression
+Sets your avatar's facial expression (VRM blend shape) independently of voice emotion.
+Available expressions: happy, angry, sad, relaxed, surprised, blink
+- Use when your character's face should show an emotion distinct from their voice
 
-## Body Animation — /**action**/
-Triggers full-body VRM animations.
-$action_tags
-Rules:
-- Use an action marker when your character would physically gesture (bow, wave, nod, react)
-- Keep descriptions brief and natural: /**nods**/, /**waves**/, /**considers**/
-- Not every line needs an action — reserve for meaningful moments
+## Body Animation — avatar_perform_action
+Triggers a full-body gesture or animation. Describe the action naturally.
+$action_notes
+- Use when your character would physically gesture (bow, wave, nod, react)
+- Keep descriptions brief and natural
+- Not every response needs an action — reserve for meaningful moments
 
 # Response Guidelines
 ## Tone
@@ -69,7 +55,6 @@ $character_style
 - Never output markdown code fences around your response — you are already in a chat interface
 - Do not use bullet points, numbered lists, or excessive bold text unless the user specifically asks for structure
 - Write in natural prose and paragraphs
-- When you feel an emotion, express it naturally. Start the tag at the point the emotion shifts, not at the beginning of the response.
 - Use warm, engaging language. Be direct but not terse.
 - Never use emojis unless the user does first
 - When referencing code or files, use the pattern `file_path:line_number`
@@ -84,6 +69,9 @@ For complex questions, internal deliberation, or multi-step reasoning, wrap your
 - When a tool fails or returns an unexpected result, report it clearly and suggest alternatives rather than retrying with the same arguments
 - If a request is ambiguous, make a reasonable attempt before asking for clarification
 - When you don't know something, say so directly rather than fabricating. If a tool can help, use it before guessing.
+
+## Vault / Notes
+For reading, searching, or writing notes in your vault, use the tools provided by the **obsidian** MCP server (e.g., `read-note`, `search-vault`, `create-note`, `edit-note`). These are always available and handle all vault operations.
 
 ## Edge Cases
 - If asked about something outside your knowledge, be honest — use <think> to reason through what you do know
@@ -156,8 +144,7 @@ class ContextBuilder :
         character =self ._characters .get (character_id ,{})
 
         sys_prompt =self ._build_character_prompt (
-        character ,additional_prompt ,character_id ,
-        tts_emotions =tts_emotions ,expression_names =expression_names 
+        character ,additional_prompt ,character_id 
         )
 
         tool_section =self ._build_tool_section (tools ,native_tools_available =native_tools_available )
@@ -234,9 +221,7 @@ class ContextBuilder :
         return f"\n\n# Relationship Context\n{relationship_context }"
 
     def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",
-    character_id :str =None ,
-    tts_emotions :List [str ]=None ,
-    expression_names :List [str ]=None )->str :
+    character_id :str =None )->str :
         name =character .get ("name","Assistant")if character else "Assistant"
         system_prompt =character .get ("system_prompt","")if character else ""
         personality =character .get ("personality","")if character else ""
@@ -274,20 +259,12 @@ class ContextBuilder :
         if additional_prompt and additional_prompt .strip ():
             character_style +=f"\n\n## Additional Instructions\n{additional_prompt .strip ()}"
 
-        emotions =tts_emotions or EMOTION_TAGS 
-        emotion_tags ="\n".join (f"  - /[[{e }]]"for e in emotions )
-        emotion_tags =f"Available:\n{emotion_tags }"
-
-        expressions =expression_names or VRM_EXPRESSIONS 
-        expression_tags ="\n".join (f"  - /(({e }))"for e in expressions )
-        expression_tags =f"Available:\n{expression_tags }"
-
         anims =self ._get_available_animations (character_id )
         if anims :
-            anim_lines ="\n".join (f"  - /**{a }**/"for a in anims )
-            action_tags =f"Available animations:\n{anim_lines }"
+            anim_lines ="\n".join (f"  - \"{a }\""for a in anims )
+            action_notes =f"Available actions to pass to avatar_perform_action:\n{anim_lines }"
         else :
-            action_tags ="No predefined animations — use descriptive /**action**/ markers (e.g. /**nods**/, /**waves happily**/). These will animate the avatar semantically."
+            action_notes ="No predefined animations — describe the action naturally (e.g. \"nods thoughtfully\", \"waves happily\"). The system will attempt to match it to an animation."
 
         vault_rules =self ._build_vault_section ()
 
@@ -298,9 +275,7 @@ class ContextBuilder :
 
         rendered =Template (_PROMPT_TEMPLATE ).safe_substitute (
         identity =identity ,
-        emotion_tags =emotion_tags ,
-        expression_tags =expression_tags ,
-        action_tags =action_tags ,
+        action_notes =action_notes ,
         character_style =character_style ,
         vault_rules =vault_rules ,
         tool_section ="$tool_section",

@@ -7,7 +7,7 @@ import os
 import yaml 
 import logging 
 from typing import Any ,Dict ,List 
-from backend .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
+from k_core .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
 
 logger =logging .getLogger (__name__ )
 
@@ -208,6 +208,18 @@ DEFAULTS ={
 "env":{
 "AMALGAM_DATA_DIR":str (DATA_DIR )
 }
+},
+{
+"name":"windows",
+"command":"python3",
+"args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"windows"/"server.py")],
+"enabled":True 
+},
+{
+"name":"avatar",
+"command":"python3",
+"args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"avatar"/"server.py")],
+"enabled":True 
 }
 ]
 }

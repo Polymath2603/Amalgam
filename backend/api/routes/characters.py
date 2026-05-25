@@ -9,9 +9,9 @@ import shutil
 from fastapi import APIRouter 
 from fastapi .responses import JSONResponse 
 from backend .api .deps import settings ,llm ,tts 
-from backend .config .settings import BUILTIN_VOICES 
-from backend .core .llm import LLMRouter 
-from backend .paths import CHARACTERS_DIR ,PROJECT_ROOT 
+from k_core .config .settings import BUILTIN_VOICES 
+from k_core .core .llm import LLMRouter 
+from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
 from backend .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE 
 
 logger =logging .getLogger (__name__ )
@@ -71,7 +71,7 @@ async def get_emotions ():
 
 @router .get ("/api/expressions")
 async def get_expressions (char_id :str =None ):
-    from backend .core .context_builder import VRM_EXPRESSIONS 
+    from k_core .core .context_builder import VRM_EXPRESSIONS 
     exprs =list (VRM_EXPRESSIONS )
     return {"expressions":exprs }
 

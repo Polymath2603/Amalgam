@@ -9,9 +9,59 @@ import logging
 from fastapi import WebSocket ,WebSocketDisconnect 
 from backend .api .deps import settings ,memory ,tts ,agent ,relationship 
 from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now 
+from k_core .paths import CHARACTERS_DIR 
 from backend .voice .pipeline import VoicePipeline 
 
 logger =logging .getLogger (__name__ )
+
+
+def _normalize_error (error_text :str )->str :
+    """Normalize common error messages to user-friendly versions."""
+    friendly ={
+    "content must be a string":"This provider doesn't support image input. Try a different model or remove the image.",
+    "content must be a non-empty string":"This provider doesn't support image input. Try a different model or remove the image.",
+    "unsupported image format":"The image format is not supported. Try a different image.",
+    "image_url is not supported":"This provider doesn't support image input. Try a different model or remove the image.",
+    "API key not set":"API key not configured. Go to Settings > Providers to set it.",
+    "401":"Authentication failed. Check your API key.",
+    "402":"Payment required. Check your account billing.",
+    "Rate limit exceeded":"Rate limit exceeded. Please wait and try again.",
+    "quota exceeded":"Quota exceeded. Check your plan and billing.",
+    "RESOURCE_EXHAUSTED":"Quota exceeded. Check your plan and billing.",
+    }
+    for key ,msg in friendly .items ():
+        if key .lower ()in error_text .lower ():
+            return msg 
+
+    try :
+        if error_text .startswith ('{'):
+            err_obj =json .loads (error_text )
+            error_text =err_obj .get ('message',err_obj .get ('error',error_text ))
+    except Exception :
+        pass 
+    return error_text 
+
+
+def _resolve_animation (text :str ,char_id :str )->str |None :
+    """Resolve an animation URL from roleplay/action text by keyword matching."""
+    import os 
+    words =text .lower ().split ()
+    char_dir =str (CHARACTERS_DIR /char_id /"anim")
+    default_dir =str (CHARACTERS_DIR /"default"/"anim")
+    candidates =[]
+    if os .path .exists (default_dir ):
+        candidates .extend (os .listdir (default_dir ))
+    if char_id and char_id !="default"and os .path .exists (char_dir ):
+        candidates .extend (os .listdir (char_dir ))
+    for word in words :
+        for f in candidates :
+            if f .endswith (".vrma"):
+                name =f .replace (".vrma","").lower ()
+                if word ==name or name .startswith (word )or word in name :
+                    is_char =char_id and char_id !="default"and os .path .exists (os .path .join (char_dir ,f ))
+                    base =char_id if is_char else "default"
+                    return f"/characters/{base }/anim/{f }"
+    return None 
 
 
 async def handle_chat (websocket :WebSocket ):
@@ -147,9 +197,11 @@ async def handle_chat (websocket :WebSocket ):
                     "Slash commands:\n"
                     "/clear — clear history\n"
                     "/new — start new session\n"
-                    "/provider <name> — switch provider (gemini, openrouter, ollama, etc.)\n"
+                    "/provider <name> — switch provider\n"
                     "/model <name> — switch model\n"
-                    "/session <id> — load a session\n"
+                    "/session <id> — show/load session\n"
+                    "/status — show current provider, model, session\n"
+                    "/compact — force memory compaction\n"
                     "/help — show this"
                     )
                     await _send_json (
@@ -185,6 +237,23 @@ async def handle_chat (websocket :WebSocket ):
                         sid =memory ().get_current_session ()
                         await _send_json (
                         {"type":"chat_append","role":"system","text":f"Current session: {sid }","finished":True })
+                elif cmd =="compact":
+                    await _send_json (
+                    {"type":"chat_append","role":"system","text":"Compacting memory...","finished":True })
+                    try :
+                        await memory ().check_and_summarize ()
+                        await _send_json (
+                        {"type":"chat_append","role":"system","text":"Memory compacted.","finished":True })
+                    except Exception as e :
+                        await _send_json (
+                        {"type":"chat_append","role":"system","text":f"Compaction failed: {e }","finished":True })
+                elif cmd =="status":
+                    s =settings ()
+                    active =s .get ("provider.active","?")
+                    model =s .get (f"provider.{active }.model","?")
+                    sid =memory ().get_current_session ()
+                    await _send_json (
+                    {"type":"chat_append","role":"system","text":f"Provider: {active }\nModel: {model }\nSession: {sid }","finished":True })
                 else :
                     await _send_json (
                     {"type":"chat_append","role":"system","text":f"Unknown command: /{cmd }. Try /help","finished":True })
@@ -241,13 +310,32 @@ async def handle_chat (websocket :WebSocket ):
                             anim_name =item [1 ]
                             await _send_json ({"type":"animation","name":anim_name ,"url":f"/characters/{char_id }/anim/{anim_name }.vrma"})
                             continue 
+                        if isinstance (item ,tuple )and item [0 ]=='__avatar__':
+                            try :
+                                av =json .loads (item [1 ])
+                                av_type =av .get ("type")if isinstance (av ,dict )else None 
+                                if av_type =="emotion":
+                                    current_emotion =av .get ("emotion","neutral")
+                                    await _send_json ({"type":"emotion","emotion":current_emotion })
+                                elif av_type =="expression":
+                                    await _send_json ({"type":"expression","expression":av .get ("expression","neutral")})
+                                elif av_type =="roleplay":
+                                    action =av .get ("action","")
+                                    rp_text =f"*{action }* "
+                                    full_response +=rp_text 
+                                    sentence_buffer +=rp_text 
+                                    anim_url =_resolve_animation (action ,char_id )
+                                    await _send_json ({"type":"roleplay","text":action ,"animation_url":anim_url })
+                            except Exception :
+                                pass 
+                            continue 
                         if isinstance (item ,tuple )and item [0 ]=='__tool__':
                             await _send_json ({"type":"tool_call","text":item [1 ]})
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__error__':
                             await _send_json ({
                             "type":"chat_append","role":"assistant",
-                            "text":str (item [1 ]),"finished":True ,"error":True 
+                            "text":_normalize_error (str (item [1 ])),"finished":True ,"error":True 
                             })
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__permission__':
@@ -257,7 +345,9 @@ async def handle_chat (websocket :WebSocket ):
                             rp_text =f"*{item [1 ]}* "
                             full_response +=rp_text 
                             sentence_buffer +=rp_text 
-                            await _send_json ({"type":"roleplay","text":item [1 ]})
+
+                            anim_url =_resolve_animation (item [1 ],char_id )
+                            await _send_json ({"type":"roleplay","text":item [1 ],"animation_url":anim_url })
                             continue 
 
                         token =item 
@@ -312,29 +402,7 @@ async def handle_chat (websocket :WebSocket ):
                     for t in tts_tasks :
                         if not t .done ():
                             t .cancel ()
-                    error_text =str (e )
-                    friendly_errors ={
-                    "content must be a string":"This provider doesn't support image input. Try a different model or remove the image.",
-                    "content must be a non-empty string":"This provider doesn't support image input. Try a different model or remove the image.",
-                    "unsupported image format":"The image format is not supported. Try a different image.",
-                    "image_url is not supported":"This provider doesn't support image input. Try a different model or remove the image.",
-                    "API key not set":"API key not configured. Go to Settings > Providers to set it.",
-                    "401":"Authentication failed. Check your API key.",
-                    "402":"Payment required. Check your account billing.",
-                    "Rate limit exceeded":"Rate limit exceeded. Please wait and try again.",
-                    "quota exceeded":"Quota exceeded. Check your plan and billing.",
-                    "RESOURCE_EXHAUSTED":"Quota exceeded. Check your plan and billing."
-                    }
-                    for key ,msg in friendly_errors .items ():
-                        if key .lower ()in error_text .lower ():
-                            error_text =msg 
-                            break 
-                    try :
-                        if error_text .startswith ('{'):
-                            err_obj =json .loads (error_text )
-                            error_text =err_obj .get ('message',error_text )
-                    except Exception :
-                        pass 
+                    error_text =_normalize_error (str (e ))
                     await _send_json ({
                     "type":"chat_append","role":"assistant",
                     "text":f"Error: {error_text }","finished":True ,"error":True 
