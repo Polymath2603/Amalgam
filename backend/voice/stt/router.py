@@ -4,7 +4,7 @@ logger =logging .getLogger (__name__ )
 
 
 class STTRouter :
-    SUPPORTED_ENGINES ={"browser","faster-whisper","openai-whisper","groq-whisper","whispercpp"}
+    SUPPORTED_ENGINES ={"browser","faster-whisper","openai-whisper","groq-whisper","whispercpp","deepgram"}
 
     _PROVIDER_CLASSES =None 
 
@@ -16,12 +16,14 @@ class STTRouter :
             from .openai_whisper_provider import OpenAIWhisperProvider 
             from .groq_whisper_provider import GroqWhisperProvider 
             from .whispercpp_provider import WhisperCppProvider 
+            from .deepgram_provider import DeepgramSTTProvider 
             cls ._PROVIDER_CLASSES ={
             "browser":BrowserSTTProvider ,
             "faster-whisper":FasterWhisperProvider ,
             "openai-whisper":OpenAIWhisperProvider ,
             "groq-whisper":GroqWhisperProvider ,
             "whispercpp":WhisperCppProvider ,
+            "deepgram":DeepgramSTTProvider ,
             }
         return cls ._PROVIDER_CLASSES 
 
@@ -48,6 +50,9 @@ class STTRouter :
 
     def configure_whispercpp (self ,url :str =None ):
         self ._ensure ("whispercpp").configure (url )
+
+    def configure_deepgram (self ,api_key :str ,model :str ="nova-2"):
+        self ._ensure ("deepgram").configure (api_key ,model )
 
     def transcribe (self ,audio_np )->str :
         return self ._current ().transcribe (audio_np )

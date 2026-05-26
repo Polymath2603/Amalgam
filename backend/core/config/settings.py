@@ -135,6 +135,10 @@ DEFAULTS ={
 "whispercpp":{
 "url":"http://127.0.0.1:8080"
 },
+"deepgram":{
+"api_key":"",
+"model":"nova-2"
+},
 "tts_timeout":60.0 
 },
 "llm":{

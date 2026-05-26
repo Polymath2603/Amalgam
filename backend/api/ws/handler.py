@@ -161,6 +161,11 @@ async def handle_chat (websocket :WebSocket ):
                             elif stt_engine =="whispercpp":
                                 wcpp_url =voice_cfg .get ("voice.whispercpp.url",None )
                                 voice_pipeline .configure_whispercpp_stt (wcpp_url )
+                            elif stt_engine =="deepgram":
+                                dg_key =voice_cfg .get ("voice.deepgram.api_key","")
+                                if dg_key :
+                                    dg_model =voice_cfg .get ("voice.deepgram.model","nova-2")
+                                    voice_pipeline .configure_deepgram_stt (dg_key ,dg_model )
                         if voice_task is None or voice_task .done ():
                             if voice_task and voice_task .exception ():
                                 logger .error (f"Previous voice task failed: {voice_task .exception ()}")

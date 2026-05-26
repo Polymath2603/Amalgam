@@ -31,6 +31,9 @@ class VoicePipeline :
     def configure_whispercpp_stt (self ,url :str =None ):
         self ._stt .configure_whispercpp (url )
 
+    def configure_deepgram_stt (self ,api_key :str ,model :str ="nova-2"):
+        self ._stt .configure_deepgram (api_key ,model )
+
     def _ensure_models (self ):
         if self ._vad is None :
             from backend .voice .vad import VAD 
