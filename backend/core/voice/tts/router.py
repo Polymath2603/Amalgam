@@ -7,7 +7,8 @@ logger =logging .getLogger (__name__ )
 
 class TTSRouter :
     SUPPORTED_ENGINES ={"edge-tts","openvoice","elevenlabs","openai-tts",
-    "speecht5","alltalk","piper","coqui-local","kokoro"}
+    "speecht5","alltalk","piper","coqui-local","kokoro",
+    "azure","dashscope","volcengine","deepgram","mlx","rvc"}
 
     _PROVIDER_CLASSES =None 
 
@@ -23,6 +24,12 @@ class TTSRouter :
             from .piper_provider import PiperProvider 
             from .coqui_local_provider import CoquiLocalProvider 
             from .kokoro_provider import KokoroProvider 
+            from .azure_provider import AzureTTSProvider 
+            from .dashscope_provider import DashScopeProvider 
+            from .volcengine_provider import VolcengineProvider 
+            from .deepgram_provider import DeepgramProvider 
+            from .mlx_provider import MLXProvider 
+            from .rvc_provider import RVCProvider 
             cls ._PROVIDER_CLASSES ={
             "edge-tts":EdgeTTSProvider ,
             "openvoice":OpenVoiceProvider ,
@@ -33,6 +40,12 @@ class TTSRouter :
             "piper":PiperProvider ,
             "coqui-local":CoquiLocalProvider ,
             "kokoro":KokoroProvider ,
+            "azure":AzureTTSProvider ,
+            "dashscope":DashScopeProvider ,
+            "volcengine":VolcengineProvider ,
+            "deepgram":DeepgramProvider ,
+            "mlx":MLXProvider ,
+            "rvc":RVCProvider ,
             }
         return cls ._PROVIDER_CLASSES 
 
@@ -89,6 +102,26 @@ class TTSRouter :
     def configure_kokoro (self ,url :str =None ):
         self ._ensure ("kokoro").configure (url )
 
+    def configure_azure (self ,api_key :str ,region :str ="eastus"):
+        self ._ensure ("azure").configure (api_key ,region )
+
+    def configure_dashscope (self ,api_key :str ,model :str ="cosyvoice-v1"):
+        self ._ensure ("dashscope").configure (api_key ,model )
+
+    def configure_volcengine (self ,app_id :str ,access_token :str ,cluster :str ="volcano_tts"):
+        self ._ensure ("volcengine").configure (app_id ,access_token ,cluster )
+
+    def configure_deepgram (self ,api_key :str ,model :str ="aura-2"):
+        self ._ensure ("deepgram").configure (api_key ,model )
+
+    def configure_rvc (self ,url :str =None ,f0_up_key :int =0 ,f0_method :str ="rmvpe"):
+        rvc =self ._ensure ("rvc")
+        rvc .configure (url ,f0_up_key ,f0_method )
+
+        if self .engine !="rvc":
+            upstream =self ._ensure (self .engine )
+            rvc .set_tts_provider (upstream )
+
     _SR_MAP ={
     "elevenlabs":44100 ,
     "openai-tts":24000 ,
@@ -99,6 +132,12 @@ class TTSRouter :
     "coqui-local":24000 ,
     "kokoro":24000 ,
     "openvoice":22050 ,
+    "azure":16000 ,
+    "dashscope":16000 ,
+    "volcengine":24000 ,
+    "deepgram":24000 ,
+    "mlx":24000 ,
+    "rvc":24000 ,
     }
 
     async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :

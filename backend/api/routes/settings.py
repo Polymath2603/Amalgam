@@ -55,6 +55,35 @@ async def update_settings (body :dict ):
     elif engine =="kokoro":
         url =settings ().get ("voice.kokoro.url",None )
         tts ().configure_kokoro (url )
+    elif engine =="azure":
+        api_key =settings ().get ("voice.azure.api_key","")
+        region =settings ().get ("voice.azure.region","eastus")
+        if api_key :
+            tts ().configure_azure (api_key ,region )
+    elif engine =="dashscope":
+        api_key =settings ().get ("voice.dashscope.api_key","")
+        model =settings ().get ("voice.dashscope.model","cosyvoice-v1")
+        if api_key :
+            tts ().configure_dashscope (api_key ,model )
+    elif engine =="volcengine":
+        app_id =settings ().get ("voice.volcengine.app_id","")
+        access_token =settings ().get ("voice.volcengine.access_token","")
+        cluster =settings ().get ("voice.volcengine.cluster","volcano_tts")
+        if app_id and access_token :
+            tts ().configure_volcengine (app_id ,access_token ,cluster )
+    elif engine =="deepgram":
+        api_key =settings ().get ("voice.deepgram.api_key","")
+        model =settings ().get ("voice.deepgram.model","aura-2")
+        if api_key :
+            tts ().configure_deepgram (api_key ,model )
+    elif engine =="mlx":
+        pass 
+    elif engine =="rvc":
+        url =settings ().get ("voice.rvc.url",None )
+        f0_up_key =settings ().get ("voice.rvc.f0_up_key",0 )
+        f0_method =settings ().get ("voice.rvc.f0_method","rmvpe")
+        tts ().engine =settings ().get ("voice.engine","edge-tts")
+        tts ().configure_rvc (url ,f0_up_key ,f0_method )
     _sync_emotion_tags ()
     agent ().update_settings (settings ())
 

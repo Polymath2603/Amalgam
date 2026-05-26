@@ -5,13 +5,13 @@ Not part of the `api` package to avoid cross-boundary imports.
 import logging 
 
 from backend .core .config .settings import Settings 
-from backend .core .core .llm import LLMRouter 
-from backend .core .core .memory import Memory 
-from backend .core .core .context_builder import ContextBuilder 
-from backend .core .core .context_manager import ContextManager 
-from backend .core .core .vault import VaultManager 
-from backend .core .core .agent import Agent 
-from backend .core .core .relationship import Relationship 
+from backend .core .llm import LLMRouter 
+from backend .core .memory import Memory 
+from backend .core .context_builder import ContextBuilder 
+from backend .core .context_manager import ContextManager 
+from backend .core .vault import VaultManager 
+from backend .core .agent import Agent 
+from backend .core .relationship import Relationship 
 from backend .core .mcp .client import MCPClient 
 from backend .core .voice .tts import TTS 
 
@@ -54,6 +54,27 @@ def get_shared ():
         if elevenlabs_key :
             elevenlabs_model =_shared ["settings"].get ("voice.elevenlabs.model","eleven_multilingual_v2")
             _shared ["tts"].configure_elevenlabs (elevenlabs_key ,elevenlabs_model )
+
+        azure_key =_shared ["settings"].get ("voice.azure.api_key","")
+        if azure_key :
+            azure_region =_shared ["settings"].get ("voice.azure.region","eastus")
+            _shared ["tts"].configure_azure (azure_key ,azure_region )
+
+        dashscope_key =_shared ["settings"].get ("voice.dashscope.api_key","")
+        if dashscope_key :
+            dashscope_model =_shared ["settings"].get ("voice.dashscope.model","cosyvoice-v1")
+            _shared ["tts"].configure_dashscope (dashscope_key ,dashscope_model )
+
+        volcengine_app_id =_shared ["settings"].get ("voice.volcengine.app_id","")
+        volcengine_token =_shared ["settings"].get ("voice.volcengine.access_token","")
+        if volcengine_app_id and volcengine_token :
+            volcengine_cluster =_shared ["settings"].get ("voice.volcengine.cluster","volcano_tts")
+            _shared ["tts"].configure_volcengine (volcengine_app_id ,volcengine_token ,volcengine_cluster )
+
+        deepgram_key =_shared ["settings"].get ("voice.deepgram.api_key","")
+        if deepgram_key :
+            deepgram_model =_shared ["settings"].get ("voice.deepgram.model","aura-2")
+            _shared ["tts"].configure_deepgram (deepgram_key ,deepgram_model )
     if _shared ["relationship"]is None :
         _shared ["relationship"]=Relationship ()
     if _shared ["agent"]is None :
