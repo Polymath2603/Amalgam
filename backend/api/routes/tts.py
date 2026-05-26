@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter 
 from backend .api .deps import settings 
-from k_core .voice .tts import TTS 
+from backend .core .voice .tts import TTS 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["tts"])

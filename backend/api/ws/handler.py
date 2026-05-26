@@ -10,7 +10,7 @@ from fastapi import WebSocket ,WebSocketDisconnect
 from backend .api .deps import settings ,memory ,tts ,agent ,relationship 
 from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now 
 from pathlib import Path 
-from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
+from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
 from backend .voice .pipeline import VoicePipeline 
 
 logger =logging .getLogger (__name__ )
@@ -48,7 +48,7 @@ def _animation_dir (char_id :str )->str :
     data_dir =CHARACTERS_DIR /char_id /"anim"
     if data_dir .exists ():
         return str (data_dir )
-    repo_dir =PROJECT_ROOT /"characters"/char_id /"anim"
+    repo_dir =PROJECT_ROOT /"backend"/"characters"/char_id /"anim"
     if repo_dir .exists ():
         return str (repo_dir )
     return str (data_dir )

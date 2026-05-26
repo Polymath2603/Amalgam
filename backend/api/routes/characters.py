@@ -10,10 +10,10 @@ from pathlib import Path
 from fastapi import APIRouter 
 from fastapi .responses import JSONResponse 
 from backend .api .deps import settings ,llm ,tts 
-from k_core .config .settings import BUILTIN_VOICES 
-from k_core .core .llm import LLMRouter 
-from k_core .paths import CHARACTERS_DIR ,PROJECT_ROOT ,DATA_DIR 
-from backend .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE 
+from backend .core .config .settings import BUILTIN_VOICES 
+from backend .core .core .llm import LLMRouter 
+from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT ,DATA_DIR 
+from backend .core .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["characters"])
@@ -50,7 +50,7 @@ async def get_animations (char_id :str =None ):
     animations ={"default":[],"character":[]}
 
     seen =set ()
-    for base in [CHARACTERS_DIR ,PROJECT_ROOT /"characters"]:
+    for base in [CHARACTERS_DIR ,PROJECT_ROOT /"backend"/"characters"]:
         for f in _list_anim_files (base /"default"/"anim"):
             if f not in seen :
                 seen .add (f )
@@ -63,7 +63,7 @@ async def get_animations (char_id :str =None ):
 
     if char_id and char_id !="default":
         seen =set ()
-        for base in [CHARACTERS_DIR ,PROJECT_ROOT /"characters"]:
+        for base in [CHARACTERS_DIR ,PROJECT_ROOT /"backend"/"characters"]:
             for f in _list_anim_files (base /char_id /"anim"):
                 if f not in seen :
                     seen .add (f )
@@ -84,7 +84,7 @@ async def get_emotions ():
 
 @router .get ("/api/expressions")
 async def get_expressions (char_id :str =None ):
-    from k_core .core .context_builder import VRM_EXPRESSIONS 
+    from backend .core .core .context_builder import VRM_EXPRESSIONS 
     exprs =list (VRM_EXPRESSIONS )
     return {"expressions":exprs }
 
@@ -141,7 +141,7 @@ async def regenerate_icons ():
             os .remove (icon_path )
 
     node =shutil .which ("node")
-    vrm_script =os .path .join (str (PROJECT_ROOT ),"scripts","generate-icons-vrm.js")
+    vrm_script =os .path .join (str (PROJECT_ROOT ),"backend","scripts","generate-icons-vrm.js")
     if node and os .path .exists (vrm_script ):
         try :
             logger .debug ("Running VRM icon generation...")

@@ -9,7 +9,7 @@ from concurrent import futures
 
 import grpc 
 from backend .grpc import agent_pb2 ,agent_pb2_grpc 
-from k_core .deps import get_shared 
+from backend .core .deps import get_shared 
 
 logger =logging .getLogger (__name__ )
 

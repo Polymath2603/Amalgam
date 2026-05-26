@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: transparent; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "http://localhost:8000/static/vendor/three.module.js",
+    "three/addons/": "http://localhost:8000/static/vendor/",
+    "@pixiv/three-vrm": "http://localhost:8000/static/vendor/three-vrm.module.min.js"
+  }
+}
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+const params = new URLSearchParams(location.search);
+const modelUrl = params.get('model') || 'http://localhost:8000/characters/default/model.vrm';
+
+const SIZE = 192;
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+renderer.setSize(SIZE, SIZE);
+renderer.setPixelRatio(2);
+renderer.setClearColor(0x000000, 0);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(18, 1, 0.1, 20);
+camera.position.set(0, 1.52, 1.2);
+camera.lookAt(0, 1.48, 0);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, Math.PI);
+dirLight.position.set(1, 1, 1).normalize();
+scene.add(dirLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+const loader = new GLTFLoader();
+loader.register(p => new VRMLoaderPlugin(p));
+
+window.__vrmReady = false;
+
+loader.load(modelUrl, (gltf) => {
+    console.log('GLTF loaded');
+    const vrm = gltf.userData.vrm;
+    if (!vrm) { console.error('No VRM data'); window.__vrmError = true; window.__vrmReady = true; return; }
+    console.log('VRM data parsed');
+    VRMUtils.removeUnnecessaryVertices(gltf.scene);
+    VRMUtils.combineSkeletons(gltf.scene);
+    VRMUtils.combineMorphs(vrm);
+    console.log('VRM processed');
+    // Fix rotation for VRM0 models only
+    if (vrm.meta?.metaVersion === '0') {
+        vrm.scene.rotation.y = Math.PI;
+    }
+    gltf.scene.traverse(o => { o.frustumCulled = false; });
+    scene.add(vrm.scene);
+    console.log('VRM added to scene');
+
+    // Relaxed pose
+    const h = vrm.humanoid;
+    if (h) {
+        const spine = h.getNormalizedBoneNode('spine');
+        if (spine) spine.rotation.x = -0.05;
+        const lua = h.getNormalizedBoneNode('leftUpperArm');
+        const rua = h.getNormalizedBoneNode('rightUpperArm');
+        if (lua) lua.rotation.z = 0.3;
+        if (rua) rua.rotation.z = -0.3;
+    }
+
+    // Portrait camera — compute framing from actual VRM bone positions
+    vrm.update(0.01); // Give it a tiny bit of time for initial state
+    vrm.scene.updateMatrixWorld(true);
+
+    const headBone = h?.getNormalizedBoneNode('head');
+    const neckBone = h?.getNormalizedBoneNode('neck');
+    const fov = camera.fov * (Math.PI / 180);
+
+    if (headBone && neckBone) {
+        const headPos = new THREE.Vector3();
+        const neckPos = new THREE.Vector3();
+        headBone.getWorldPosition(headPos);
+        neckBone.getWorldPosition(neckPos);
+
+        const headLen = headPos.distanceTo(neckPos);
+
+        // Build 3D bounding box around the head using bone positions
+        const headBox = new THREE.Box3();
+        const halfW = headLen * 0.6;
+        const halfD = headLen * 0.6;
+        headBox.set(
+            new THREE.Vector3(headPos.x - halfW, neckPos.y, headPos.z - halfD),
+            new THREE.Vector3(headPos.x + halfW, headPos.y + headLen * 1.2, headPos.z + halfD)
+        );
+        const headSize = headBox.getSize(new THREE.Vector3());
+        const maxDim = Math.max(headSize.x, headSize.y, headSize.z);
+
+        // Determine distance to frame the head using the largest 3D dimension
+        const dist = maxDim / Math.tan(fov / 2);
+        const midY = neckPos.y + headSize.y * 0.45;
+
+        // Camera faces front: both VRM0 (rotated by PI) and VRM1 face +Z
+        camera.position.set(headPos.x, midY, headPos.z + dist);
+        camera.lookAt(headPos.x, midY, headPos.z);
+    } else {
+        // Fallback for models with missing head/neck bones
+        const box = new THREE.Box3().setFromObject(vrm.scene);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const dist = (size.y * 0.25) / Math.tan(fov / 2);
+        const camOffsetZ = dist;
+        const fallbackY = box.max.y - size.y * 0.1;
+        camera.position.set(center.x, fallbackY, center.z + camOffsetZ);
+        camera.lookAt(center.x, fallbackY, center.z);
+    }
+
+    // Look at camera
+    const target = new THREE.Object3D();
+    camera.add(target);
+    if (vrm.lookAt) vrm.lookAt.target = target;
+
+    // Set happy expression
+    // if (vrm.expressionManager) {
+    //     vrm.expressionManager.setValue('happy', 0.6);
+    // }
+
+    vrm.update(0);
+    console.log('Rendering basic view');
+    renderer.render(scene, camera);
+    console.log('Render complete');
+    window.__vrmReady = true;
+    }, undefined, (err) => {
+
+    console.error('VRM load error:', err?.message || err);
+    window.__vrmError = true;
+    window.__vrmReady = true; // Signal done even on error
+});
+</script>
+</body>
+</html>

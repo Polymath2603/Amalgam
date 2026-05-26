@@ -6,7 +6,7 @@ A voice-first AI companion with 3D VRM avatar, MCP tool integration, multi-provi
 
 ```bash
 pip install -r requirements.txt
-python -m backend
+python main.py
 ```
 
 Open `http://localhost:8000` in your browser.

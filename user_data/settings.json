@@ -1,0 +1,285 @@
+{
+  "provider": {
+    "active": "openrouter",
+    "ollama": {
+      "base_url": "http://localhost:11434",
+      "model": "qwen2.5:0.5b-instruct"
+    },
+    "gemini": {
+      "api_key: "REDACTED",
+      "model": "gemini-2.5-flash",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta"
+    },
+    "openrouter": {
+      "api_key": "REDACTED",
+      "model": "meta-llama/llama-3.2-3b-instruct:free",
+      "base_url": "https://openrouter.ai/api/v1"
+    },
+    "zai": {
+      "api_key": "95d0db56dfab4e28ad5662c0105a3b03.XN099krJ8q3pi8MV",
+      "model": "GLM-5.1",
+      "base_url": "https://api.z.ai/api/coding/paas/v4"
+    },
+    "siliconflow": {
+      "api_key": "",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "base_url": "https://api.siliconflow.cn/v1"
+    },
+    "groq": {
+      "api_key": "REDACTED",
+      "model": "llama-3.3-70b-versatile",
+      "base_url": "https://api.groq.com/openai/v1"
+    },
+    "chatgpt": {
+      "api_key": "",
+      "model": "gpt-4o-mini",
+      "base_url": "https://api.openai.com/v1"
+    },
+    "claude": {
+      "api_key": "",
+      "model": "",
+      "base_url": "https://api.anthropic.com/v1"
+    },
+    "llamacpp": {
+      "base_url": "",
+      "model": ""
+    },
+    "koboldai": {
+      "base_url": "",
+      "model": ""
+    },
+    "stt": {
+      "engine": "faster-whisper",
+      "openai_whisper": {
+        "api_key": ""
+      },
+      "groq_whisper": {
+        "api_key": ""
+      },
+      "whispercpp": {
+        "url": "http://127.0.0.1:8080"
+      }
+    }
+  },
+  "character": {
+    "active": "default",
+    "system_prompt": "respond consisively\n",
+    "rules": ""
+  },
+  "voice": {
+    "engine": "edge-tts",
+    "lipsync_enabled": true,
+    "stt_engine": "faster-whisper",
+    "vad_mode": 2,
+    "vad_frame_size": 960,
+    "vad_energy_threshold": 0.02,
+    "vad_silence_frames": 33,
+    "faster_whisper": {
+      "model": "base"
+    },
+    "openai_whisper": {
+      "api_key": "",
+      "model": "whisper-1"
+    },
+    "openai_tts": {
+      "api_key": "",
+      "model": "tts-1",
+      "base_url": "https://api.openai.com/v1",
+      "voice": "alloy"
+    },
+    "alltalk": {
+      "url": "http://127.0.0.1:7851",
+      "language": "en",
+      "version": "v2",
+      "rvc_voice": "",
+      "rvc_pitch": "0",
+      "voice": "female_01.wav"
+    },
+    "piper": {
+      "url": "http://127.0.0.1:5000"
+    },
+    "coqui_local": {
+      "url": "http://127.0.0.1:5002",
+      "speaker_id": ""
+    },
+    "kokoro": {
+      "url": "http://127.0.0.1:8880",
+      "voice": "af_heart"
+    },
+    "groq_whisper": {
+      "api_key": "",
+      "model": "whisper-large-v3",
+      "base_url": "https://api.groq.com/openai/v1"
+    },
+    "whispercpp": {
+      "url": "http://127.0.0.1:8080"
+    },
+    "tts_timeout": 60.0,
+    "active": "en-US-AriaNeural",
+    "speed": 1,
+    "elevenlabs": {
+      "api_key": "",
+      "model": "eleven_multilingual_v2",
+      "voice_id": "21m00Tcm4TlvDq8ikWAM"
+    }
+  },
+  "llm": {
+    "temperature": 0.5,
+    "max_tokens": 2048,
+    "timeout": 120.0,
+    "context_token_limit": 8192
+  },
+  "memory": {
+    "retrieval_k": 3,
+    "context_window": 50,
+    "summarize_threshold": 40,
+    "summarize_keep": 15,
+    "embedding_backend": "provider",
+    "fact_extraction": true
+  },
+  "avatar": {
+    "model_path": "characters/default/model.vrm",
+    "scale": 1
+  },
+  "vault": {
+    "path": "user_data/vault"
+  },
+  "shell": {
+    "mode": "safe",
+    "allowed_prefixes": [
+      "echo",
+      "ls",
+      "cat",
+      "pwd",
+      "date",
+      "find",
+      "grep",
+      "head",
+      "tail",
+      "wc",
+      "mkdir",
+      "cp",
+      "mv",
+      "rm",
+      "touch",
+      "curl",
+      "wget",
+      "python3",
+      "python",
+      "pip",
+      "pip3",
+      "whoami",
+      "uname",
+      "notify-send",
+      "ps",
+      "top",
+      "htop",
+      "df",
+      "du",
+      "free",
+      "which",
+      "kill",
+      "pkill",
+      "xdotool",
+      "xclip",
+      "wl-paste"
+    ]
+  },
+  "ui": {
+    "theme": "dark",
+    "font_size": 14,
+    "voice_input": false,
+    "voice_output": false,
+    "thinking_enabled": false,
+    "accent_color": "#6c5ce7"
+  },
+  "mcp": {
+    "servers": [
+      {
+        "name": "shell",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/shell/server.py"
+        ],
+        "enabled": true,
+        "env": {
+          "AMALGAM_SHELL_MODE": "safe",
+          "AMALGAM_SHELL_ALLOWED_COMMANDS": "echo,ls,cat,pwd,date,find,grep,head,tail,wc,mkdir,cp,mv,rm,touch,curl,wget,python3,python,pip,pip3,whoami,uname,notify-send,ps,top,htop,df,du,free,which,kill,pkill,xdotool,xclip,wl-paste"
+        }
+      },
+      {
+        "name": "screenshot",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/screenshot/server.py"
+        ],
+        "enabled": true
+      },
+      {
+        "name": "sequential-thinking",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-sequential-thinking"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "puppeteer",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-puppeteer"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "obsidian",
+        "command": "npx",
+        "args": [
+          "-y",
+          "obsidian-mcp",
+          "/home/leonardo/Workplace/k/user_data/vault"
+        ],
+        "enabled": true
+      },
+      {
+        "name": "system",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/system/server.py"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "skill",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/skill/server.py"
+        ],
+        "enabled": true,
+        "env": {
+          "AMALGAM_DATA_DIR": "/home/leonardo/Workplace/k/user_data"
+        }
+      },
+      {
+        "name": "windows",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/windows/server.py"
+        ],
+        "enabled": true
+      },
+      {
+        "name": "avatar",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/avatar/server.py"
+        ],
+        "enabled": true
+      }
+    ]
+  },
+  "key": "llm.max_tokens",
+  "value": "4096"
+}

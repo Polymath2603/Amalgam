@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/schemas/main/tauri-conf-v2.json",
+  "productName": "Amalgam",
+  "version": "0.1.0",
+  "identifier": "com.amalgam.app",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "title": "Amalgam",
+    "windows": [
+      {
+        "title": "Amalgam",
+        "width": 1280,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/k-backend"]
+  }
+}

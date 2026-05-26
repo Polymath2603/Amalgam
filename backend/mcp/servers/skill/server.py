@@ -34,12 +34,12 @@ app =Server ("skill-server")
 
 PROJECT_ROOT =Path (os .path .abspath (os .path .join (os .path .dirname (__file__ ),"..","..","..","..")))
 BUILTIN_SKILLS =PROJECT_ROOT /"backend"/"skills"
-DATA_DIR =Path (os .environ .get ("AMALGAM_DATA_DIR",str (PROJECT_ROOT /"user_data")))
+DATA_DIR =Path (os .environ .get ("AMALGAM_DATA_DIR",str (PROJECT_ROOT /"data")))
 USER_SKILLS =DATA_DIR /"skills"
 
 
 def _discover_skill_files ()->list [dict ]:
-    """Scan user_data/skills/ for SKILL.md files, copying missing built-ins first.
+    """Scan data/skills/ for SKILL.md files, copying missing built-ins first.
 
     Returns a list of {name, description, source_dir, path} dicts.
     """

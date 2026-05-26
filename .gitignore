@@ -27,8 +27,8 @@ node_modules/
 # Logs
 *.log
 
-# BVH→VRMA conversion tool (one-off use)
-scripts/
+# Old root-level scripts (moved to backend/scripts/)
+/scripts/
 
 # Editor / OS files
 .vscode/

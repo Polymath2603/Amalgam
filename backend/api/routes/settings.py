@@ -5,7 +5,7 @@ import logging
 
 from fastapi import APIRouter 
 from backend .api .deps import settings ,llm ,tts ,agent 
-from k_core .config .settings import BUILTIN_VOICES 
+from backend .core .config .settings import BUILTIN_VOICES 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["settings"])

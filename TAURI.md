@@ -29,11 +29,11 @@ Currently `frontend/` is static files served by FastAPI. For Tauri:
 ### 2. Backend Sidecar
 Package `backend/` into a standalone binary:
 ```
-PyInstaller: pyinstaller --onefile --name k-backend backend/__main__.py
+PyInstaller: pyinstaller --onefile --name k-backend main.py
 ```
 The sidecar starts an HTTP server on a random port and writes the port + a secret token to stdout. Tauri reads this to configure the webview's API base URL.
 
-### 3. Tauri Config (`src-tauri/`)
+### 3. Tauri Config (`frontend/tauri/`)
 - `tauri.conf.json`: 
   - Point `build.devUrl` to `http://localhost:8000` (dev) or `frontend/dist/index.html` (prod)
   - Register sidecar binary under `bundle.externalBin`
@@ -60,17 +60,17 @@ npm run dev        # Build frontend + start Tauri dev server
 npm run build          # Build release frontend
 cargo tauri build      # Package .deb/.AppImage (Linux), .dmg (macOS), .msi (Windows)
 ```
-Output: `src-tauri/target/release/bundle/`
+Output: `frontend/tauri/target/release/bundle/`
 
 ## Build Configuration Files to Create
 
 - `package.json` (root)
 - `vite.config.ts` (frontend build)
-- `src-tauri/Cargo.toml`
-- `src-tauri/tauri.conf.json`
-- `src-tauri/src/main.rs`
-- `src-tauri/src/lib.rs`
-- `src-tauri/icons/` (app icons)
+- `frontend/tauri/Cargo.toml`
+- `frontend/tauri/tauri.conf.json`
+- `frontend/tauri/src/main.rs`
+- `frontend/tauri/src/lib.rs`
+- `frontend/tauri/icons/` (app icons)
 
 ## Not Done Yet
 

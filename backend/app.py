@@ -25,9 +25,9 @@ relationship ,
 tts as tts_route ,
 root ,
 )
-from backend .api .deps import settings ,memory ,tts ,mcp 
-from k_core .paths import FRONTEND_DIR ,DATA_DIR ,CHARACTERS_DIR ,VAULT_DIR ,PROJECT_ROOT 
-from backend .utils .icon_generator import generate_missing_icons 
+from backend .core .paths import FRONTEND_DIR ,DATA_DIR ,CHARACTERS_DIR ,PROJECT_ROOT 
+from backend .core .startup import init_application 
+from backend .core .utils .icon_generator import generate_missing_icons 
 
 logger =logging .getLogger (__name__ )
 
@@ -49,7 +49,7 @@ def create_app ():
     app .include_router (root .router )
 
 
-    REPO_ANIM =str (PROJECT_ROOT /"characters"/"default"/"anim")
+    REPO_ANIM =str (PROJECT_ROOT /"backend"/"characters"/"default"/"anim")
     if os .path .exists (REPO_ANIM ):
         app .mount ("/static/animations",StaticFiles (directory =REPO_ANIM ),name ="default_animations")
 
@@ -63,7 +63,7 @@ def create_app ():
 
 
 
-    REPO_CHARS =str (PROJECT_ROOT /"characters")
+    REPO_CHARS =str (PROJECT_ROOT /"backend"/"characters")
     @app .get ("/characters/{file_path:path}")
     async def serve_character_asset (file_path :str ):
         user_path =CHARACTERS_DIR /file_path 
@@ -83,53 +83,14 @@ def create_app ():
     @app .on_event ("startup")
     async def startup ():
         logger .warning ("Starting Amalgam backend...")
+        await init_application ()
         asyncio .create_task (_delayed_startup_tasks ())
-
-
-        memory ().start_session ()
-
-
-        engine =settings ().get ("voice.engine","edge-tts")
-        if engine =="openvoice":
-            logger .debug ("Preloading OpenVoice TTS engine...")
-            try :
-                loop =asyncio .get_event_loop ()
-                await loop .run_in_executor (None ,tts ().get_openvoice_loaded )
-                logger .debug ("OpenVoice TTS engine ready")
-            except Exception as e :
-                logger .warning (f"OpenVoice preload failed: {e }")
-
-
-        vault_path =settings ().get ("vault.path",str (VAULT_DIR ))
-        os .makedirs (vault_path ,exist_ok =True )
-        rules_path =os .path .join (vault_path ,"rules.md")
-        if not os .path .exists (rules_path ):
-            with open (rules_path ,"w")as f :
-                f .write ("# Rules\n\nAdd your custom rules here. These will be injected into every conversation.\n")
-
-
-        mcp_servers =settings ().get_mcp_servers ()
-        if mcp_servers :
-            try :
-
-                for s in mcp_servers :
-                    if s .get ("name")=="shell":
-                        shell_mode =settings ().get ("shell.mode","safe")
-                        shell_prefixes =settings ().get ("shell.allowed_prefixes",[])
-                        s .setdefault ("env",{})
-                        s ["env"]["AMALGAM_SHELL_MODE"]=shell_mode 
-                        s ["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"]=",".join (shell_prefixes )
-                await mcp ().connect_from_settings (mcp_servers )
-            except Exception as e :
-                logger .warning (f"MCP servers from settings failed: {e }")
 
     @app .on_event ("shutdown")
     async def shutdown ():
         logger .warning ("Shutting down Amalgam backend...")
-        try :
-            await mcp ().close ()
-        except Exception as e :
-            logger .warning (f"MCP shutdown error: {e }")
+        from backend .core .startup import shutdown_application 
+        await shutdown_application ()
 
     return app 
 
