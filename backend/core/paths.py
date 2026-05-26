@@ -15,6 +15,7 @@ FRONTEND_DIR =PROJECT_ROOT /"frontend"/"webui"
 CONVERSATIONS_DIR =DATA_DIR /"conversations"
 SKILLS_DIR =DATA_DIR /"skills"
 
+EMBEDDINGS_DIR =DATA_DIR /"embeddings"
 SETTINGS_PATH =str (DATA_DIR /"settings.json")
 CONVERSATIONS_DB =str (DATA_DIR /"conversations.db")
 RELATIONSHIP_DB =str (DATA_DIR /"relationship.db")
