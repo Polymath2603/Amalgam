@@ -30,6 +30,9 @@ node_modules/
 # Old root-level scripts (moved to backend/scripts/)
 /scripts/
 
+# Godot editor cache
+frontend/godot/.godot/
+
 # Editor / OS files
 .vscode/
 .idea/

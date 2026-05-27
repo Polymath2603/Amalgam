@@ -10,8 +10,11 @@ console.warn = (...args) => {
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
-import { loadVRMAnimation } from '/static/js/vrm-animation.js';
-import { FrequencyAnalyzer } from '/static/js/frequency-analyzer.js';
+const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
+const BASE_URL = IS_TAURI ? 'http:
+
+import { loadVRMAnimation } from './vrm-animation.js';
+import { FrequencyAnalyzer } from './frequency-analyzer.js';
 
 const EMOTION_TO_EXPRESSION = {
     neutral:    null,
@@ -48,11 +51,11 @@ const BLINK_OPEN_MAX = 5;
 export class AvatarRenderer {
     constructor(container, vrmPath, options = {}) {
         this.container = container;
-        this.vrmPath = vrmPath || '/characters/default/model.vrm';
+        this.vrmPath = vrmPath || (BASE_URL + '/characters/default/model.vrm');
         this.preview = options.preview || false;
         this.animConfig = Object.assign({
-            idle: '/static/animations/idle_loop.vrma',
-            greeting: '/static/animations/greeting.vrma',
+            idle: BASE_URL + '/static/animations/idle_loop.vrma',
+            greeting: BASE_URL + '/static/animations/greeting.vrma',
         }, options.animations || {});
         this.vrm = null;
         this.clock = new THREE.Clock();

@@ -1,22 +1,28 @@
 """
-Amalgam entry point.
-Launches the backend server and a chosen frontend.
+Amalgam launcher.
+Starts the backend or launches the full desktop app.
 
 Usage:
   python main.py help               # Print this help
-  python main.py webui              # Launch web UI
+  python main.py webui              # Launch web UI (default)
   python main.py cli                # Launch interactive CLI
+  python main.py desktop            # Launch Tauri desktop app
   python main.py --grpc             # gRPC server only
   python main.py cli --grpc         # CLI via remote gRPC
 """
 import os 
 import sys 
 import argparse 
-import logging 
 
 sys .path .insert (0 ,os .path .dirname (os .path .abspath (__file__ )))
-logging .basicConfig (level =logging .WARNING ,format ='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger =logging .getLogger (__name__ )
+
+TAURI_DIR =os .path .join (os .path .dirname (os .path .abspath (__file__ )),"desktop","tauri")
+
+LOG_LEVEL_MAP ={0 :"ERROR",1 :"WARNING",2 :"INFO",3 :"DEBUG"}
+
+
+def _verbosity_to_level (v :int )->str :
+    return LOG_LEVEL_MAP .get (v ,"DEBUG")
 
 
 def _kill_port (port ):
@@ -37,37 +43,64 @@ def _kill_port (port ):
 def _print_help ():
     print (__doc__ .strip ())
     print ()
-    print ("Available frontends: default, webui, cli")
-    print ("  default  - Launch web UI (default)")
-    print ("  webui    - Launch web UI")
+    print ("Usage: python main.py [command] [options]")
+    print ()
+    print ("Commands:")
+    print ("  webui    - Launch web UI (default)")
     print ("  cli      - Launch interactive CLI")
+    print ("  desktop  - Build and launch Tauri desktop app")
     print ()
     print ("Options:")
     print ("  --grpc         Run gRPC server (or connect via CLI)")
     print ("  --grpc-host    gRPC bind host (default: 0.0.0.0)")
     print ("  --grpc-port    gRPC bind port (default: 50051)")
+    print ("  -v             Verbosity: -v WARNING, -vv INFO, -vvv DEBUG (default: ERROR)")
+    print ("  --log-level    Log level: ERROR|WARNING|INFO|DEBUG (overrides -v)")
+    print ("  --log-format   Output format: console (default) or json")
+
+
+def _launch_desktop ():
+    import subprocess 
+    if not os .path .isdir (TAURI_DIR ):
+        print (f"Error: Tauri directory not found at {TAURI_DIR }")
+        sys .exit (1 )
+    print ("Launching desktop app...")
+    subprocess .run (["cargo","run"],cwd =TAURI_DIR )
 
 
 def main ():
     parser =argparse .ArgumentParser (description ="Amalgam")
-    parser .add_argument ("frontend",nargs ="?",
-    choices =["help","webui","cli"],
+    parser .add_argument ("frontend",nargs ="?",choices =["help","webui","cli","desktop"],
     help ="Frontend to launch")
     parser .add_argument ("--grpc",action ="store_true",help ="Run gRPC server (or connect via CLI)")
     parser .add_argument ("--grpc-host",default ="0.0.0.0",help ="gRPC bind host")
     parser .add_argument ("--grpc-port",type =int ,default =50051 ,help ="gRPC bind port")
+    parser .add_argument ("-v","--verbose",action ="count",default =0 ,
+    help ="Verbosity: -v WARNING, -vv INFO, -vvv DEBUG (default: ERROR)")
+    parser .add_argument ("--log-level",default =None ,choices =["DEBUG","INFO","WARNING","ERROR"],
+    help ="Log level (overrides -v)")
+    parser .add_argument ("--log-format",default =None ,choices =["console","json"],
+    help ="Log output format")
     args =parser .parse_args ()
 
-    if args .frontend is None or args .frontend =="help":
-        _print_help ()
-        return 
+    from backend .core .log_config import configure_logging 
+    log_level =args .log_level or _verbosity_to_level (args .verbose )
+    logger =configure_logging (level =log_level ,log_format =args .log_format )
 
     if args .grpc and args .frontend !="cli":
         import asyncio 
         from backend .grpc .server import serve_grpc 
         asyncio .run (serve_grpc (args .grpc_host ,args .grpc_port ))
+        return 
+
+    if args .frontend is None or args .frontend =="help":
+        _print_help ()
+        return 
+
+    if args .frontend =="desktop":
+        _launch_desktop ()
     elif args .frontend =="cli":
-        from frontend .cli import main as cli_main 
+        from cli import main as cli_main 
         cli_main ()
     else :
         port =int (os .environ .get ("AMALGAM_PORT","8000"))

@@ -25,6 +25,12 @@ async def init_application ():
     """
     shared =get_shared ()
     settings =shared ["settings"]
+
+
+    log_level =settings .get ("log.level","WARNING")
+    log_format =settings .get ("log.format","console")
+    from backend .core .log_config import configure_logging 
+    configure_logging (level =log_level ,log_format =log_format )
     memory =shared ["memory"]
     mcp_client =shared ["mcp"]
     tts_engine =shared ["tts"]
@@ -54,18 +60,14 @@ async def init_application ():
 
     mcp_servers =settings .get_mcp_servers ()
     if mcp_servers :
-        try :
-
-            for s in mcp_servers :
-                if s .get ("name")=="shell":
-                    shell_mode =settings .get ("shell.mode","safe")
-                    shell_prefixes =settings .get ("shell.allowed_prefixes",[])
-                    s .setdefault ("env",{})
-                    s ["env"]["AMALGAM_SHELL_MODE"]=shell_mode 
-                    s ["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"]=",".join (shell_prefixes )
-            await mcp_client .connect_from_settings (mcp_servers )
-        except Exception as e :
-            logger .warning (f"MCP servers from settings failed: {e }")
+        for s in mcp_servers :
+            if s .get ("name")=="shell":
+                shell_mode =settings .get ("shell.mode","safe")
+                shell_prefixes =settings .get ("shell.allowed_prefixes",[])
+                s .setdefault ("env",{})
+                s ["env"]["AMALGAM_SHELL_MODE"]=shell_mode 
+                s ["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"]=",".join (shell_prefixes )
+        asyncio .create_task (mcp_client .connect_from_settings (mcp_servers ))
 
 
 async def shutdown_application ():

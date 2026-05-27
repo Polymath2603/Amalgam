@@ -1,0 +1,442 @@
+import os 
+import logging 
+from string import Template 
+from typing import List ,Dict 
+
+from backend .core .paths import PROJECT_ROOT ,VAULT_DIR ,CHARACTERS_DIR 
+from backend .core .vault import VaultManager 
+
+logger =logging .getLogger (__name__ )
+
+VRM_EXPRESSIONS =["happy","angry","sad","relaxed","surprised","blink"]
+
+
+_PROMPT_TEMPLATE ="""\
+# Identity
+$identity
+
+# Environment
+Your responses are displayed as chat messages in a web UI.
+- The user communicates via text or voice input
+- You have a 3D VRM avatar that shows facial expressions and performs full-body animations
+- Your voice is synthesized through TTS and can carry emotional tone
+- You have a personal knowledge vault for persistent information
+- Images sent by the user are visible to you
+- You can use connected tools to interact with the local system
+- You have access to conversation history within the current session — refer back to earlier topics when relevant
+
+# Avatar Control (use MCP tools instead of text tags)
+You control your avatar's expressions, voice emotion, and body animations exclusively through the **avatar** MCP server tools. Do NOT use /[[emotion]] /((expression)) /**action**/ tags — use the tools below instead.
+
+## Voice Emotion — avatar_set_emotion
+Sets the emotional tone of your spoken voice. Call this when your character's emotional state shifts.
+Available emotions: happy, sad, angry, surprised, thinking, relaxed, confused, shy, jealous, bored, suspicious, victory, sleep, love, excited
+- Use one call per response to set your vocal tone
+- Voice emotion is independent of facial expression
+
+## Facial Expression — avatar_set_expression
+Sets your avatar's facial expression (VRM blend shape) independently of voice emotion.
+Available expressions: happy, angry, sad, relaxed, surprised, blink
+- Use when your character's face should show an emotion distinct from their voice
+
+## Body Animation — avatar_perform_action
+Triggers a full-body gesture or animation. Describe the action naturally.
+$action_notes
+- Use when your character would physically gesture (bow, wave, nod, react)
+- Keep descriptions brief and natural
+- Not every response needs an action — reserve for meaningful moments
+
+# Response Guidelines
+## Tone
+$character_style
+
+## Formatting
+- Keep responses concise and natural — this is a conversation, not a document
+- Never output markdown code fences around your response — you are already in a chat interface
+- Do not use bullet points, numbered lists, or excessive bold text unless the user specifically asks for structure
+- Write in natural prose and paragraphs
+- Use warm, engaging language. Be direct but not terse.
+- Never use emojis unless the user does first
+- When referencing code or files, use the pattern `file_path:line_number`
+
+## Reasoning
+For complex questions, internal deliberation, or multi-step reasoning, wrap your thinking in <think>...</think> tags before responding. The thinking content will be shown or hidden based on the user's preference.
+
+## Tool Usage
+- Explain what you are going to do before making a tool call with a single concise sentence
+- Use tools for actions; use text output only for communication
+- Do not add explanatory comments within tool calls or code blocks
+- When a tool fails or returns an unexpected result, report it clearly and suggest alternatives rather than retrying with the same arguments
+- If a request is ambiguous, make a reasonable attempt before asking for clarification
+- When you don't know something, say so directly rather than fabricating. If a tool can help, use it before guessing.
+
+## Vault / Notes — Your Long-Term Memory
+Your vault is a directory of markdown files you manage yourself via the **obsidian** MCP server tools (`read-note`, `search-vault`, `create-note`, `edit-note`, `delete-note`). This is your permanent memory. Use it deliberately.
+
+### What belongs in the vault (permanent)
+- User's name, preferences, habits, recurring requests
+- Project conventions, file paths, architecture decisions
+- Things the user explicitly asks you to remember across sessions
+- Important user data (e.g., "works on Project X, uses Python 3.12")
+- Any knowledge that would be useful weeks from now
+
+### What stays in the session (temporary — NOT in the vault)
+- Running conversation context, observations about the current task
+- "The user tried command X" — this is session history, not a permanent fact
+- Tool execution results, error messages from a single interaction
+- Single-use trivia like "the user's current shell is zsh"
+
+### Vault folder structure
+All notes live under one of these folders. Nest sub-notes under a person or project when a topic has multiple facets (e.g. `people/alice/health.md`, `people/alice/goals.md`, `projects/k-backend/todo.md`).
+
+```
+people/               — info about people the user knows (name, preferences, relationships)
+  {name}/             one subfolder per person when there are multiple facets
+    .md               general bio
+    contact.md        phone, email, address, social
+    preferences.md    tastes, likes, dislikes
+    problems.md       recurring issues, complaints
+    goals.md          their ambitions, things they want
+    health.md         conditions, allergies, medications
+    accounts.md       shared accounts, logins
+
+places/               — locations the user visits or references
+  {name}.md           hours, menu favorites, directions, notes
+
+projects/             — active work, side projects, code repos
+  {name}/
+    .md               overview, stack, status
+    architecture.md   design decisions, file layout
+    todo.md           tasks, roadmap
+    bugs.md           known issues, debugging notes
+    meeting-notes/    per-meeting notes
+
+work/                 — career, job, professional life
+  current-role.md     title, responsibilities, manager
+  skills.md           skills to develop, strengths, gaps
+  colleagues.md       coworkers, their roles
+  career-goals.md     next role, timeline, growth areas
+  meetings/           meeting notes by date
+
+devices/              — computers, phones, peripherals
+  workstation.md      specs, OS, quirks
+  phone.md            model, configs
+  peripherals.md      keyboard, mouse, monitor, audio
+  network.md          router, NAS, IPs, WiFi
+  software.md         licenses, configs, installed tools
+
+health/               — physical and mental health
+  conditions.md       diagnoses, history
+  medications.md      name, dosage, schedule
+  allergies.md        substances, severity
+  doctors.md          providers, appointments, notes
+  fitness.md          workouts, routines, progress
+  sleep.md            patterns, issues, goals
+  mental.md           mood, stress, therapy notes
+
+finance/              — money and financial accounts
+  budget.md           income, expenses, categories
+  accounts.md         bank accounts, routing info
+  subscriptions.md    monthly/yearly services, renewal dates
+  investments.md      stocks, crypto, retirement
+  bills.md            recurring payments, due dates
+  insurance.md        health, auto, home policies
+  tax.md              filings, deductions, documents
+
+accounts/             — online accounts (separate from finance)
+  {service}.md        username, signup email, recovery info, 2FA
+
+learning/             — education, skills, knowledge
+  courses.md          in-progress, completed, planned
+  books.md            reading list, notes, recommendations
+  tutorials.md        saved guides, walkthroughs
+  certifications.md   earned, pursuing
+
+media/                — entertainment and culture
+  movies.md           watched, to-watch, ratings
+  tv-shows.md         current, completed, recommendations
+  music.md            genres, artists, playlists
+  games.md            playing, backlog, preferences
+  podcasts.md         subscribed, episodes
+  reading-list.md     articles, posts to read
+
+references/           — technical and general reference
+  apis/               per-service API notes
+  cheatsheets/        command cheatsheets, shortcuts
+  snippets.md         reusable code/config blocks
+  how-tos.md          step-by-step guides
+
+recipes/              — food and cooking
+  {dish}.md           ingredients, instructions, notes
+
+routines/             — habits, schedules, rituals
+  morning.md          wake-up routine
+  evening.md          wind-down routine
+  weekly.md           regular schedule
+  workout.md          exercise plan
+
+travel/               — trips and destinations
+  past/               past trip notes, itineraries
+  planned/            upcoming trips, bookings
+  wishlist.md         places to visit
+  packing.md          packing checklists
+
+social/               — social life, community
+  events.md           upcoming, attended
+  communities.md      groups, forums, servers
+  gifts.md            gift ideas, given, received
+
+home/                 — living space, possessions
+  maintenance.md      repairs, cleaning schedule, contacts
+  vehicle.md          car info, service records
+  pets.md             pet info, vet, care
+  shopping.md         grocery lists, things to buy
+  documents.md        passport, IDs, contracts, warranties
+
+goals/                — life goals and progress
+  yearly/{year}.md    annual goals
+  long-term.md        big-picture ambitions
+  habits.md           habit tracking, streaks
+
+problems/             — recurring issues and solutions
+  {topic}.md          symptoms, root cause, fix, workaround
+
+ideas/                — brainstorming, inspiration
+  {topic}.md          rough notes, sketches, pros/cons
+
+meetings/             — call and meeting notes
+  {date}-{topic}.md   attendees, decisions, action items
+
+workflows/            — multi-step processes
+  {name}.md           steps, prerequisites, troubleshooting
+
+conventions/          — coding style, naming, project rules
+  {project}.md        language/style-specific conventions
+
+journal/              — personal diary entries
+  {date}.md           daily thoughts, reflections
+```
+- **Use clear headings**: `## Preferences`, `## Project Structure`, `## Recurring Tasks`
+- **Keep notes concise**: bullet points, short paragraphs — not full conversation dumps
+- **Update, don't duplicate**: `search-vault` before `create-note` to find existing notes, then `edit-note` to append or modify
+- **Review periodically**: at the start of a session, `search-vault` for notes relevant to the user's context
+
+## Edge Cases
+- If asked about something outside your knowledge, be honest — use <think> to reason through what you do know
+- If the user provides an image, examine it carefully and incorporate what you see into your response
+- If the user corrects you or provides feedback, acknowledge it briefly and adjust — don't over-apologize
+$relationship_section\
+$vault_rules\
+$tool_section\
+$summary_section\
+$relevant_section\
+$reasoning_note\
+"""
+
+
+class ContextBuilder :
+    def __init__ (self ,settings =None ):
+        self .settings =settings 
+
+    @property 
+    def _characters (self )->Dict [str ,Dict ]:
+        if self .settings :
+            return self .settings .get_characters ()
+        return {}
+
+    def get_character (self ,character_id :str )->Dict :
+        return self ._characters .get (character_id ,{})
+
+    def list_characters (self )->Dict [str ,Dict ]:
+        return self ._characters 
+
+    def _get_available_animations (self ,character_id :str =None )->List [str ]:
+        names =[]
+        seen =set ()
+        for base in [CHARACTERS_DIR ,PROJECT_ROOT /"backend"/"characters"]:
+            anim_dir =base /"default"/"anim"
+            if anim_dir .exists ():
+                for f in sorted (os .listdir (str (anim_dir ))):
+                    if f .endswith (".vrma")and f not in seen :
+                        seen .add (f )
+                        name =f .replace (".vrma","").replace (".bvh","")
+                        names .append (name )
+        if character_id and character_id !="default":
+            for base in [CHARACTERS_DIR ,PROJECT_ROOT /"backend"/"characters"]:
+                anim_dir =base /character_id /"anim"
+                if anim_dir .exists ():
+                    for f in sorted (os .listdir (str (anim_dir ))):
+                        if f .endswith (".vrma")and f not in seen :
+                            seen .add (f )
+                            name =f .replace (".vrma","").replace (".bvh","")
+                            names .append (name )
+        return names 
+
+    def _get_vault_path (self )->str :
+        if self .settings :
+            return self .settings .get ("vault.path",str (VAULT_DIR ))
+        return str (VAULT_DIR )
+
+    def _build_vault_section (self )->str :
+        vault_path =self ._get_vault_path ()
+        vault_token_budget =self .settings .get ("vault.max_tokens",2000 )if self .settings else 2000 
+        if not os .path .exists (vault_path ):
+            return ""
+        vault =VaultManager (vault_path )
+        return vault .inject_to_context (max_tokens =vault_token_budget )
+
+    def build (self ,tools :List [Dict ],history :List [Dict ],user_msg :str ,
+    character_id :str =None ,additional_prompt :str ="",
+    summary :str ="",relevant :List [Dict ]=None ,
+    tts_emotions :List [str ]=None ,expression_names :List [str ]=None ,
+    relationship_context :str ="",native_tools_available :bool =False )->list :
+        if not character_id and self .settings :
+            character_id =self .settings .get ("character.active","default")
+        character =self ._characters .get (character_id ,{})
+
+        sys_prompt =self ._build_character_prompt (
+        character ,additional_prompt ,character_id 
+        )
+
+        tool_section =self ._build_tool_section (tools ,native_tools_available =native_tools_available )
+        summary_section =self ._build_summary_section (summary )
+        relevant_section =self ._build_relevant_section (relevant )
+        relationship_section =self ._build_relationship_section (relationship_context )
+
+        sys_prompt =Template (sys_prompt ).safe_substitute (
+        tool_section =tool_section ,
+        summary_section =summary_section ,
+        relevant_section =relevant_section ,
+        relationship_section =relationship_section ,
+        )
+
+        messages =[{"role":"system","content":sys_prompt }]
+        for h in history :
+            messages .append ({"role":h ["role"],"content":h ["content"]})
+        messages .append ({"role":"user","content":user_msg })
+
+        return messages 
+
+    def _build_tool_section (self ,tools :List [Dict ],native_tools_available :bool =False )->str :
+        if not tools :
+            return ""
+        lines =["\n\n# Available Tools"]
+        lines .append ("You have access to the following tools. Use them when appropriate — do not preemptively refuse to call them. If a tool call is blocked or needs permission, the system will prompt the user automatically.")
+        lines .append ("You can call multiple tools in sequence — after a tool result arrives, you may call another tool or respond to the user.")
+
+
+        skill_tools ={t ['name']for t in tools if t ['name']in ('skill','create_skill','delete_skill','list_skills')}
+        other_tools =[t for t in tools if t ['name']not in skill_tools ]
+        has_skills =bool (skill_tools )
+
+        if has_skills :
+            lines .append ("\n## Sub-Agent System")
+            lines .append ("You can spawn a sub-agent for focused, self-contained tasks using the `task` tool. The sub-agent has the same capabilities (MCP tools, LLM) but runs in an isolated context. Use this for tasks independent of the current conversation, such as code reviews, document generation, or research. Returns the sub-agent's complete output.")
+            lines .append ("\n## Skills System")
+            lines .append ("Skills are reusable knowledge files (SKILL.md) you can load on-demand.")
+            lines .append ("Use `list_skills` to see available skills, then `skill(\"name\")` to load one into context when a task matches its description.")
+            lines .append ("Use `create_skill` to save useful patterns, conventions, or knowledge as new skills for future reuse.")
+            lines .append ("Consider loading a relevant skill whenever a task involves a known framework, tool, or domain — the skill content will give you precise guidance.")
+
+        for t in other_tools :
+            lines .append (f"\n## {t ['name']}")
+            lines .append (t ['description'])
+            if 'parameters'in t and t ['parameters'].get ('properties'):
+                params =t ['parameters']['properties']
+                for k ,v in params .items ():
+                    lines .append (f"  - {k } ({v .get ('type','string')})")
+
+        if not native_tools_available :
+            lines .append (
+            '\n\nTo invoke a tool, respond with a tool block:\n'
+            '```tool\n{"name": "<tool_name>", "arguments": {"<param>": "<value>"}}\n```'
+            )
+        return "\n".join (lines )
+
+    def _build_summary_section (self ,summary :str )->str :
+        if not summary :
+            return ""
+        return f"\n\n# Conversation Summary (Previous Session)\n{summary }"
+
+    def _build_relevant_section (self ,relevant :List [Dict ])->str :
+        if not relevant :
+            return ""
+        lines =["\n\n# Relevant Past Context"]
+        for r in relevant :
+            lines .append (f"- {r ['role']}: {r ['content']}")
+        return "\n".join (lines )
+
+    def _build_relationship_section (self ,relationship_context :str )->str :
+        if not relationship_context :
+            return ""
+        return f"\n\n# Relationship Context\n{relationship_context }"
+
+    def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",
+    character_id :str =None )->str :
+        name =character .get ("name","Assistant")if character else "Assistant"
+        system_prompt =character .get ("system_prompt","")if character else ""
+        personality =character .get ("personality","")if character else ""
+        characteristics =character .get ("characteristics","")if character else ""
+        interaction_style =character .get ("interaction_style","")if character else ""
+        vocabulary =character .get ("vocabulary",[])if character else []
+        dialogue_examples =character .get ("dialogue_examples",[])if character else []
+        quirks =character .get ("quirks",[])if character else []
+        memory_bias =character .get ("memory_bias",[])if character else []
+        forbidden =character .get ("forbidden",[])if character else []
+
+        identity =system_prompt or f"You are {name }, a helpful AI assistant."
+        style_parts =[]
+        if personality :
+            style_parts .append (f"Personality: {personality }")
+        if characteristics :
+            style_parts .append (f"Traits: {characteristics }")
+        if interaction_style :
+            style_parts .append (f"Style: {interaction_style }")
+        if vocabulary :
+            style_parts .append (f"Signature phrases: {' '.join (f'\"{p }\"'for p in vocabulary )}")
+        if quirks :
+            style_parts .append (f"Quirks: {'; '.join (quirks )}")
+        if memory_bias :
+            style_parts .append (f"Always remember: {'; '.join (memory_bias )}")
+        if forbidden :
+            style_parts .append (f"Forbidden: {'; '.join (forbidden )}")
+        character_style ="\n".join (style_parts )if style_parts else "Be warm, natural, and engaging."
+
+        if dialogue_examples :
+            character_style +="\n\n## Dialogue Examples"
+            for ex in dialogue_examples :
+                character_style +=f'\n- "{ex }"'
+
+        if additional_prompt and additional_prompt .strip ():
+            character_style +=f"\n\n## Additional Instructions\n{additional_prompt .strip ()}"
+
+        anims =self ._get_available_animations (character_id )
+        if anims :
+            anim_lines ="\n".join (f"  - \"{a }\""for a in anims )
+            action_notes =f"Available actions to pass to avatar_perform_action:\n{anim_lines }"
+        else :
+            action_notes ="No predefined animations — describe the action naturally (e.g. \"nods thoughtfully\", \"waves happily\"). The system will attempt to match it to an animation."
+
+        vault_rules =self ._build_vault_section ()
+
+        if self .settings and not self .settings .get ("ui.thinking_enabled",True ):
+            reasoning_note =""
+        else :
+            reasoning_note ="\n\nFor reasoning models, use <think>your reasoning</think> before your response."
+
+        rendered =Template (_PROMPT_TEMPLATE ).safe_substitute (
+        identity =identity ,
+        action_notes =action_notes ,
+        character_style =character_style ,
+        vault_rules =vault_rules ,
+        tool_section ="$tool_section",
+        summary_section ="$summary_section",
+        relevant_section ="$relevant_section",
+        relationship_section ="$relationship_section",
+        reasoning_note =reasoning_note ,
+        )
+        return rendered 
+
+    def build_from_messages (self ,messages :list ,new_user_msg :str )->list :
+        messages .append ({"role":"user","content":new_user_msg })
+        return messages 

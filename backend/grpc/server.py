@@ -39,9 +39,11 @@ class AgentService (agent_pb2_grpc .AgentServiceServicer ):
                             )
                             )
                         elif tag_type =="__tool__":
-                            yield agent_pb2 .ChatResponse (
-                            tool_call =agent_pb2 .ToolCall (name =tag_val ,args_json ="{}")
-                            )
+                            yield agent_pb2 .ChatResponse (text_chunk =f"[Tool] {tag_val }")
+                        elif tag_type =="__roleplay__":
+                            yield agent_pb2 .ChatResponse (text_chunk =f"[roleplay] {tag_val }")
+                        elif tag_type =="__avatar__":
+                            yield agent_pb2 .ChatResponse (text_chunk =f"[avatar] {tag_val }")
                         elif tag_type =="__error__":
                             yield agent_pb2 .ChatResponse (error =tag_val )
                     else :
@@ -51,7 +53,9 @@ class AgentService (agent_pb2_grpc .AgentServiceServicer ):
             elif which =="permission_action":
                 action =req .permission_action 
                 logger .info ("gRPC permission %s for: %s",action .action ,action .cmd )
-                yield agent_pb2 .ChatResponse (text_chunk =f"[Permission {action .action }]")
+                yield agent_pb2 .ChatResponse (
+                text_chunk =f"[Permission: user chose '{action .action }' for: {action .cmd }]"
+                )
 
 
 async def serve_grpc (host :str ="0.0.0.0",port :int =50051 ):
@@ -70,5 +74,6 @@ async def serve_grpc (host :str ="0.0.0.0",port :int =50051 ):
 
 
 if __name__ =="__main__":
-    logging .basicConfig (level =logging .INFO )
+    from backend .core .log_config import configure_logging 
+    configure_logging (level ="INFO")
     asyncio .run (serve_grpc ())

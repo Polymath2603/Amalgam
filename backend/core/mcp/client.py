@@ -59,14 +59,19 @@ class MCPClient :
     async def connect_from_settings (self ,servers :List [Dict ]):
         """Connect to MCP servers from settings config (parallel)."""
         coros =[]
+        names =[]
         for server_config in servers :
             if not server_config .get ("enabled",True ):
                 continue 
             name =server_config .get ("name")
             if name :
                 coros .append (self ._connect_from_config (name ,server_config ))
+                names .append (name )
         if coros :
-            await asyncio .gather (*coros )
+            results =await asyncio .gather (*coros ,return_exceptions =True )
+            for name ,r in zip (names ,results ):
+                if isinstance (r ,Exception ):
+                    logger .error (f"MCP server {name } connection failed: {r }")
 
     async def _connect_from_config (self ,name :str ,config :dict ):
         """Connect a server from a config dict. Supports stdio and SSE."""

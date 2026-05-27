@@ -84,6 +84,9 @@ def create_app ():
     async def startup ():
         logger .warning ("Starting Amalgam backend...")
         await init_application ()
+        port =os .environ .get ("AMALGAM_PORT","8000")
+        host =os .environ .get ("AMALGAM_HOST","0.0.0.0")
+        print (f"\n  Server ready on http://localhost:{port }\n")
         asyncio .create_task (_delayed_startup_tasks ())
 
     @app .on_event ("shutdown")

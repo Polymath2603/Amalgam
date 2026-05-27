@@ -11,7 +11,7 @@ from fastapi import APIRouter
 from fastapi .responses import JSONResponse 
 from backend .api .deps import settings ,llm ,tts 
 from backend .core .config .settings import BUILTIN_VOICES 
-from backend .core .core .llm import LLMRouter 
+from backend .core .llm import LLMRouter 
 from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT ,DATA_DIR 
 from backend .core .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE 
 
@@ -84,7 +84,7 @@ async def get_emotions ():
 
 @router .get ("/api/expressions")
 async def get_expressions (char_id :str =None ):
-    from backend .core .core .context_builder import VRM_EXPRESSIONS 
+    from backend .core .context_builder import VRM_EXPRESSIONS 
     exprs =list (VRM_EXPRESSIONS )
     return {"expressions":exprs }
 
@@ -122,6 +122,16 @@ async def get_provider_models (provider :str ):
     if provider =="claude":
         return {"models":["claude-sonnet-4-20250514","claude-3-5-sonnet-20241022",
         "claude-3-opus-20240229","claude-3-haiku-20240307"]}
+    if provider =="aws":
+        fresh_llm =LLMRouter (settings =settings ())
+        models =await fresh_llm .fetch_bedrock_models ()
+        await fresh_llm .close ()
+        return {"models":models }
+    if provider =="gcp":
+        fresh_llm =LLMRouter (settings =settings ())
+        models =await fresh_llm .fetch_vertex_models ()
+        await fresh_llm .close ()
+        return {"models":models }
     return JSONResponse (status_code =400 ,content ={"error":f"Unknown provider: {provider }"})
 
 
