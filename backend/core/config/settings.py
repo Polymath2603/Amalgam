@@ -191,7 +191,7 @@ DEFAULTS ={
 "temperature":0.7 ,
 "max_tokens":2048 ,
 "timeout":120.0 ,
-"context_token_limit":8192 
+"context_token_limit":6000 
 },
 "memory":{
 "retrieval_k":3 ,

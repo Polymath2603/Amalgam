@@ -87,12 +87,29 @@ class Agent :
                 parts .append (chunk )
         return "".join (parts )
 
+    def _estimate_tokens (self ,messages :List [Dict ])->int :
+
+        total =0 
+        for m in messages :
+            content =str (m .get ("content",""))
+            total +=len (content )//4 
+        return total 
+
+    def _truncate_context (self ,messages :List [Dict ],max_tokens :int )->List [Dict ]:
+        if not messages :
+            return []
+        system =messages [0 ]
+        history =messages [1 :]
+
+        while self ._estimate_tokens ([system ]+history )>max_tokens and len (history )>1 :
+            history .pop (0 )
+        return [system ]+history 
+
     async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [Union [str ,Tuple [str ,str ]]]:
         await self .memory .add_turn ("user",text )
 
         iterations =0 
         current_input =text 
-        original_input =text 
         native_tools =self .llm .supports_native_tools ()
         last_tool_call =None 
 
@@ -105,9 +122,11 @@ class Agent :
 
             character_id =None 
             additional_prompt =""
+            max_tokens =8192 
             if self .settings :
                 character_id =self .settings .get ("character.active","default")
                 additional_prompt =self .settings .get ("character.system_prompt","")
+                max_tokens =self .settings .get ("llm.context_token_limit",8192 )
 
             plugins =get_plugin_registry ()
             tools =await plugins .hook_tool_definition (tools )
@@ -120,6 +139,9 @@ class Agent :
             relationship_context =relationship_context ,
             native_tools_available =native_tools ,
             )
+
+
+            messages =self ._truncate_context (messages ,max_tokens -500 )
             messages =await plugins .hook_messages (messages )
 
             if images :
