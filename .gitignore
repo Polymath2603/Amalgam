@@ -24,8 +24,10 @@ node_modules/
 # OpenClaude / opencode
 .openclaude/
 
-# Logs
-*.log
+# Tauri
+/desktop/tauri/target/
+/desktop/tauri/gen/
+/desktop/tauri/src-tauri/target/
 
 # Old root-level scripts (moved to backend/scripts/)
 /scripts/
