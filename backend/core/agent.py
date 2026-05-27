@@ -142,6 +142,8 @@ class Agent :
 
 
             messages =self ._truncate_context (messages ,max_tokens -500 )
+
+            logger .debug (f"DEBUG: Sending {len (messages )} messages, estimated tokens: {self ._estimate_tokens (messages )}")
             messages =await plugins .hook_messages (messages )
 
             if images :
