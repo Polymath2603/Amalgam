@@ -58,6 +58,7 @@ fn launch_backend() {
     match Command::new("python3")
         .arg(&main_py)
         .arg("webui")
+        .arg("-vvv")
         .current_dir(&root)
         .spawn()
     {
