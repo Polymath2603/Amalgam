@@ -50,7 +50,7 @@ async def get_animations (char_id :str =None ):
     animations ={"default":[],"character":[]}
 
     seen =set ()
-    for base in [CHARACTERS_DIR ,PROJECT_ROOT /"backend"/"characters"]:
+    for base in [CHARACTERS_DIR ]:
         for f in _list_anim_files (base /"default"/"anim"):
             if f not in seen :
                 seen .add (f )
@@ -63,7 +63,7 @@ async def get_animations (char_id :str =None ):
 
     if char_id and char_id !="default":
         seen =set ()
-        for base in [CHARACTERS_DIR ,PROJECT_ROOT /"backend"/"characters"]:
+        for base in [CHARACTERS_DIR ]:
             for f in _list_anim_files (base /char_id /"anim"):
                 if f not in seen :
                     seen .add (f )

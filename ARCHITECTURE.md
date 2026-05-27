@@ -94,7 +94,7 @@
 │   │   └── vrm-animation.js      # VRMA animation loader
 │   ├── vendor/                   # Three.js + three-vrm bundles
 │   └── vrm-icon-renderer.html    # Standalone icon renderer
-└── user_data/
+└── data/
     ├── conversations.db          # SQLite memory storage
     ├── relationship.db           # SQLite relationship storage
     ├── settings.json             # User settings (JSON)

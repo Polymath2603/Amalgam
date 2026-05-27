@@ -49,7 +49,7 @@ def create_app ():
     app .include_router (root .router )
 
 
-    REPO_ANIM =str (PROJECT_ROOT /"backend"/"characters"/"default"/"anim")
+    REPO_ANIM =str (CHARACTERS_DIR /"default"/"anim")
     if os .path .exists (REPO_ANIM ):
         app .mount ("/static/animations",StaticFiles (directory =REPO_ANIM ),name ="default_animations")
 
@@ -62,16 +62,12 @@ def create_app ():
     app .mount ("/data",StaticFiles (directory =str (DATA_DIR )),name ="data")
 
 
-
-    REPO_CHARS =str (PROJECT_ROOT /"backend"/"characters")
+    REPO_CHARS =str (CHARACTERS_DIR )
     @app .get ("/characters/{file_path:path}")
     async def serve_character_asset (file_path :str ):
-        user_path =CHARACTERS_DIR /file_path 
-        if user_path .exists ()and user_path .is_file ():
-            return FileResponse (str (user_path ))
-        repo_path =Path (REPO_CHARS )/file_path 
-        if repo_path .exists ()and repo_path .is_file ():
-            return FileResponse (str (repo_path ))
+        full_path =CHARACTERS_DIR /file_path 
+        if full_path .exists ()and full_path .is_file ():
+            return FileResponse (str (full_path ))
         return Response (status_code =404 )
 
 

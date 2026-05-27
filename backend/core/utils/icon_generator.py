@@ -68,8 +68,7 @@ def _scan_missing_icons (base_dir :Path )->list :
 async def generate_missing_icons ():
     """Generate icons for characters missing icon.png. Tries VRM renderer first, falls back to letters."""
     data_dir =Path (str (CHARACTERS_DIR ))
-    repo_dir =PROJECT_ROOT /"backend"/"characters"
-    missing =_scan_missing_icons (data_dir )+_scan_missing_icons (repo_dir )
+    missing =_scan_missing_icons (data_dir )
     if not missing :
         return 
     logger .debug (f"Missing icons for {len (missing )} character(s): {', '.join (missing )}")
@@ -133,7 +132,6 @@ def _generate_icons_in (base_dir :Path )->int :
 def _generate_missing_icons_sync ():
     """Sync icon generation for missing characters."""
     data_dir =Path (str (CHARACTERS_DIR ))
-    repo_dir =PROJECT_ROOT /"backend"/"characters"
-    total =_generate_icons_in (data_dir )+_generate_icons_in (repo_dir )
+    total =_generate_icons_in (data_dir )
     if total :
         logger .debug (f"Generated {total } character icon(s)")

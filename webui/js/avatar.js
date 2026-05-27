@@ -177,7 +177,7 @@ export class AvatarRenderer {
         loader.register((parser) => new VRMLoaderPlugin(parser));
 
         const loadPath = this.vrmPath;
-        const isFallback = loadPath === '/characters/default/model.vrm';
+        const isFallback = loadPath === BASE_URL + '/characters/default/model.vrm';
         let abandoned = false;
 
         
@@ -186,7 +186,7 @@ export class AvatarRenderer {
             if (!isFallback) {
                 console.warn('Falling back to default VRM');
                 abandoned = true;
-                this.vrmPath = '/characters/default/model.vrm';
+                this.vrmPath = BASE_URL + '/characters/default/model.vrm';
                 this._loadVRM();
             }
         }, 60000);
@@ -203,7 +203,7 @@ export class AvatarRenderer {
                     console.error(`[Avatar] Loaded file but no VRM data found in: ${loadPath}`);
                     if (!isFallback) {
                         console.warn('Falling back to default VRM');
-                        this.vrmPath = '/characters/default/model.vrm';
+                        this.vrmPath = BASE_URL + '/characters/default/model.vrm';
                         this._loadVRM();
                     }
                     return;
@@ -286,7 +286,7 @@ export class AvatarRenderer {
                 console.error(`VRM load error for ${loadPath}:`, error);
                 if (!isFallback) {
                     console.warn('Falling back to default VRM');
-                    this.vrmPath = '/characters/default/model.vrm';
+                    this.vrmPath = BASE_URL + '/characters/default/model.vrm';
                     this._loadVRM();
                 }
             }
@@ -753,7 +753,7 @@ export class AvatarRenderer {
             else if (y > hipsPos.y - 0.03) hitArea = 'groin';
             else hitArea = 'leg';
 
-            this.playAnimation(`/characters/default/anim/hitarea_${hitArea}.vrma`);
+            this.playAnimation(`${BASE_URL}/characters/default/anim/hitarea_${hitArea}.vrma`);
             return;
         }
 
@@ -777,7 +777,7 @@ export class AvatarRenderer {
         else if (hitY > hipsPos.y - 0.1) hitArea = 'groin';
         else hitArea = 'leg';
 
-        this.playAnimation(`/characters/default/anim/hitarea_${hitArea}.vrma`);
+        this.playAnimation(`${BASE_URL}/characters/default/anim/hitarea_${hitArea}.vrma`);
     }
 
     
@@ -793,7 +793,7 @@ export class AvatarRenderer {
                     return;
                 }
                 const anim = microAnims[Math.floor(Math.random() * microAnims.length)];
-                this.playAnimation(`/characters/default/anim/${anim}.vrma`, () => {
+                this.playAnimation(`${BASE_URL}/characters/default/anim/${anim}.vrma`, () => {
                     if (this._idleAction) this._fadeToAction(this._idleAction, 1);
                     scheduleNext();
                 });

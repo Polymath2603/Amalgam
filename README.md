@@ -29,18 +29,18 @@ Open `http://localhost:8000` in your browser.
 
 ## Configuration
 
-Settings are stored in `user_data/settings.json`. All settings have sensible defaults.
+Settings are stored in `data/settings.json`. All settings have sensible defaults.
 
 Key environment variables:
 | Variable | Default | Description |
 |---|---|---|
 | `AMALGAM_PORT` | `8000` | Server port |
 | `AMALGAM_HOST` | `0.0.0.0` | Server bind address |
-| `AMALGAM_DATA_DIR` | `user_data/` | Data directory |
+| `AMALGAM_DATA_DIR` | `data/` | Data directory |
 | `AMALGAM_SHELL_MODE` | `safe` | Shell MCP mode (`safe` or `unrestricted`) |
 | `AMALGAM_SHELL_ALLOWED_COMMANDS` | — | Comma-separated shell command prefixes |
 
-Configure providers, characters, voice, MCP servers, and memory settings via the Settings UI or by editing `user_data/settings.json` directly.
+Configure providers, characters, voice, MCP servers, and memory settings via the Settings UI or by editing `data/settings.json` directly.
 
 ## Adding Characters
 

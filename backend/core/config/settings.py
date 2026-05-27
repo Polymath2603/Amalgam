@@ -1,5 +1,5 @@
 """
-Persistent settings manager. Reads/writes user_data/settings.json.
+Persistent settings manager. Reads/writes data/settings.json.
 All settings have defaults so the app always boots even if the file is missing.
 """
 import json 
@@ -358,8 +358,6 @@ def load_characters_from_yaml ()->Dict [str ,Dict ]:
     characters ={}
 
 
-    repo_dir =PROJECT_ROOT /"backend"/"characters"
-    characters .update (_scan_characters_in (repo_dir ))
     characters .update (_scan_characters_in (Path (str (CHARACTERS_DIR ))))
 
 
