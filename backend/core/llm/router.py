@@ -75,12 +75,18 @@ class LLMRouter :
 
     def _apply_temperature (self ,inst ):
         temp =self .settings .get ("llm.temperature",0.7 )if self .settings else 0.7 
-        inst .temperature =temp 
+        try :
+            inst .temperature =float (temp )
+        except (ValueError ,TypeError ):
+            inst .temperature =0.7 
 
     async def stream (self ,messages :list ,temperature :float =None )->AsyncIterator [str ]:
         inst =self ._provider_instance ()
         if temperature is not None :
-            inst .temperature =temperature 
+            try :
+                inst .temperature =float (temperature )
+            except (ValueError ,TypeError ):
+                self ._apply_temperature (inst )
         else :
             self ._apply_temperature (inst )
         async for token in inst .stream (messages ):
@@ -96,7 +102,10 @@ class LLMRouter :
         """
         inst =self ._provider_instance ()
         if temperature is not None :
-            inst .temperature =temperature 
+            try :
+                inst .temperature =float (temperature )
+            except (ValueError ,TypeError ):
+                self ._apply_temperature (inst )
         else :
             self ._apply_temperature (inst )
 
@@ -110,7 +119,10 @@ class LLMRouter :
     async def generate (self ,messages :list ,temperature :float =None )->str :
         inst =self ._provider_instance ()
         if temperature is not None :
-            inst .temperature =temperature 
+            try :
+                inst .temperature =float (temperature )
+            except (ValueError ,TypeError ):
+                self ._apply_temperature (inst )
         else :
             self ._apply_temperature (inst )
         return await inst .generate (messages )

@@ -54,8 +54,7 @@ export class AvatarRenderer {
         this.vrmPath = vrmPath || (BASE_URL + '/characters/default/model.vrm');
         this.preview = options.preview || false;
         this.animConfig = Object.assign({
-            idle: BASE_URL + '/static/animations/idle_loop.vrma',
-            greeting: BASE_URL + '/static/animations/greeting.vrma',
+            idle: BASE_URL + '/characters/default/anim/idle_loop.vrma',
         }, options.animations || {});
         this.vrm = null;
         this.clock = new THREE.Clock();

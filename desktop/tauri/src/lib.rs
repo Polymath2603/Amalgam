@@ -70,7 +70,7 @@ fn launch_backend() {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
+        .setup(|_app| {
             launch_backend();
             Ok(())
         })
