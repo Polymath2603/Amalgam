@@ -28,22 +28,22 @@
             </div>
             <div class="sidebar-nav">
                 <button class="nav-item active" data-tab="chat">
-                    <span class="material-icons-round">chat</span><span>Chat</span>
+                    <span class="material-icons-round">chat</span><span data-i18n="nav.chat">Chat</span>
                 </button>
                 <button class="nav-item" data-tab="avatar">
-                    <span class="material-icons-round">view_in_ar</span><span>Avatar</span>
+                    <span class="material-icons-round">view_in_ar</span><span data-i18n="nav.avatar">Avatar</span>
                 </button>
                 <button class="nav-item" data-tab="characters">
-                    <span class="material-icons-round">people</span><span>Characters</span>
+                    <span class="material-icons-round">people</span><span data-i18n="nav.characters">Characters</span>
                 </button>
                 <button class="nav-item" data-tab="settings">
-                    <span class="material-icons-round">tune</span><span>Settings</span>
+                    <span class="material-icons-round">tune</span><span data-i18n="nav.settings">Settings</span>
                 </button>
             </div>
             <div class="sidebar-footer">
                 <div class="connection-status">
                     <span class="status-dot" id="status-dot"></span>
-                    <span id="status-text">Disconnected</span>
+                    <span id="status-text" data-i18n="status.disconnected">Disconnected</span>
                 </div>
             </div>
         </nav>
@@ -56,24 +56,24 @@
                 <div class="chat-avatar" id="chat-avatar">
                     <div class="avatar-preview" id="avatar-preview"></div>
                     <div class="chat-avatar-info">
-                        <span class="chat-avatar-name" id="chat-avatar-name">Loading...</span>
-                        <span class="chat-avatar-status" id="chat-avatar-status">Ready</span>
+                        <span class="chat-avatar-name" id="chat-avatar-name" data-i18n="header.loading">Loading...</span>
+                        <span class="chat-avatar-status" id="chat-avatar-status" data-i18n="header.ready">Ready</span>
                         <div class="voice-bars" id="voice-bars">
                             <span></span><span></span><span></span><span></span><span></span>
                         </div>
                     </div>
                 </div>
                 <div class="chat-controls">
-                    <button class="icon-toggle" id="voice-input-toggle" title="Toggle voice input (mic)">
+                    <button class="icon-toggle" id="voice-input-toggle" data-i18n-title="title.voice_input" title="Toggle voice input (mic)">
                         <span class="material-icons-round">mic_off</span>
                     </button>
-                    <button class="icon-toggle" id="voice-output-toggle" title="Toggle voice output (speaker)">
+                    <button class="icon-toggle" id="voice-output-toggle" data-i18n-title="title.voice_output" title="Toggle voice output (speaker)">
                         <span class="material-icons-round">volume_off</span>
                     </button>
-                    <button class="icon-toggle" id="new-chat-btn" title="New conversation">
+                    <button class="icon-toggle" id="new-chat-btn" data-i18n-title="title.new_conversation" title="New conversation">
                         <span class="material-icons-round">add</span>
                     </button>
-                    <button class="icon-toggle" id="history-toggle" title="Conversation history">
+                    <button class="icon-toggle" id="history-toggle" data-i18n-title="title.conversation_history" title="Conversation history">
                         <span class="material-icons-round">history</span>
                     </button>
                 </div>
@@ -85,12 +85,16 @@
                     <!-- History Panel (hidden by default) -->
                     <div class="history-panel" id="history-panel">
                         <div class="history-header">
-                            <h3>Conversation History</h3>
+                            <h3 data-i18n="chat.history_title">Conversation History</h3>
                             <div class="history-header-actions">
-                                <button class="icon-btn" id="new-session-btn" title="New conversation"><span class="material-icons-round">add</span></button>
-                                <button class="icon-btn danger" id="clear-all-history" title="Clear all history"><span class="material-icons-round">delete_sweep</span></button>
+                                <button class="icon-btn" id="new-session-btn" data-i18n-title="title.new_conversation" title="New conversation"><span class="material-icons-round">add</span></button>
+                                <button class="icon-btn danger" id="clear-all-history" data-i18n-title="chat.clear_all_history" title="Clear all history"><span class="material-icons-round">delete_sweep</span></button>
                                 <button class="icon-btn" id="close-history"><span class="material-icons-round">close</span></button>
                             </div>
+                        </div>
+                        <div class="history-search">
+                            <span class="material-icons-round">search</span>
+                            <input type="text" id="history-search-input" placeholder="Search all conversations..." autocomplete="off">
                         </div>
                         <div class="history-list" id="history-list"></div>
                     </div>
@@ -100,12 +104,12 @@
 
                     <!-- Input -->
                     <div class="chat-input-area" style="position: relative;">
-                        <button class="img-btn" id="img-btn" title="Attach image">
+                        <button class="img-btn" id="img-btn" data-i18n-title="title.attach_image" title="Attach image">
                             <span class="material-icons-round">image</span>
                         </button>
                         <input type="file" id="img-input" accept="image/*" hidden>
                         <div style="flex:1; position: relative;">
-                            <textarea id="chat-input" placeholder="Type a message..." rows="1" style="width:100%;"></textarea>
+                            <textarea id="chat-input" data-i18n-placeholder="chat.input_placeholder" placeholder="Type a message..." rows="1" style="width:100%;"></textarea>
                             <div id="cmd-suggestions" class="cmd-suggestions"></div>
                         </div>
                         <button type="button" class="send-btn" id="send-btn">
@@ -131,12 +135,12 @@
             <!-- ═══ CHARACTERS TAB ═══ -->
             <section class="tab-panel" id="tab-characters" tabindex="-1">
                 <div class="panel-header">
-                    <h1>Characters</h1>
-                    <p>Choose who you're talking to</p>
+                    <h1 data-i18n="characters.title">Characters</h1>
+                    <p data-i18n="characters.subtitle">Choose who you're talking to</p>
                 </div>
                 <div class="char-search">
                     <span class="material-icons-round">search</span>
-                    <input type="text" id="char-search-input" placeholder="Search characters..." autocomplete="off">
+                    <input type="text" id="char-search-input" data-i18n-placeholder="characters.search_placeholder" placeholder="Search characters..." autocomplete="off">
                 </div>
                 <div class="characters-grid" id="characters-grid"></div>
             </section>
@@ -146,8 +150,8 @@
             <section class="tab-panel" id="tab-settings" tabindex="-1">
                 <div class="settings-scroll">
                     <div class="panel-header">
-                        <h1>Settings</h1>
-                        <button class="icon-btn save-btn" id="save-all-settings" title="Save Settings" disabled>
+                        <h1 data-i18n="settings.title">Settings</h1>
+                        <button class="icon-btn save-btn" id="save-all-settings" data-i18n-title="title.save_settings" title="Save Settings" disabled>
                             <span class="material-icons-round">save</span>
                         </button>
                     </div>
@@ -155,44 +159,51 @@
                     <div class="settings-grid">
                         <!-- Appearance Section -->
                         <div class="settings-card">
-                            <h3><span class="material-icons-round">palette</span> Appearance</h3>
+                            <h3><span class="material-icons-round">palette</span> <span data-i18n="settings.appearance">Appearance</span></h3>
                             <div class="form-row">
-                                <label>Theme</label>
+                                <label data-i18n="settings.theme">Theme</label>
                                 <select id="theme-select">
-                                    <option value="dark">Dark</option>
-                                    <option value="midnight">Midnight</option>
-                                    <option value="light">Light</option>
-                                    <option value="nord">Nord</option>
+                                    <option value="dark" data-i18n="settings.theme.dark">Dark</option>
+                                    <option value="midnight" data-i18n="settings.theme.midnight">Midnight</option>
+                                    <option value="light" data-i18n="settings.theme.light">Light</option>
+                                    <option value="nord" data-i18n="settings.theme.nord">Nord</option>
                                 </select>
                             </div>
                             <div class="form-row">
-                                <label>Accent Color</label>
+                                <label data-i18n="settings.accent_color">Accent Color</label>
                                 <div class="color-swatches" id="color-swatches">
-                                    <button class="swatch active" data-color="#6c5ce7" style="background:#6c5ce7" title="Purple"></button>
-                                    <button class="swatch" data-color="#0984e3" style="background:#0984e3" title="Blue"></button>
-                                    <button class="swatch" data-color="#00b894" style="background:#00b894" title="Green"></button>
-                                    <button class="swatch" data-color="#e17055" style="background:#e17055" title="Orange"></button>
-                                    <button class="swatch" data-color="#e74c3c" style="background:#e74c3c" title="Red"></button>
-                                    <button class="swatch" data-color="#fd79a8" style="background:#fd79a8" title="Pink"></button>
-                                    <button class="swatch" data-color="#f39c12" style="background:#f39c12" title="Yellow"></button>
-                                    <button class="swatch" data-color="#00cec9" style="background:#00cec9" title="Teal"></button>
-                                    <input type="color" id="accent-color-picker" class="swatch-picker" value="#6c5ce7" title="Custom color">
+                                    <button class="swatch active" data-color="#6c5ce7" style="background:#6c5ce7" data-i18n-title="settings.purple" title="Purple"></button>
+                                    <button class="swatch" data-color="#0984e3" style="background:#0984e3" data-i18n-title="settings.blue" title="Blue"></button>
+                                    <button class="swatch" data-color="#00b894" style="background:#00b894" data-i18n-title="settings.green" title="Green"></button>
+                                    <button class="swatch" data-color="#e17055" style="background:#e17055" data-i18n-title="settings.orange" title="Orange"></button>
+                                    <button class="swatch" data-color="#e74c3c" style="background:#e74c3c" data-i18n-title="settings.red" title="Red"></button>
+                                    <button class="swatch" data-color="#fd79a8" style="background:#fd79a8" data-i18n-title="settings.pink" title="Pink"></button>
+                                    <button class="swatch" data-color="#f39c12" style="background:#f39c12" data-i18n-title="settings.yellow" title="Yellow"></button>
+                                    <button class="swatch" data-color="#00cec9" style="background:#00cec9" data-i18n-title="settings.teal" title="Teal"></button>
+                                    <input type="color" id="accent-color-picker" class="swatch-picker" value="#6c5ce7" data-i18n-title="settings.custom_color" title="Custom color">
                                 </div>
                             </div>
                             <div class="form-row">
-                                <label>Font Size</label>
+                                <label data-i18n="settings.font_size">Font Size</label>
                                 <div class="range-row">
                                     <input type="range" id="font-size-range" min="12" max="20" value="14">
                                     <span id="font-size-val">14px</span>
                                 </div>
                             </div>
+                            <div class="form-row">
+                                <label data-i18n="settings.language">Language</label>
+                                <select id="language-select">
+                                    <option value="en">English</option>
+                                    <option value="zh">中文</option>
+                                </select>
+                            </div>
                         </div>
 
                         <!-- Provider Section -->
                         <div class="settings-card">
-                            <h3><span class="material-icons-round">cloud</span> Provider</h3>
+                            <h3><span class="material-icons-round">cloud</span> <span data-i18n="settings.provider">Provider</span></h3>
                             <div class="form-row">
-                                <label>Active Provider</label>
+                                <label data-i18n="settings.active_provider">Active Provider</label>
                                 <select id="provider-select">
                                     <option value="gemini">Gemini</option>
                                     <option value="ollama">Ollama</option>
@@ -217,18 +228,18 @@
 
                             <div class="provider-section" data-provider="gemini" style="display:none">
                                 <div class="form-row">
-                                    <label>API Key</label>
+                                    <label data-i18n="settings.api_key">API Key</label>
                                     <div class="input-with-action">
                                         <input type="password" id="gemini-api-key" placeholder="AIza..." class="text-input">
                                         <button class="icon-btn" id="toggle-gemini-key"><span class="material-icons-round">visibility_off</span></button>
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="gemini-base-url" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="gemini-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-gemini-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -236,11 +247,11 @@
 
                             <div class="provider-section" data-provider="ollama" style="display:none">
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="ollama-url" placeholder="http://localhost:11434" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="ollama-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-ollama-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -248,18 +259,18 @@
 
                             <div class="provider-section" data-provider="openrouter" style="display:none">
                                 <div class="form-row">
-                                    <label>API Key</label>
+                                    <label data-i18n="settings.api_key">API Key</label>
                                     <div class="input-with-action">
                                         <input type="password" id="openrouter-api-key" placeholder="sk-or-..." class="text-input">
                                         <button class="icon-btn" id="toggle-openrouter-key"><span class="material-icons-round">visibility_off</span></button>
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="openrouter-base-url" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="openrouter-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-openrouter-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -267,18 +278,18 @@
 
                             <div class="provider-section" data-provider="zai" style="display:none">
                                 <div class="form-row">
-                                    <label>API Key</label>
+                                    <label data-i18n="settings.api_key">API Key</label>
                                     <div class="input-with-action">
                                         <input type="password" id="zai-api-key" placeholder="API key..." class="text-input">
                                         <button class="icon-btn" id="toggle-zai-key"><span class="material-icons-round">visibility_off</span></button>
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="zai-base-url" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="zai-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-zai-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -286,18 +297,18 @@
 
                             <div class="provider-section" data-provider="siliconflow" style="display:none">
                                 <div class="form-row">
-                                    <label>API Key</label>
+                                    <label data-i18n="settings.api_key">API Key</label>
                                     <div class="input-with-action">
                                         <input type="password" id="siliconflow-api-key" placeholder="sk-..." class="text-input">
                                         <button class="icon-btn" id="toggle-siliconflow-key"><span class="material-icons-round">visibility_off</span></button>
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="siliconflow-base-url" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="siliconflow-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-siliconflow-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -305,18 +316,18 @@
 
                             <div class="provider-section" data-provider="groq" style="display:none">
                                 <div class="form-row">
-                                    <label>API Key</label>
+                                    <label data-i18n="settings.api_key">API Key</label>
                                     <div class="input-with-action">
                                         <input type="password" id="groq-api-key" placeholder="gsk_..." class="text-input">
                                         <button class="icon-btn" id="toggle-groq-key"><span class="material-icons-round">visibility_off</span></button>
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="groq-base-url" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="groq-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-groq-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -324,18 +335,18 @@
 
                             <div class="provider-section" data-provider="chatgpt" style="display:none">
                                 <div class="form-row">
-                                    <label>API Key</label>
+                                    <label data-i18n="settings.api_key">API Key</label>
                                     <div class="input-with-action">
                                         <input type="password" id="chatgpt-api-key" placeholder="sk-..." class="text-input">
                                         <button class="icon-btn" id="toggle-chatgpt-key"><span class="material-icons-round">visibility_off</span></button>
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="chatgpt-base-url" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="chatgpt-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-chatgpt-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -343,18 +354,18 @@
 
                             <div class="provider-section" data-provider="claude" style="display:none">
                                 <div class="form-row">
-                                    <label>API Key</label>
+                                    <label data-i18n="settings.api_key">API Key</label>
                                     <div class="input-with-action">
                                         <input type="password" id="claude-api-key" placeholder="sk-ant-..." class="text-input">
                                         <button class="icon-btn" id="toggle-claude-key"><span class="material-icons-round">visibility_off</span></button>
                                     </div>
                                 </div>
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="claude-base-url" class="text-input">
                                 </div>
                                 <div class="form-row">
-                                    <label>Model</label>
+                                    <label data-i18n="settings.model">Model</label>
                                     <select id="claude-model"><option value="">Select model...</option></select>
                                     <button class="btn btn-sm" id="fetch-claude-models" style="margin-left:0.5rem">Fetch</button>
                                 </div>
@@ -362,7 +373,7 @@
 
                             <div class="provider-section" data-provider="llamacpp" style="display:none">
                                 <div class="form-row">
-                                    <label>Base URL</label>
+                                    <label data-i18n="settings.base_url">Base URL</label>
                                     <input type="text" id="llamacpp-url" placeholder="http://localhost:8080" class="text-input">
                                 </div>
                             </div>
@@ -783,6 +794,20 @@
                                 <div id="sessions-list">
                                     <p class="muted">Loading...</p>
                                 </div>
+                            </details>
+
+                            <!-- Vault Search -->
+                            <details class="data-details">
+                                <summary>Vault Search</summary>
+                                <div style="padding:0.5rem 0.75rem;display:flex;gap:0.4rem;align-items:center">
+                                    <input type="text" id="vault-search-input" placeholder="Search vault files..." style="flex:1;padding:0.3rem 0.5rem;font-size:0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)">
+                                    <label class="toggle" title="Semantic search" style="flex-shrink:0">
+                                        <input type="checkbox" id="vault-semantic-toggle">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span class="muted" style="font-size:0.7rem;white-space:nowrap">Semantic</span>
+                                </div>
+                                <div id="vault-search-results" style="padding:0 0.75rem 0.5rem"></div>
                             </details>
 
                             <!-- Vault Files -->

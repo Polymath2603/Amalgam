@@ -15,6 +15,7 @@ const BASE_URL = IS_TAURI ? 'http:
 
 import { loadVRMAnimation } from './vrm-animation.js';
 import { AdaptiveLipsyncManager } from './adaptive-lipsync.js';
+import { IdleManager } from './idle-manager.js';
 
 const EMOTION_TO_EXPRESSION = {
     neutral:    null,
@@ -93,6 +94,10 @@ export class AvatarRenderer {
         
         this._hitAreaEnabled = !this.preview;
         this._idleBehaviorTimer = null;
+
+        
+        this._idleManager = null;
+        this._sleepBlinkOpenSec = null; 
 
         
         this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -558,6 +563,8 @@ export class AvatarRenderer {
         this._blinkTimer -= delta;
         if (this._blinkTimer > 0) return;
 
+        const openMax = this._sleepBlinkOpenSec || BLINK_OPEN_MAX;
+
         if (this._blinkIsOpen) {
             this.vrm.expressionManager.setValue('blink', 1);
             this._blinkIsOpen = false;
@@ -565,7 +572,7 @@ export class AvatarRenderer {
         } else {
             this.vrm.expressionManager.setValue('blink', 0);
             this._blinkIsOpen = true;
-            this._blinkTimer = BLINK_OPEN_MAX;
+            this._blinkTimer = openMax;
         }
     }
 
@@ -784,7 +791,18 @@ export class AvatarRenderer {
 
     
 
+    
+    initIdleManager(options = {}) {
+        if (this._idleManager) return;
+        this._idleManager = new IdleManager(this, options);
+    }
+
     _startIdleBehaviorLoop() {
+        
+        
+        
+        if (this._idleManager) return;
+
         if (this._idleBehaviorTimer) clearTimeout(this._idleBehaviorTimer);
         const microAnims = ['curiosity', 'amusement', 'admiration', 'optimism', 'relief', 'realization', 'confusion'];
         const scheduleNext = () => {
@@ -809,6 +827,7 @@ export class AvatarRenderer {
         if (this._resizeObserver) this._resizeObserver.disconnect();
         if (this.renderer) this.renderer.dispose();
         if (this.container) this.container.innerHTML = '';
+        if (this._idleManager) { this._idleManager.destroy(); this._idleManager = null; }
         if (this._idleBehaviorTimer) clearTimeout(this._idleBehaviorTimer);
         if (this._boundClickHandler && this.renderer) {
             this.renderer.domElement.removeEventListener('click', this._boundClickHandler);

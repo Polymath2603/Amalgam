@@ -5,7 +5,7 @@ import os
 import logging 
 
 from fastapi import APIRouter 
-from backend .api .deps import settings ,vault 
+from backend .api .deps import settings ,vault ,llm 
 from backend .core .paths import VAULT_DIR 
 
 logger =logging .getLogger (__name__ )
@@ -50,8 +50,21 @@ async def delete_vault_file (filename :str ):
 
 
 @router .get ("/api/vault/search")
-async def search_vault (q :str ="",max_results :int =5 ):
+async def search_vault (q :str ="",mode :str ="keyword",max_results :int =5 ):
+    """Search vault files.
+
+    mode=keyword: fast text matching (existing behavior)
+    mode=semantic: ChromaDB embedding-based search
+    """
     if not q :
         return {"results":[]}
+    if mode =="semantic":
+        llm_router =llm ()
+        results =await vault ().semantic_search (
+        q ,
+        get_embedding_fn =llm_router .get_embedding if llm_router else None ,
+        top_k =max_results ,
+        )
+        return {"results":results ,"mode":"semantic"}
     results =vault ().search (q ,max_results =max_results )
-    return {"results":results }
+    return {"results":results ,"mode":"keyword"}

@@ -255,6 +255,41 @@ textarea, input { background-color: var(--bg-input); color: var(--text); }
 }
 .history-header h3 { font-size: 0.9rem; font-weight: 600; }
 .history-header-actions { display: flex; gap: 0.25rem; align-items: center; }
+.history-search {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+.history-search .material-icons-round { font-size: 1.1rem; color: var(--text-muted); }
+.history-search input {
+    flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 0.85rem;
+}
+.history-search input::placeholder { color: var(--text-muted); }
+.history-search-result {
+    padding: 0.5rem 0.75rem; cursor: pointer; border-radius: var(--radius-sm);
+    transition: background 0.15s;
+}
+.history-search-result:hover { background: var(--bg-hover); }
+.history-search-result .result-session {
+    font-size: 0.75rem; color: var(--accent); margin-bottom: 0.2rem;
+}
+.history-search-result .result-snippet {
+    font-size: 0.8rem; color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vault-search-result {
+    padding: 0.4rem 0; cursor: pointer;
+    border-bottom: 1px solid var(--border);
+}
+.vault-search-result:last-child { border-bottom: none; }
+.vault-search-result:hover .result-filename { color: var(--accent); }
+.vault-search-result .result-filename {
+    font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.15rem;
+}
+.vault-search-result .result-snippet {
+    font-size: 0.8rem; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .history-list {
     flex: 1;
     overflow-y: auto;

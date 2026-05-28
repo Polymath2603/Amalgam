@@ -5,15 +5,35 @@ search functionality independent of any MCP server.
 """
 import re 
 import logging 
+import hashlib 
 from pathlib import Path 
 from typing import List ,Dict ,Optional 
 
+import chromadb 
+from chromadb .config import Settings as ChromaSettings 
+
 logger =logging .getLogger (__name__ )
+
+VAULT_CHUNK_SIZE =500 
 
 
 class VaultManager :
-    def __init__ (self ,vault_path :str ):
+    def __init__ (self ,vault_path :str ,embeddings_path :str =None ):
         self ._vault_path =Path (vault_path )
+        self ._chroma =None 
+        self ._chroma_col =None 
+        self ._index_mtime :Dict [str ,float ]={}
+        if embeddings_path :
+            ep =Path (embeddings_path )
+            ep .mkdir (parents =True ,exist_ok =True )
+            self ._chroma =chromadb .PersistentClient (
+            path =str (ep ),
+            settings =ChromaSettings (anonymized_telemetry =False ),
+            )
+            self ._chroma_col =self ._chroma .get_or_create_collection (
+            name ="vault",
+            metadata ={"hnsw:space":"cosine"},
+            )
 
     @property 
     def vault_path (self )->Path :
@@ -147,6 +167,142 @@ class VaultManager :
                 "match_count":len (matches ),
                 })
         return results [:max_results ]
+
+    def _chunk_text (self ,text :str ,chunk_size :int =VAULT_CHUNK_SIZE )->List [str ]:
+        """Split text into chunks of roughly chunk_size characters, breaking at paragraph/sentence boundaries."""
+        if len (text )<=chunk_size :
+            return [text ]
+        chunks =[]
+        start =0 
+        while start <len (text ):
+            end =start +chunk_size 
+            if end >=len (text ):
+                chunks .append (text [start :])
+                break 
+
+            para_break =text .rfind ("\n\n",start ,end )
+            if para_break >start +chunk_size //3 :
+                end =para_break +2 
+            else :
+
+                for delim in (". ","! ","? ","\n"):
+                    sent_break =text .rfind (delim ,start ,end )
+                    if sent_break >start +chunk_size //3 :
+                        end =sent_break +len (delim )
+                        break 
+            chunks .append (text [start :end ])
+            start =end 
+        return chunks 
+
+    async def _index_vault (self ,get_embedding_fn ):
+        """Index all .md vault files into ChromaDB. Re-index only changed files."""
+        if not self ._chroma_col or not self ._vault_path .exists ()or not get_embedding_fn :
+            return 
+
+        current_files ={}
+        for f in self ._vault_path .iterdir ():
+            if f .is_file ()and f .name .endswith (".md"):
+                current_files [f .name ]=f 
+
+
+        to_index =[]
+        for name ,f in current_files .items ():
+            mtime =f .stat ().st_mtime 
+            if name not in self ._index_mtime or self ._index_mtime [name ]!=mtime :
+                to_index .append ((name ,f ,mtime ))
+
+
+        indexed_names =set (self ._index_mtime .keys ())
+        current_names =set (current_files .keys ())
+        deleted =indexed_names -current_names 
+        for name in deleted :
+            try :
+                self ._chroma_col .delete (where ={"filename":name })
+            except Exception :
+                pass 
+            del self ._index_mtime [name ]
+
+        if not to_index :
+            return 
+
+        for name ,f ,mtime in to_index :
+            try :
+                content =f .read_text (encoding ="utf-8")
+            except Exception :
+                continue 
+
+
+            try :
+                self ._chroma_col .delete (where ={"filename":name })
+            except Exception :
+                pass 
+
+            chunks =self ._chunk_text (content )
+            ids ,embeddings ,metadatas =[],[],[]
+            for i ,chunk in enumerate (chunks ):
+                emb =await get_embedding_fn (chunk )
+                if not emb :
+                    continue 
+                cid =f"{name }_chunk_{i }"
+                ids .append (cid )
+                embeddings .append (emb )
+                metadatas .append ({
+                "filename":name ,
+                "chunk_index":i ,
+                "content":chunk ,
+                "mtime":mtime ,
+                })
+
+            if ids :
+                try :
+                    self ._chroma_col .upsert (ids =ids ,embeddings =embeddings ,metadatas =metadatas )
+                    self ._index_mtime [name ]=mtime 
+                except Exception as e :
+                    logger .debug (f"Vault ChromaDB index failed for {name }: {e }")
+
+    async def semantic_search (self ,query :str ,get_embedding_fn ,top_k :int =5 )->List [Dict ]:
+        """Semantic search across vault files using ChromaDB embeddings.
+
+        Args:
+            query: Search query text
+            get_embedding_fn: async callable(text) -> List[float] for embedding
+            top_k: Maximum results to return
+
+        Returns:
+            List of dicts with filename, snippet, distance, chunk_index
+        """
+        if not self ._chroma_col or not get_embedding_fn :
+            return []
+
+
+        await self ._index_vault (get_embedding_fn )
+
+
+        query_emb =await get_embedding_fn (query )
+        if not query_emb :
+            return []
+
+        try :
+            results =self ._chroma_col .query (
+            query_embeddings =[query_emb ],
+            n_results =min (top_k ,self ._chroma_col .count ()or 1 ),
+            )
+            if not results or not results ["metadatas"]or not results ["metadatas"][0 ]:
+                return []
+
+            distances =results ["distances"][0 ]if results .get ("distances")else [None ]*len (results ["metadatas"][0 ])
+            return [
+            {
+            "filename":m .get ("filename",""),
+            "snippet":m .get ("content","")[:200 ],
+            "chunk_index":m .get ("chunk_index",0 ),
+            "distance":d ,
+            }
+            for m ,d in zip (results ["metadatas"][0 ],distances )
+            ]
+        except Exception as e :
+            logger .debug (f"Vault ChromaDB query failed: {e }")
+            return []
 
     def inject_to_context (self ,max_tokens :int =2000 )->str :
         """Read all .md files up to max_tokens and return formatted context string.

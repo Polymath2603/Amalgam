@@ -10,6 +10,7 @@ from backend .core .memory import Memory
 from backend .core .context_builder import ContextBuilder 
 from backend .core .context_manager import ContextManager 
 from backend .core .vault import VaultManager 
+from backend .core .paths import EMBEDDINGS_DIR 
 from backend .core .agent import Agent 
 from backend .core .relationship import Relationship 
 from backend .core .mcp .client import MCPClient 
@@ -44,7 +45,7 @@ def get_shared ():
         _shared ["context_manager"]=ContextManager (settings =_shared ["settings"])
     if _shared ["vault"]is None :
         vault_path =_shared ["settings"].get ("vault.path","")
-        _shared ["vault"]=VaultManager (vault_path )
+        _shared ["vault"]=VaultManager (vault_path ,embeddings_path =str (EMBEDDINGS_DIR ))
     if _shared ["mcp"]is None :
         _shared ["mcp"]=MCPClient ()
     if _shared ["tts"]is None :

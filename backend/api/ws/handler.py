@@ -275,6 +275,17 @@ async def handle_chat (websocket :WebSocket ):
                     {"type":"chat_append","role":"system","text":f"Unknown command: /{cmd }. Try /help","finished":True })
                 continue 
 
+            if msg_type =="idle_prompt_request":
+                try :
+                    text =await agent ().generate_idle_prompt ()
+                    if text :
+                        await _send_json ({"type":"idle_prompt","text":text })
+
+                    asyncio .create_task (agent ().subconscious_reflect ())
+                except Exception as e :
+                    logger .warning (f"Idle prompt request failed: {e }")
+                continue 
+
             if msg_type =="user_message":
                 text =data .get ("text","").strip ()
                 images =data .get ("images",None )

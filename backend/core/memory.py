@@ -327,6 +327,40 @@ class Memory :
 
         return []
 
+    async def search_all_sessions (self ,query :str ,top_k :int =10 )->List [Dict ]:
+        """Semantic search across ALL sessions (no session_id filter).
+
+        Returns list of dicts with session_id, role, content, timestamp, distance.
+        """
+        if not self .llm and _LOCAL_EMBEDDING is None :
+            return []
+
+        query_emb =await self ._get_embedding (query )
+        if not query_emb :
+            return []
+
+        try :
+            results =self .chroma_col .query (
+            query_embeddings =[query_emb ],
+            n_results =top_k ,
+            )
+            if results and results ["metadatas"]and results ["metadatas"][0 ]:
+                distances =results ["distances"][0 ]if results .get ("distances")else [None ]*len (results ["metadatas"][0 ])
+                return [
+                {
+                "session_id":m .get ("session_id",""),
+                "role":m .get ("role",""),
+                "content":m .get ("content",""),
+                "timestamp":m .get ("timestamp",""),
+                "distance":d ,
+                }
+                for m ,d in zip (results ["metadatas"][0 ],distances )
+                ]
+        except Exception as e :
+            logger .debug (f"ChromaDB cross-session query failed: {e }")
+
+        return []
+
     async def _prune_tool_outputs (self ,session_id :str ,max_chars :int =2000 ):
         with self ._lock :
             data =self ._read_sync (session_id )

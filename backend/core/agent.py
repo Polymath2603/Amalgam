@@ -128,6 +128,59 @@ class Agent :
         return [system ]+history 
 
 
+    async def generate_idle_prompt (self )->str :
+        """Generate a short conversation starter based on character personality."""
+        char_id =self .settings .get ("character.active","default")if self .settings else "default"
+        chars =self .context_builder ._characters 
+        char =chars .get (char_id ,{})
+        name =char .get ("name","the assistant")
+        personality =char .get ("personality","")
+        vocabulary =char .get ("vocabulary",[])
+
+        prompt =f"You are {name }."
+        if personality :
+            prompt +=f" Your personality: {personality }."
+        if vocabulary :
+            prompt +=f" Your signature phrases include: {', '.join (vocabulary [:3 ])}."
+        prompt +=(
+        " Generate a brief, natural conversation starter or idle observation."
+        " Keep it under 20 words. Be in-character. Just the text, no quotes."
+        )
+
+        try :
+            result =await self .llm .generate ([{"role":"user","content":prompt }],temperature =0.9 )
+            return (result or "").strip ().strip ('"').strip ("'")
+        except Exception as e :
+            logger .warning (f"Idle prompt generation failed: {e }")
+            return ""
+
+    async def subconscious_reflect (self )->str :
+        """Reflect on recent conversation and store a compressed memory entry."""
+        recent =self .memory .get_recent (10 )
+        if not recent :
+            return ""
+
+        chat_log ="\n".join (f"{m ['role']}: {m ['content']}"for m in recent )
+        char_id =self .settings .get ("character.active","default")if self .settings else "default"
+        chars =self .context_builder ._characters 
+        char =chars .get (char_id ,{})
+        name =char .get ("name","the assistant")
+
+        prompt =(
+        f"You are {name }. Summarize the key facts and emotional undertones "
+        f"from this recent conversation in one sentence. Focus on what you learned "
+        f"about the user and how they feel.\n\nConversation:\n{chat_log }"
+        )
+
+        try :
+            summary =await self .llm .generate ([{"role":"user","content":prompt }],temperature =0.5 )
+            if summary :
+                await self .memory .add_turn ("system",f"[reflection] {summary .strip ()}")
+            return summary .strip ()if summary else ""
+        except Exception as e :
+            logger .warning (f"Subconscious reflection failed: {e }")
+            return ""
+
     async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [Union [str ,Tuple [str ,str ]]]:
         await self .memory .add_turn ("user",text )
 

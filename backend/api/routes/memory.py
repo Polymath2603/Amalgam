@@ -61,3 +61,19 @@ async def create_new_session ():
     return {"session_id":sid ,"status":"ok"}
 
 
+@router .get ("/api/memory/search")
+async def search_memory (q :str ="",scope :str ="session"):
+    """Semantic search across conversation history.
+
+    scope=session: search within current session only
+    scope=all: search across all sessions
+    """
+    if not q :
+        return {"results":[]}
+    if scope =="all":
+        results =await memory ().search_all_sessions (q ,top_k =10 )
+    else :
+        results =await memory ().get_relevant (q ,top_k =5 )
+    return {"results":results }
+
+

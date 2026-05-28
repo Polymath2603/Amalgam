@@ -4,6 +4,7 @@ const BASE_URL = IS_TAURI ? 'http:
 const WS_BASE = IS_TAURI ? 'ws:
 
 import { initCustomSelects, syncAllCustomSelects } from './custom-select.js';
+import { t, setLanguage, initI18n, getCurrentLang } from './i18n.js';
 
 
 let avatarRenderer = null;
@@ -11,7 +12,28 @@ let avatarPreviewRenderer = null;
 let speechBubble = null;
 
 window.addEventListener('error', e => console.error('GLOBAL_ERROR:', e.message, e.filename, e.lineno));
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    
+    let savedLang = null;
+    try {
+        const r = await fetch(`${BASE_URL}/api/settings/get/ui.language`);
+        if (r.ok) { const d = await r.json(); savedLang = d.value; }
+    } catch {}
+    await initI18n(savedLang);
+
+    
+    const langSelect = document.getElementById('language-select');
+    if (langSelect) {
+        langSelect.value = getCurrentLang();
+        langSelect.addEventListener('change', async () => {
+            await setLanguage(langSelect.value);
+            fetch(`${BASE_URL}/api/settings/set`, {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({'ui.language': langSelect.value})
+            });
+        });
+    }
+
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
@@ -63,10 +85,39 @@ document.addEventListener('DOMContentLoaded', () => {
             import('./speech-bubble.js').then(({ SpeechBubble }) => {
                 speechBubble = new SpeechBubble(avatarContainer, avatarRenderer);
             }).catch(err => console.error('SpeechBubble load failed:', err));
+            
+            initIdleManager();
         } catch(err) {
             console.error('Main avatar creation failed:', err);
             avatarContainer.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#e74c3c;font-size:0.8rem;gap:0.5rem;padding:1rem;text-align:center"><span class="material-icons-round" style="font-size:2rem">error</span><span>Avatar error: ${err.message || err}</span></div>`;
         }
+    }
+
+    
+    function initIdleManager() {
+        if (!avatarRenderer || avatarRenderer._idleManager || !_settingsCache) return;
+        const idleCfg = _settingsCache.idle || {};
+        avatarRenderer.initIdleManager({
+            enabled: idleCfg.enabled !== false,
+            timeBeforeIdleSec: idleCfg.time_before_idle_sec || 30,
+            timeToSleepSec: idleCfg.time_to_sleep_sec || 120,
+            minIntervalSec: idleCfg.min_interval_sec || 8,
+            maxIntervalSec: idleCfg.max_interval_sec || 15,
+            baseUrl: BASE_URL,
+            onRequestIdlePrompt: () => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'idle_prompt_request' }));
+                }
+            },
+            onSleep: () => {
+                if (speechBubble) speechBubble.show('zzz...', 0);
+            },
+            onWake: () => {
+                if (speechBubble) speechBubble.hide();
+            },
+        });
+        
+        avatarRenderer._idleManager.deactivate();
     }
     const statusText = document.getElementById('status-text');
 
@@ -76,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let voiceInputEnabled = false;
     let voiceOutputEnabled = false;
     let mcpServersCache = []; 
+    let _settingsCache = null; 
 
     
     let audioContext = null;
@@ -128,6 +180,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ttsQueuePlaying = false;
                 isPlayingTTS = false;
                 setStatus('ready');
+                
+                if (avatarRenderer?._idleManager) avatarRenderer._idleManager.deactivate();
                 return;
             }
             ttsQueuePlaying = false;
@@ -309,6 +363,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     lastUserMessage = null;
                     if (!isPlayingTTS) {
                         setStatus('ready');
+                        
+                        if (avatarRenderer?._idleManager) avatarRenderer._idleManager.deactivate();
                     }
                 }
             } else if (data.role === 'system') {
@@ -334,6 +390,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const expr = (data.expression || 'neutral').toLowerCase();
             if (avatarRenderer) avatarRenderer.setExpression(expr);
             if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression(expr);
+        } else if (data.type === 'idle_prompt') {
+            
+            if (data.text) {
+                if (speechBubble) speechBubble.show(data.text, 6000);
+                if (avatarRenderer) avatarRenderer.setEmotion('relaxed');
+                if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion('relaxed');
+                setTimeout(() => {
+                    if (avatarRenderer) avatarRenderer.setEmotion('neutral');
+                    if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion('neutral');
+                }, 6000);
+            }
         } else if (data.type === 'animation') {
             
             if (data.url && avatarRenderer) {
@@ -549,12 +616,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (imgPreviewSrc) imgPreviewSrc.src = '';
             if (imgInput) imgInput.value = '';
         }
-        try { 
+        try {
             console.log('Sending user_message:', JSON.stringify(msg));
             ws.send(JSON.stringify(msg));
-        } catch (e) { 
-            console.warn('send user_message:', e); showToast('Send failed', 'danger'); 
+        } catch (e) {
+            console.warn('send user_message:', e); showToast('Send failed', 'danger');
         }
+        
+        if (avatarRenderer?._idleManager) avatarRenderer._idleManager.wake();
         chatInput.value = '';
         chatInput.style.height = 'auto';
         _sending = false;
@@ -925,6 +994,9 @@ document.addEventListener('DOMContentLoaded', () => {
             isPlayingTTS = true;
             updateSpeakButtons();
 
+            
+            if (avatarRenderer?._idleManager) avatarRenderer._idleManager.activate();
+
             setStatus('speaking');
 
             
@@ -938,6 +1010,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateSpeakButtons();
                 if (avatarRenderer) avatarRenderer.stopLipSync();
                 if (avatarPreviewRenderer) avatarPreviewRenderer.stopLipSync();
+                
+                if (avatarRenderer?._idleManager) avatarRenderer._idleManager.deactivate();
                 if (onComplete) onComplete();
             };
 
@@ -1082,6 +1156,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     async function applySettings(d) {
+        _settingsCache = d;
+
+        
+        initIdleManager();
+
         
         const active = d.provider?.active || 'gemini';
         providerSelect.value = active;
@@ -1901,6 +1980,113 @@ document.addEventListener('DOMContentLoaded', () => {
             historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted)">Failed to load history</div>';
             updateHistoryToggle();
         }
+    }
+
+    
+    const historySearchInput = document.getElementById('history-search-input');
+    let _historySearchTimer = null;
+    let _historySearchAbort = null;
+
+    if (historySearchInput) {
+        historySearchInput.addEventListener('input', () => {
+            clearTimeout(_historySearchTimer);
+            const q = historySearchInput.value.trim();
+            if (!q) {
+                loadHistory();
+                return;
+            }
+            _historySearchTimer = setTimeout(() => performHistorySearch(q), 300);
+        });
+    }
+
+    async function performHistorySearch(query) {
+        if (_historySearchAbort) _historySearchAbort.abort();
+        _historySearchAbort = new AbortController();
+        try {
+            const res = await fetch(
+                `${BASE_URL}/api/memory/search?q=${encodeURIComponent(query)}&scope=all`,
+                { signal: _historySearchAbort.signal }
+            );
+            const data = await res.json();
+            renderHistorySearchResults(data.results || []);
+        } catch (e) {
+            if (e.name !== 'AbortError') console.warn('History search failed:', e);
+        }
+    }
+
+    function renderHistorySearchResults(results) {
+        historyList.innerHTML = '';
+        if (results.length === 0) {
+            historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted);text-align:center">No results found</div>';
+            return;
+        }
+        results.forEach(r => {
+            const item = document.createElement('div');
+            item.className = 'history-search-result';
+            const snippet = r.content ? r.content.substring(0, 120) : '';
+            item.innerHTML = `
+                <div class="result-session">${escHtml(r.session_id || 'unknown')}</div>
+                <div class="result-snippet">${escHtml(snippet)}</div>
+            `;
+            item.addEventListener('click', () => {
+                location.hash = 'chat/' + r.session_id;
+                historyPanel.classList.remove('open');
+            });
+            historyList.appendChild(item);
+        });
+    }
+
+    
+    const vaultSearchInput = document.getElementById('vault-search-input');
+    const vaultSemanticToggle = document.getElementById('vault-semantic-toggle');
+    const vaultSearchResults = document.getElementById('vault-search-results');
+    let _vaultSearchTimer = null;
+
+    if (vaultSearchInput) {
+        vaultSearchInput.addEventListener('input', () => {
+            clearTimeout(_vaultSearchTimer);
+            const q = vaultSearchInput.value.trim();
+            if (!q) {
+                vaultSearchResults.innerHTML = '';
+                return;
+            }
+            _vaultSearchTimer = setTimeout(() => performVaultSearch(q), 300);
+        });
+    }
+
+    async function performVaultSearch(query) {
+        const mode = vaultSemanticToggle?.checked ? 'semantic' : 'keyword';
+        try {
+            const res = await api(
+                `${BASE_URL}/api/vault/search?q=${encodeURIComponent(query)}&mode=${mode}&max_results=8`
+            );
+            renderVaultSearchResults(res?.results || [], mode);
+        } catch (e) {
+            console.warn('Vault search failed:', e);
+        }
+    }
+
+    function renderVaultSearchResults(results, mode) {
+        if (!vaultSearchResults) return;
+        if (results.length === 0) {
+            vaultSearchResults.innerHTML = '<p class="muted" style="font-size:0.8rem">No results found</p>';
+            return;
+        }
+        vaultSearchResults.innerHTML = results.map(r => {
+            const snippet = (r.snippet || r.content || '').substring(0, 150);
+            const dist = r.distance != null ? ` (${(1 - r.distance).toFixed(2)})` : '';
+            return `<div class="vault-search-result" data-filename="${escHtml(r.filename || '')}">
+                <div class="result-filename">${escHtml(r.filename || '')}${dist}</div>
+                <div class="result-snippet">${escHtml(snippet)}</div>
+            </div>`;
+        }).join('');
+
+        vaultSearchResults.querySelectorAll('.vault-search-result').forEach(el => {
+            el.addEventListener('click', () => {
+                const fn = el.dataset.filename;
+                if (fn) loadVaultFileEdit(fn);
+            });
+        });
     }
 
     

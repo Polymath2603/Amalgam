@@ -61,7 +61,29 @@ OUTPUT_LIMITS ={
 }
 
 
-EMBEDDING_CAPABLE ={"gemini","ollama"}
+EMBEDDING_CAPABLE ={
+"gemini","ollama","openai","deepseek","mistral",
+"together","groq","chatgpt","azure-openai",
+"openrouter","alibaba","huggingface","aws","gcp",
+}
+
+
+EMBEDDING_MODEL_DEFAULTS ={
+"gemini":"gemini/text-embedding-004",
+"ollama":"nomic-embed-text",
+"openai":"openai/text-embedding-3-small",
+"chatgpt":"openai/text-embedding-3-small",
+"azure-openai":"azure/text-embedding-3-small",
+"deepseek":"openai/text-embedding-3-small",
+"mistral":"mistral/mistral-embed",
+"together":"together_ai/nomic-ai/nomic-embed-text-v1.5",
+"groq":"openai/text-embedding-3-small",
+"openrouter":"openai/text-embedding-3-small",
+"alibaba":"openai/text-embedding-3-small",
+"huggingface":"openai/text-embedding-3-small",
+"aws":"bedrock/amazon.titan-embed-text-v2:0",
+"gcp":"vertex_ai/textembedding-gecko",
+}
 
 
 class LiteLLMProvider :
@@ -256,24 +278,38 @@ class LiteLLMProvider :
             return f"[Error: {e }]"
 
     async def get_embedding (self ,text :str )->List [float ]:
-        """Generate embedding vector. Only works for gemini/ollama."""
+        """Generate embedding vector."""
         if self ._provider not in EMBEDDING_CAPABLE :
             return []
 
         model ,kwargs =self ._get_model_config ()
 
-        if self ._provider =="gemini":
-            embed_model ="gemini/text-embedding-004"
-        elif self ._provider =="ollama":
-            embed_model =f"ollama/{self ._settings .get ('provider.ollama.model','nomic-embed-text')}"
-        else :
+
+        embed_model =None 
+        if self ._settings :
+            embed_model =self ._settings .get ("memory.embedding_model","")
+
+        if not embed_model :
+
+            if self ._provider =="ollama":
+                ollama_model ="nomic-embed-text"
+                if self ._settings :
+                    ollama_model =self ._settings .get ("provider.ollama.model",ollama_model )
+
+                    if "embed"not in ollama_model .lower ():
+                        ollama_model ="nomic-embed-text"
+                embed_model =f"ollama/{ollama_model }"
+            else :
+                embed_model =EMBEDDING_MODEL_DEFAULTS .get (self ._provider ,"")
+
+        if not embed_model :
             return []
 
         try :
             response =await aembedding (model =embed_model ,input =[text ],**kwargs )
             return response .data [0 ].embedding 
         except Exception as e :
-            logger .error (f"LiteLLM embedding error ({self ._provider }): {e }")
+            logger .error (f"LiteLLM embedding error ({self ._provider }, model={embed_model }): {e }")
             return []
 
     async def close (self ):
