@@ -205,12 +205,17 @@ class MCPClient :
         schema =[]
         for name ,tool in self .tools_cache .items ():
             schema .append ({
+            "type":"function",
+            "function":{
             "name":tool .name ,
             "description":tool .description ,
             "parameters":tool .inputSchema 
+            }
             })
         if self ._agent is not None :
             schema .append ({
+            "type":"function",
+            "function":{
             "name":"task",
             "description":"Spawn a sub-agent to handle a focused, self-contained task. The sub-agent has the same capabilities (MCP tools, LLM) but runs in an isolated context. Use this for tasks that are independent of the current conversation. Returns the sub-agent's complete output.",
             "parameters":{
@@ -222,6 +227,7 @@ class MCPClient :
             }
             },
             "required":["prompt"]
+            }
             }
             })
         return schema 
