@@ -5,6 +5,7 @@ from typing import List ,Dict
 
 from backend .core .paths import PROJECT_ROOT ,VAULT_DIR ,CHARACTERS_DIR 
 from backend .core .vault import VaultManager 
+from backend .core .utils .tokens import estimate_tokens ,truncate_to_token_limit 
 
 logger =logging .getLogger (__name__ )
 
@@ -50,25 +51,9 @@ $action_notes
 ## Tone
 $character_style
 
-## Formatting
-- Keep responses concise and natural — this is a conversation, not a document
-- Never output markdown code fences around your response — you are already in a chat interface
-- Do not use bullet points, numbered lists, or excessive bold text unless the user specifically asks for structure
-- Write in natural prose and paragraphs
-- Use warm, engaging language. Be direct but not terse.
-- Never use emojis unless the user does first
-- When referencing code or files, use the pattern `file_path:line_number`
-
-## Reasoning
-For complex questions, internal deliberation, or multi-step reasoning, wrap your thinking in <think>...</think> tags before responding. The thinking content will be shown or hidden based on the user's preference.
-
-## Tool Usage
-- Explain what you are going to do before making a tool call with a single concise sentence
-- Use tools for actions; use text output only for communication
-- Do not add explanatory comments within tool calls or code blocks
-- When a tool fails or returns an unexpected result, report it clearly and suggest alternatives rather than retrying with the same arguments
-- If a request is ambiguous, make a reasonable attempt before asking for clarification
-- When you don't know something, say so directly rather than fabricating. If a tool can help, use it before guessing.
+## Behavioral Rules & Formatting
+- **Consult your Vault for persistent rules (`rules.md`).** The vault contains your core instructions for formatting, tool usage, safety, and edge cases. You must strictly adhere to them.
+- Use tools for actions; use text output only for communication.
 
 ## Vault / Notes — Your Long-Term Memory
 Your vault is a directory of markdown files you manage yourself via the **obsidian** MCP server tools (`read-note`, `search-vault`, `create-note`, `edit-note`, `delete-note`). This is your permanent memory. Use it deliberately.
@@ -221,10 +206,7 @@ journal/              — personal diary entries
 - **Update, don't duplicate**: `search-vault` before `create-note` to find existing notes, then `edit-note` to append or modify
 - **Review periodically**: at the start of a session, `search-vault` for notes relevant to the user's context
 
-## Edge Cases
-- If asked about something outside your knowledge, be honest — use <think> to reason through what you do know
-- If the user provides an image, examine it carefully and incorporate what you see into your response
-- If the user corrects you or provides feedback, acknowledge it briefly and adjust — don't over-apologize
+
 $relationship_section\
 $vault_rules\
 $tool_section\
@@ -279,11 +261,26 @@ class ContextBuilder :
 
     def _build_vault_section (self )->str :
         vault_path =self ._get_vault_path ()
-        vault_token_budget =self .settings .get ("vault.max_tokens",2000 )if self .settings else 2000 
         if not os .path .exists (vault_path ):
             return ""
-        vault =VaultManager (vault_path )
-        return vault .inject_to_context (max_tokens =vault_token_budget )
+
+        rules_path =os .path .join (vault_path ,"rules.md")
+        if os .path .exists (rules_path )and os .path .isfile (rules_path ):
+            try :
+                with open (rules_path ,"r",encoding ="utf-8")as f :
+                    content =f .read ().strip ()
+                if content :
+
+                    max_tokens =200 
+                    if self .settings :
+                        max_tokens =int (self .settings .get ("vault.inject_tokens",max_tokens ))
+                    if estimate_tokens (content )>max_tokens :
+                        content =truncate_to_token_limit (content ,max_tokens )
+                    return f"\n\n## Active Rules\n{content }"
+            except Exception as e :
+                logger .warning (f"Failed to read rules.md: {e }")
+
+        return ""
 
     def build (self ,tools :List [Dict ],history :List [Dict ],user_msg :str ,
     character_id :str =None ,additional_prompt :str ="",
@@ -309,6 +306,14 @@ class ContextBuilder :
         relevant_section =relevant_section ,
         relationship_section =relationship_section ,
         )
+
+
+        max_sys_tokens =1500 
+        if self .settings :
+            max_sys_tokens =int (self .settings .get ("system_prompt.max_tokens",max_sys_tokens ))
+        if estimate_tokens (sys_prompt )>max_sys_tokens :
+            sys_prompt =truncate_to_token_limit (sys_prompt ,max_sys_tokens )
+            logger .debug (f"System prompt truncated to {max_sys_tokens } tokens")
 
         messages =[{"role":"system","content":sys_prompt }]
         for h in history :

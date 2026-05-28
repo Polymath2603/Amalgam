@@ -73,6 +73,16 @@ class LLMRouter :
         inst =self ._provider_instance ()
         return inst .supports_native_tools ()if hasattr (inst ,'supports_native_tools')else False 
 
+    def get_max_output_tokens (self )->int :
+        """Delegate to the active provider's limit."""
+        inst =self ._provider_instance ()
+        return inst .get_max_output_tokens ()if hasattr (inst ,'get_max_output_tokens')else 2048 
+
+    def get_context_token_limit (self )->int :
+        """Delegate to the active provider's context window limit."""
+        inst =self ._provider_instance ()
+        return inst .get_context_token_limit ()if hasattr (inst ,'get_context_token_limit')else 8192 
+
     def _apply_temperature (self ,inst ):
         temp =self .settings .get ("llm.temperature",0.7 )if self .settings else 0.7 
         try :

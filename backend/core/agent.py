@@ -87,23 +87,46 @@ class Agent :
                 parts .append (chunk )
         return "".join (parts )
 
-    def _estimate_tokens (self ,messages :List [Dict ])->int :
+    def _estimate_tokens (self ,messages :List [Dict ],tools :List [Dict ]=None )->int :
 
         total =0 
         for m in messages :
             content =str (m .get ("content",""))
-            total +=len (content )//4 
+            total +=len (content )//3 
+        if tools :
+            total +=len (json .dumps (tools ))//3 
         return total 
 
-    def _truncate_context (self ,messages :List [Dict ],max_tokens :int )->List [Dict ]:
+    def _truncate_context (self ,messages :List [Dict ],max_tokens :int ,tools :List [Dict ]=None )->List [Dict ]:
         if not messages :
             return []
-        system =messages [0 ]
-        history =messages [1 :]
+        system =messages [0 ].copy ()
+        history =list (messages [1 :])
 
-        while self ._estimate_tokens ([system ]+history )>max_tokens and len (history )>1 :
+
+        while self ._estimate_tokens ([system ]+history ,tools )>max_tokens and len (history )>1 :
             history .pop (0 )
+
+
+        total_est =self ._estimate_tokens ([system ]+history ,tools )
+        if total_est >max_tokens :
+            tools_tokens =(len (json .dumps (tools ))//3 )if tools else 0 
+            history_tokens =self ._estimate_tokens (history )
+            sys_budget_tokens =max_tokens -tools_tokens -history_tokens -100 
+            sys_budget_chars =max (sys_budget_tokens *3 ,300 )
+
+            sys_str =str (system .get ("content",""))
+            if len (sys_str )>sys_budget_chars :
+                half =sys_budget_chars //2 
+                system ["content"]=(
+                sys_str [:half ]
+                +"\n\n...[System Prompt Truncated to fit Context]...\n\n"
+                +sys_str [-half :]
+                )
+                logger .debug (f"System prompt truncated from {len (sys_str )} to ~{sys_budget_chars } chars")
+
         return [system ]+history 
+
 
     async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [Union [str ,Tuple [str ,str ]]]:
         await self .memory .add_turn ("user",text )
@@ -126,7 +149,8 @@ class Agent :
             if self .settings :
                 character_id =self .settings .get ("character.active","default")
                 additional_prompt =self .settings .get ("character.system_prompt","")
-                max_tokens =self .settings .get ("llm.context_token_limit",8192 )
+
+            max_tokens =self .llm .get_context_token_limit ()
 
             plugins =get_plugin_registry ()
             tools =await plugins .hook_tool_definition (tools )
@@ -141,9 +165,11 @@ class Agent :
             )
 
 
-            messages =self ._truncate_context (messages ,max_tokens -500 )
+            messages =self ._truncate_context (messages ,max_tokens -500 ,tools if native_tools else None )
 
-            logger .debug (f"DEBUG: Sending {len (messages )} messages, estimated tokens: {self ._estimate_tokens (messages )}")
+            est =self ._estimate_tokens (messages ,tools if native_tools else None )
+            out_tokens =self .llm .get_max_output_tokens ()
+            logger .debug (f"TOKEN BUDGET: context_limit={max_tokens }, est_after_trunc={est }, max_output={out_tokens }, total={est +out_tokens }")
             messages =await plugins .hook_messages (messages )
 
             if images :

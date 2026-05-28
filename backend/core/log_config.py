@@ -15,7 +15,7 @@ LOG_LEVELS ={
 "CRITICAL":logging .CRITICAL ,
 }
 
-DEFAULT_LEVEL ="DEBUG"
+DEFAULT_LEVEL ="ERROR"
 DEFAULT_FORMAT ="console"
 
 _configured =False 

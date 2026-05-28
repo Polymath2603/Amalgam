@@ -49,7 +49,7 @@ class KoboldAIProvider (LLMProvider ):
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         prompt =self ._build_prompt (messages )
         stop =self ._get_stop_sequence ()
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
 
         try :
             async with self ._client .stream (
@@ -83,7 +83,7 @@ class KoboldAIProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         prompt =self ._build_prompt (messages )
         stop =self ._get_stop_sequence ()
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         try :
             response =await self ._client .post (
             f"{self ._url .rstrip ('/')}/api/v1/generate",

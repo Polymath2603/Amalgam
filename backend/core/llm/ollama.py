@@ -44,7 +44,7 @@ class OllamaProvider (LLMProvider ):
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         self ._ensure_client ()
         try :
-            max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+            max_tokens =self .get_max_output_tokens ()
             async with self ._client .stream (
             "POST",
             f"{self ._url }/api/chat",
@@ -72,7 +72,7 @@ class OllamaProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         self ._ensure_client ()
         try :
-            max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+            max_tokens =self .get_max_output_tokens ()
             response =await self ._client .post (
             f"{self ._url }/api/chat",
             json ={"model":self ._model ,"messages":messages ,"stream":False ,"options":{"num_predict":max_tokens ,"temperature":self .temperature }},

@@ -59,7 +59,7 @@ class GeminiProvider (LLMProvider ):
             yield "[Error: Gemini API key not set. Go to Settings > Providers.]"
             return 
 
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         url =f"{self ._base_url }/openai/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
         body ={
@@ -138,7 +138,7 @@ class GeminiProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         if not self ._api_key :
             return "[Error: Gemini API key not set]"
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         url =f"{self ._base_url }/openai/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
         body ={"model":self ._model ,"messages":messages ,"temperature":self .temperature ,"max_tokens":max_tokens }

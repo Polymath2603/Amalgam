@@ -80,7 +80,7 @@ class BedrockProvider (LLMProvider ):
             yield "[Error: AWS Bedrock model not set. Go to Settings > Providers.]"
             return 
 
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         inference_config ={
         "maxTokens":max_tokens ,
         "temperature":self .temperature ,
@@ -149,7 +149,7 @@ class BedrockProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         if not self ._model :
             return "[Error: AWS Bedrock model not set]"
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         inference_config ={
         "maxTokens":max_tokens ,
         "temperature":self .temperature ,

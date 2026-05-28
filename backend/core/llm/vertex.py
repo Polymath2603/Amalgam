@@ -121,7 +121,7 @@ class VertexProvider (LLMProvider ):
             yield "[Error: GCP Vertex AI project_id not set. Go to Settings > Providers.]"
             return 
 
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
 
         try :
             client =await self ._ensure_client ()
@@ -185,7 +185,7 @@ class VertexProvider (LLMProvider ):
         if not self ._project_id :
             return "[Error: GCP Vertex AI project_id not set]"
 
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
 
         try :
             client =await self ._ensure_client ()

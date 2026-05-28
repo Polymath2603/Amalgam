@@ -93,7 +93,7 @@ class ClaudeProvider (LLMProvider ):
         if not self ._api_key :
             raise RuntimeError ("[Error: Claude API key not set. Go to Settings > Providers.]")
 
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         url =f"{self ._base_url .rstrip ('/')}/messages"
         system =self ._get_system (messages )
         body ={
@@ -179,7 +179,7 @@ class ClaudeProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         if not self ._api_key :
             return "[Error: Claude API key not set]"
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         url =f"{self ._base_url .rstrip ('/')}/messages"
         system =self ._get_system (messages )
         body ={

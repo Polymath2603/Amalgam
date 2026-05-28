@@ -49,7 +49,7 @@ class LlamaCppProvider (LLMProvider ):
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         url =f"{self ._url .rstrip ('/')}/completion"
         prompt =self ._build_prompt (messages )
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         body ={
         "prompt":prompt ,
         "stream":True ,
@@ -86,7 +86,7 @@ class LlamaCppProvider (LLMProvider ):
     async def generate (self ,messages :list )->str :
         url =f"{self ._url .rstrip ('/')}/completion"
         prompt =self ._build_prompt (messages )
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         body ={
         "prompt":prompt ,
         "stream":False ,

@@ -1,6 +1,7 @@
 """OpenAI-compatible providers: OpenRouter, Z.AI, SiliconFlow, Groq, ChatGPT.
 Supports native tool calling via the tools parameter.
 """
+import asyncio 
 import json 
 import logging 
 from typing import AsyncIterator ,List ,Dict ,Any 
@@ -37,6 +38,19 @@ class OpenAICompatProvider (LLMProvider ):
     def supports_native_tools (self )->bool :
         return bool (self ._api_key )
 
+    def get_max_output_tokens (self )->int :
+        tokens =super ().get_max_output_tokens ()
+        if self ._provider =="groq"and tokens >1024 :
+            return 1024 
+        return tokens 
+
+    def get_context_token_limit (self )->int :
+        limit =super ().get_context_token_limit ()
+
+        if self ._provider =="groq"and limit >3000 :
+            return 3000 
+        return limit 
+
     def _convert_tools (self ,tools :List [Dict [str ,Any ]])->list :
         """Convert our tool schema to OpenAI's tools format."""
         openai_tools =[]
@@ -62,7 +76,7 @@ class OpenAICompatProvider (LLMProvider ):
         if not self ._api_key :
             raise RuntimeError (f"[Error: {self ._provider } API key not set. Go to Settings > Providers.]")
 
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         url =f"{self ._base_url .rstrip ('/')}/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
         body ={
@@ -79,86 +93,102 @@ class OpenAICompatProvider (LLMProvider ):
 
         pending_tool_calls :Dict [int ,dict ]={}
 
-        try :
-            async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
-                if response .status_code !=200 :
-                    err =await response .aread ()
-                    raise RuntimeError (self ._format_error (response .status_code ,err .decode ()))
-                async for line in response .aiter_lines ():
-                    if line .startswith ("data: "):
-                        json_str =line [6 :].strip ()
-                        if json_str =="[DONE]":
-                            break 
-                        try :
-                            data =json .loads (json_str )
-                            choices =data .get ("choices",[])
-                            for c in choices :
-                                delta =c .get ("delta",{})
+        max_retries =3 if self ._provider =="groq"else 1 
+        for attempt in range (max_retries ):
+            try :
+                async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
+                    if response .status_code ==429 and attempt <max_retries -1 :
+                        err =await response .aread ()
+                        wait =2 **attempt *15 
+                        logger .warning (f"{self ._provider } rate limited (429), retrying in {wait }s (attempt {attempt +1 }/{max_retries })")
+                        await asyncio .sleep (wait )
+                        continue 
+                    if response .status_code !=200 :
+                        err =await response .aread ()
+                        raise RuntimeError (self ._format_error (response .status_code ,err .decode ()))
+                    async for line in response .aiter_lines ():
+                        if line .startswith ("data: "):
+                            json_str =line [6 :].strip ()
+                            if json_str =="[DONE]":
+                                break 
+                            try :
+                                data =json .loads (json_str )
+                                choices =data .get ("choices",[])
+                                for c in choices :
+                                    delta =c .get ("delta",{})
 
 
-                                text =delta .get ("content","")
-                                if text :
-                                    yield text 
+                                    text =delta .get ("content","")
+                                    if text :
+                                        yield text 
 
 
-                                tool_calls =delta .get ("tool_calls",[])
-                                for tc in tool_calls :
-                                    idx =tc .get ("index",0 )
-                                    if idx not in pending_tool_calls :
-                                        pending_tool_calls [idx ]={"id":"","name":"","arguments":""}
-                                    pt =pending_tool_calls [idx ]
-                                    func =tc .get ("function",{})
-                                    if tc .get ("id"):
-                                        pt ["id"]=tc ["id"]
-                                    if func .get ("name"):
-                                        pt ["name"]=func ["name"]
-                                    if func .get ("arguments"):
-                                        pt ["arguments"]+=func ["arguments"]
-
-
-                                finish_reason =c .get ("finish_reason")
-                                if finish_reason =="tool_calls":
-                                    for idx in sorted (pending_tool_calls .keys ()):
+                                    tool_calls =delta .get ("tool_calls",[])
+                                    for tc in tool_calls :
+                                        idx =tc .get ("index",0 )
+                                        if idx not in pending_tool_calls :
+                                            pending_tool_calls [idx ]={"id":"","name":"","arguments":""}
                                         pt =pending_tool_calls [idx ]
-                                        if pt ["id"]and pt ["name"]:
-                                            try :
-                                                args =json .loads (pt ["arguments"])if pt ["arguments"]else {}
-                                            except json .JSONDecodeError :
-                                                args ={}
-                                            yield {
-                                            "type":"tool_use",
-                                            "id":pt ["id"],
-                                            "name":pt ["name"],
-                                            "arguments":args ,
-                                            }
-                                    pending_tool_calls .clear ()
+                                        func =tc .get ("function",{})
+                                        if tc .get ("id"):
+                                            pt ["id"]=tc ["id"]
+                                        if func .get ("name"):
+                                            pt ["name"]=func ["name"]
+                                        if func .get ("arguments"):
+                                            pt ["arguments"]+=func ["arguments"]
 
-                        except json .JSONDecodeError :
-                            pass 
-        except RuntimeError :
-            raise 
-        except Exception as e :
-            logger .error (f"{self ._provider } stream error: {e }")
-            raise RuntimeError (f"[Error connecting to {self ._provider }: {e }]")from e 
+
+                                    finish_reason =c .get ("finish_reason")
+                                    if finish_reason =="tool_calls":
+                                        for idx in sorted (pending_tool_calls .keys ()):
+                                            pt =pending_tool_calls [idx ]
+                                            if pt ["id"]and pt ["name"]:
+                                                try :
+                                                    args =json .loads (pt ["arguments"])if pt ["arguments"]else {}
+                                                except json .JSONDecodeError :
+                                                    args ={}
+                                                yield {
+                                                "type":"tool_use",
+                                                "id":pt ["id"],
+                                                "name":pt ["name"],
+                                                "arguments":args ,
+                                                }
+                                        pending_tool_calls .clear ()
+
+                            except json .JSONDecodeError :
+                                pass 
+                return 
+            except RuntimeError :
+                raise 
+            except Exception as e :
+                logger .error (f"{self ._provider } stream error: {e }")
+                raise RuntimeError (f"[Error connecting to {self ._provider }: {e }]")from e 
 
     async def generate (self ,messages :list )->str :
         if not self ._api_key :
             return f"[Error: {self ._provider } API key not set]"
-        max_tokens =self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+        max_tokens =self .get_max_output_tokens ()
         url =f"{self ._base_url .rstrip ('/')}/chat/completions"
         headers ={"Authorization":f"Bearer {self ._api_key }","Content-Type":"application/json"}
         body ={"model":self ._model ,"messages":messages ,"temperature":self .temperature ,"max_tokens":max_tokens }
-        try :
-            response =await self ._client .post (url ,json =body ,headers =headers )
-            if response .status_code ==200 :
-                choices =response .json ().get ("choices",[])
-                if choices :
-                    return choices [0 ].get ("message",{}).get ("content","")
-            else :
-                return self ._format_error (response .status_code ,response .text )
-        except Exception as e :
-            logger .error (f"{self ._provider } generate error: {e }")
-            return f"Error: {e }"
+        max_retries =3 if self ._provider =="groq"else 1 
+        for attempt in range (max_retries ):
+            try :
+                response =await self ._client .post (url ,json =body ,headers =headers )
+                if response .status_code ==429 and attempt <max_retries -1 :
+                    wait =2 **attempt *15 
+                    logger .warning (f"{self ._provider } rate limited (429), retrying in {wait }s (attempt {attempt +1 }/{max_retries })")
+                    await asyncio .sleep (wait )
+                    continue 
+                if response .status_code ==200 :
+                    choices =response .json ().get ("choices",[])
+                    if choices :
+                        return choices [0 ].get ("message",{}).get ("content","")
+                else :
+                    return self ._format_error (response .status_code ,response .text )
+            except Exception as e :
+                logger .error (f"{self ._provider } generate error: {e }")
+                return f"Error: {e }"
         return ""
 
     async def fetch_models (self )->List [str ]:

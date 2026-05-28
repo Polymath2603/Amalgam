@@ -10,6 +10,14 @@ class LLMProvider :
         """Does this provider support native tool/function calling?"""
         return False 
 
+    def get_max_output_tokens (self )->int :
+        """Get the maximum completion tokens to request based on provider limits."""
+        return self .settings .get ("llm.max_tokens",2048 )if self .settings else 2048 
+
+    def get_context_token_limit (self )->int :
+        """Get the max context window size (prompt) based on provider constraints."""
+        return self .settings .get ("llm.context_token_limit",8192 )if self .settings else 8192 
+
     async def stream (self ,messages :list )->AsyncIterator [str ]:
         raise NotImplementedError 
 
