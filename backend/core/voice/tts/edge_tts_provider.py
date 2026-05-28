@@ -9,8 +9,12 @@ import numpy as np
 from scipy .io import wavfile 
 
 from .base import TTSProvider 
+from .word_to_viseme import viseme_schedule_from_words 
 
 logger =logging .getLogger (__name__ )
+
+
+TICKS_PER_SECOND =10_000_000 
 
 
 class EdgeTTSProvider (TTSProvider ):
@@ -66,10 +70,32 @@ class EdgeTTSProvider (TTSProvider ):
             prosody =self .EMOTION_SSML .get (emotion )
             if prosody :
                 ssml =f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"><prosody rate="{prosody ["rate"]}" pitch="{prosody ["pitch"]}">{text }</prosody></speak>'
-                communicate =edge_tts .Communicate (ssml ,self .voice )
+                communicate =edge_tts .Communicate (ssml ,self .voice ,boundary ="WordBoundary")
             else :
-                communicate =edge_tts .Communicate (text ,self .voice )
-            await communicate .save (temp_mp3 )
+                communicate =edge_tts .Communicate (text ,self .voice ,boundary ="WordBoundary")
+
+
+            audio_chunks =[]
+            word_events =[]
+            async for chunk in communicate .stream ():
+                if chunk ["type"]=="audio":
+                    audio_chunks .append (chunk ["data"])
+                elif chunk ["type"]=="WordBoundary":
+                    word_events .append ({
+                    "text":chunk ["text"],
+                    "offset":chunk ["offset"],
+                    "duration":chunk ["duration"],
+                    })
+
+            if not audio_chunks :
+                logger .error ("Edge-TTS: no audio chunks received")
+                return np .zeros (0 ,dtype =np .float32 ),[],16000 
+
+
+            with open (temp_mp3 ,"wb")as f :
+                for c in audio_chunks :
+                    f .write (c )
+
 
             proc =await asyncio .create_subprocess_exec (
             "ffmpeg","-y","-i",temp_mp3 ,
@@ -79,7 +105,7 @@ class EdgeTTSProvider (TTSProvider ):
             await proc .wait ()
             if proc .returncode !=0 :
                 logger .error (f"ffmpeg failed with code {proc .returncode }")
-                return np .zeros (0 ,dtype =np .float32 ),[]
+                return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
             sample_rate ,data =wavfile .read (temp_wav )
             if data .dtype ==np .int16 :
@@ -87,12 +113,24 @@ class EdgeTTSProvider (TTSProvider ):
             else :
                 audio_np =data .astype (np .float32 )
 
-            visemes =["A"]*(len (text )//2 )
-            return audio_np ,visemes 
+
+            word_boundaries =[]
+            for ev in word_events :
+                start_sec =ev ["offset"]/TICKS_PER_SECOND 
+                end_sec =(ev ["offset"]+ev ["duration"])/TICKS_PER_SECOND 
+                word_boundaries .append ({
+                "text":ev ["text"],
+                "start":start_sec ,
+                "end":end_sec ,
+                })
+
+            viseme_schedule =viseme_schedule_from_words (word_boundaries )
+            logger .debug (f"Edge-TTS: {len (audio_np )} samples, {len (viseme_schedule )} visemes")
+            return audio_np ,viseme_schedule ,sample_rate 
 
         except Exception as e :
             logger .error (f"Edge-TTS Error: {type (e ).__name__ }: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[]
+            return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
         finally :
             for p in (temp_mp3 ,temp_wav ):

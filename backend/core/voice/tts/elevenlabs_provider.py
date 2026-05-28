@@ -1,11 +1,13 @@
-"""ElevenLabs TTS provider — high-quality cloud TTS (ported from Amica)."""
+"""ElevenLabs TTS provider — high-quality cloud TTS with alignment data."""
 import io 
+import json 
 import logging 
 import httpx 
 import numpy as np 
 from scipy .io import wavfile 
 
 from .base import TTSProvider 
+from .word_to_viseme import build_viseme_schedule 
 
 logger =logging .getLogger (__name__ )
 
@@ -21,14 +23,14 @@ class ElevenLabsProvider (TTSProvider ):
         self ._api_key =api_key 
         self ._model =model 
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if not text .strip ()or not self ._api_key :
             if not self ._api_key :
                 logger .warning ("ElevenLabs API key not configured")
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
         voice_id =self .voice if self .voice else "21m00Tcm4TlvDq8ikWAM"
-        url =f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id }?optimize_streaming_latency=0&output_format=mp3_44100_128"
+        url =f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id }/stream?output_format=mp3_44100_128"
 
         body ={
         "text":text ,
@@ -47,22 +49,95 @@ class ElevenLabsProvider (TTSProvider ):
         }
 
         try :
-            response =await self ._client .post (url ,json =body ,headers =headers )
-            if response .status_code !=200 :
-                logger .error (f"ElevenLabs API error {response .status_code }: {response .text [:200 ]}")
-                return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-            mp3_data =response .content 
+            async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
+                if response .status_code !=200 :
+                    error_body =await response .aread ()
+                    logger .error (f"ElevenLabs API error {response .status_code }: {error_body [:200 ]}")
+                    return np .zeros (0 ,dtype =np .float32 ),[],16000 
+
+                mp3_chunks =[]
+                alignment_data =None 
+                async for line in response .aiter_lines ():
+                    if not line :
+                        continue 
+
+                    if line .startswith ('{'):
+                        try :
+                            data =json .loads (line )
+                            if 'alignment'in data :
+                                alignment_data =data ['alignment']
+                        except json .JSONDecodeError :
+                            pass 
+                    else :
+
+                        pass 
+
+
+                mp3_data =b''
+                async for chunk in response .aiter_bytes ():
+                    mp3_chunks .append (chunk )
+                mp3_data =b''.join (mp3_chunks )
+
             sr ,audio_np =self ._decode_mp3 (mp3_data )
             if len (audio_np )==0 :
                 return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-            visemes =["A"]*(len (text )//2 )
-            return audio_np ,visemes ,sr 
+
+            viseme_schedule =[]
+            if alignment_data :
+                viseme_schedule =self ._alignment_to_viseme_schedule (alignment_data ,sr ,len (audio_np ))
+            else :
+                logger .debug ("ElevenLabs: no alignment data received, using empty schedule")
+
+            return audio_np ,viseme_schedule ,sr 
 
         except Exception as e :
             logger .error (f"ElevenLabs TTS Error: {type (e ).__name__ }: {e }")
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
+
+    def _alignment_to_viseme_schedule (self ,alignment :dict ,sr :int ,total_samples :int )->list :
+        """Convert ElevenLabs alignment data to viseme schedule."""
+        chars =alignment .get ('characters',[])
+        char_starts =alignment .get ('character_start_times_seconds',[])
+        char_ends =alignment .get ('character_end_times_seconds',[])
+
+        if not chars or not char_starts :
+            return []
+
+
+        word_boundaries =[]
+        current_word =""
+        word_start =None 
+        word_end =None 
+
+        for i ,ch in enumerate (chars ):
+            start =char_starts [i ]if i <len (char_starts )else 0 
+            end =char_ends [i ]if i <len (char_ends )else start 
+
+            if ch .isalpha ():
+                if not current_word :
+                    word_start =start 
+                current_word +=ch 
+                word_end =end 
+            else :
+                if current_word :
+                    word_boundaries .append ({
+                    "text":current_word ,
+                    "start":word_start ,
+                    "end":word_end ,
+                    })
+                    current_word =""
+
+
+        if current_word :
+            word_boundaries .append ({
+            "text":current_word ,
+            "start":word_start ,
+            "end":word_end ,
+            })
+
+        return build_viseme_schedule (word_boundaries )
 
     def _decode_mp3 (self ,mp3_data :bytes )->tuple :
         try :

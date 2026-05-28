@@ -14,7 +14,7 @@ const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protoc
 const BASE_URL = IS_TAURI ? 'http:
 
 import { loadVRMAnimation } from './vrm-animation.js';
-import { FrequencyAnalyzer } from './frequency-analyzer.js';
+import { AdaptiveLipsyncManager } from './adaptive-lipsync.js';
 
 const EMOTION_TO_EXPRESSION = {
     neutral:    null,
@@ -65,7 +65,7 @@ export class AvatarRenderer {
         for (const expr of EXPRESSION_NAMES) this._targetExpressions[expr] = 0;
 
         
-        this._frequencyAnalyzer = null;
+        this._lipsyncManager = null;
         this._audioContext = null;
 
         this._blinkTimer = BLINK_OPEN_MAX;
@@ -668,9 +668,12 @@ export class AvatarRenderer {
         this.mouthValue = Math.min(1, Math.max(0, value));
     }
 
-    startLipSync(audioContext, analyserNode) {
+    startLipSync(audioContext, analyserNode, visemeSchedule = null) {
         this._audioContext = audioContext;
-        this._frequencyAnalyzer = new FrequencyAnalyzer(analyserNode, audioContext.sampleRate);
+        this._lipsyncManager = new AdaptiveLipsyncManager(audioContext, analyserNode);
+        if (visemeSchedule) {
+            this._lipsyncManager.setSchedule(visemeSchedule);
+        }
         this._frequencyAnalyzerActive = true;
     }
 
@@ -700,8 +703,8 @@ export class AvatarRenderer {
 
     
     updateLipSync() {
-        if (!this._frequencyAnalyzer) return null;
-        return this._frequencyAnalyzer.analyze();
+        if (!this._lipsyncManager) return null;
+        return this._lipsyncManager.analyze();
     }
 
     

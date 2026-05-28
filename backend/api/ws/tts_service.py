@@ -39,8 +39,8 @@ current_stream_id :int ,ws :WebSocket ,emotion :str ="neutral"):
         tts ().synthesize (sentence_text ,ref_audio =ref_audio ,emotion =emotion ),
         timeout =60.0 
         )
-        audio_np ,_ ,sr =result 
-        logger .debug (f"TTS sentence {sentence_idx }: {len (audio_np )} samples, sr={sr }")
+        audio_np ,viseme_schedule ,sr =result 
+        logger .debug (f"TTS sentence {sentence_idx }: {len (audio_np )} samples, sr={sr }, visemes={len (viseme_schedule )if viseme_schedule else 0 }")
         if len (audio_np )>0 :
             pcm =(audio_np *32767 ).astype ("int16").tobytes ()
             data_size =len (pcm )
@@ -54,14 +54,17 @@ current_stream_id :int ,ws :WebSocket ,emotion :str ="neutral"):
             wav_bytes =header +pcm 
             b64_audio =base64 .b64encode (wav_bytes ).decode ()
             duration =len (audio_np )/sr 
-            await ws .send_json ({
+            msg ={
             "type":"tts_audio",
             "audio":b64_audio ,
             "format":"wav",
             "duration":round (duration ,2 ),
             "sentence_idx":sentence_idx ,
-            "emotion":emotion 
-            })
+            "emotion":emotion ,
+            }
+            if viseme_schedule :
+                msg ["viseme_schedule"]=viseme_schedule 
+            await ws .send_json (msg )
             logger .debug (f"TTS sentence {sentence_idx }: sent {duration :.2f}s audio (emotion={emotion })")
         else :
             logger .warning (f"TTS sentence {sentence_idx }: empty audio")

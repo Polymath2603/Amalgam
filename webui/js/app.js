@@ -3,6 +3,8 @@ const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protoc
 const BASE_URL = IS_TAURI ? 'http:
 const WS_BASE = IS_TAURI ? 'ws:
 
+import { initCustomSelects, syncAllCustomSelects } from './custom-select.js';
+
 
 let avatarRenderer = null;
 let avatarPreviewRenderer = null;
@@ -119,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         ttsQueue.sort((a, b) => a.idx - b.idx);
         const item = ttsQueue.shift();
-        playTTSAudio(item.audio, item.duration, () => {
+        playTTSAudio(item.audio, item.duration, item.visemeSchedule, () => {
             if (ttsFlushRequested) {
                 ttsFlushRequested = false;
                 ttsQueue = [];
@@ -317,7 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateVoiceState(data.state);
         } else if (data.type === 'tts_audio') {
             
-            ttsQueue.push({ audio: data.audio, duration: data.duration, idx: data.sentence_idx || 0 });
+            ttsQueue.push({ audio: data.audio, duration: data.duration, idx: data.sentence_idx || 0, visemeSchedule: data.viseme_schedule || null });
             processTTSQueue();
         } else if (data.type === 'tts_error') {
             showToast(data.message || 'TTS failed', 'danger');
@@ -898,7 +900,7 @@ document.addEventListener('DOMContentLoaded', () => {
         else setStatus('ready');
     }
 
-    async function playTTSAudio(base64Wav, duration, onComplete) {
+    async function playTTSAudio(base64Wav, duration, visemeSchedule, onComplete) {
         try {
             const ctx = ensureAudioContext();
 
@@ -926,8 +928,8 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('speaking');
 
             
-            if (avatarRenderer) avatarRenderer.startLipSync(ctx, analyser);
-            if (avatarPreviewRenderer) avatarPreviewRenderer.startLipSync(ctx, analyser);
+            if (avatarRenderer) avatarRenderer.startLipSync(ctx, analyser, visemeSchedule);
+            if (avatarPreviewRenderer) avatarPreviewRenderer.startLipSync(ctx, analyser, visemeSchedule);
 
             source.onended = () => {
                 isPlayingTTS = false;
@@ -1237,6 +1239,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         document.getElementById('vault-path').value = d.vault?.path || 'data/vault';
+
+        syncAllCustomSelects();
 
         
         const charId = d.character?.active || 'amalgam';
@@ -2055,6 +2059,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('shell-decline')?.addEventListener('click', () => approveShellCommand('decline'));
 
     
+    initCustomSelects();
     connectWS();
     init().catch(e => {
         console.error('Init failed:', e);
