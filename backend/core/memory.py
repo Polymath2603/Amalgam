@@ -4,6 +4,7 @@ import concurrent .futures
 import threading 
 import logging 
 import uuid 
+import re 
 from datetime import datetime ,timezone 
 from typing import List ,Dict ,Optional 
 from pathlib import Path 
@@ -44,8 +45,10 @@ class Memory :
         metadata ={"hnsw:space":"cosine"},
         )
 
-        for p in self .conv_dir .glob ("*.json"):
-            self ._known_sessions .add (p .stem )
+        for p in self ._iter_session_paths ():
+            sid =self ._path_to_session_id (p )
+            if sid :
+                self ._known_sessions .add (sid )
 
         self ._maybe_migrate ()
 
@@ -53,10 +56,10 @@ class Memory :
         existing =set (self .chroma_col .get ()["ids"])
         if existing :
             return 
-        for p in self .conv_dir .glob ("*.json"):
+        for p in self ._iter_session_paths ():
             try :
                 data =json .loads (p .read_text ())
-                sid =data .get ("id",p .stem )
+                sid =data .get ("id",self ._path_to_session_id (p )or p .stem )
                 ids ,embs ,metas =[],[],[]
                 for i ,msg in enumerate (data .get ("messages",[])):
                     emb =msg .get ("embedding")
@@ -76,8 +79,33 @@ class Memory :
                 logger .debug (f"Migration skipped for {p }: {e }")
 
     def _session_path (self ,session_id :str )->Path :
-        safe =session_id .replace ("/","_").replace ("\\","_")
-        return self .conv_dir /f"{safe }.json"
+        if not session_id :
+            return self .conv_dir /"_invalid.json"
+        if '_'in session_id :
+            parts =session_id .split ('_',2 )
+            if len (parts )>=2 and re .match (r'^\d{4}-\d{2}-\d{2}$',parts [0 ])and re .match (r'^\d{6}$',parts [1 ][:6 ]):
+                date_part ,time_part =parts [0 ],parts [1 ]
+                y ,m ,d =date_part .split ('-')
+                return self .conv_dir /y /m /d /f"{time_part }.json"
+        return self .conv_dir /f"{session_id .replace ('/','_').replace ('\\','_')}.json"
+
+    def _iter_session_paths (self ):
+        seen =set ()
+        for pattern in ("*/*/*/*.json","*.json"):
+            for p in sorted (self .conv_dir .glob (pattern ),key =lambda p :p .stat ().st_mtime ,reverse =True ):
+                if p not in seen :
+                    seen .add (p )
+                    yield p 
+
+    def _path_to_session_id (self ,path :Path )->Optional [str ]:
+        parts =path .relative_to (self .conv_dir ).parts 
+        if len (parts )==1 and parts [0 ].endswith ('.json'):
+            return parts [0 ][:-5 ]
+        if len (parts )==4 and parts [0 ].isdigit ()and parts [1 ].isdigit ()and parts [2 ].isdigit ()and parts [3 ].endswith ('.json'):
+            y ,m ,d ,fname =parts 
+            time_part =fname [:-5 ]
+            return f"{y }-{m }-{d }_{time_part }"
+        return None 
 
     def _read_sync (self ,session_id :str )->Optional [Dict ]:
         path =self ._session_path (session_id )
@@ -90,6 +118,7 @@ class Memory :
 
     def _write_sync (self ,session_id :str ,data :Dict ):
         path =self ._session_path (session_id )
+        path .parent .mkdir (parents =True ,exist_ok =True )
         path .write_text (json .dumps (data ,indent =2 ,default =str ))
 
     async def _read (self ,session_id :str )->Optional [Dict ]:
@@ -105,14 +134,25 @@ class Memory :
         await loop .run_in_executor (self ._executor ,self ._write_sync ,session_id ,data )
 
     def start_session (self )->str :
-        session_id =uuid .uuid4 ().hex [:12 ]
+        now =datetime .now (timezone .utc )
+        ts =now .strftime ("%Y-%m-%d_%H%M%S")
+        session_id =ts 
         with self ._lock :
             self ._current_session =session_id 
             self ._known_sessions .add (session_id )
+            character =self ._setting ("character.active","default")if self .settings else None 
+            provider =self ._setting ("provider.active",None )if self .settings else None 
+            model =None 
+            if provider and self .settings :
+                model =self ._setting (f"provider.{provider }.model",None )
             data ={
             "id":session_id ,
-            "created":datetime .now (timezone .utc ).isoformat (),
-            "updated":datetime .now (timezone .utc ).isoformat (),
+            "created":now .isoformat (),
+            "updated":now .isoformat (),
+            "title":"New Session",
+            "character":character ,
+            "provider":provider ,
+            "model":model ,
             "messages":[],
             "summary":None ,
             }
@@ -177,7 +217,13 @@ class Memory :
         with self ._lock :
             data =self ._read_sync (session_id )
             if data is None :
-                data ={"id":session_id ,"created":datetime .now (timezone .utc ).isoformat (),"messages":[],"summary":None }
+                data ={
+                "id":session_id ,
+                "created":datetime .now (timezone .utc ).isoformat (),
+                "messages":[],
+                "summary":None ,
+                "title":"New Session",
+                }
             timestamp =datetime .now (timezone .utc ).isoformat ()
             msg ={
             "role":role ,
@@ -187,6 +233,14 @@ class Memory :
             if embedding :
                 cid =f"{session_id }_{uuid .uuid4 ().hex [:8 ]}"
                 msg ["chroma_id"]=cid 
+
+
+            if role =="user"and data .get ("title","New Session")=="New Session"and content .strip ():
+                title =content .strip ()[:60 ]
+                if len (content )>60 :
+                    title +="..."
+                data ["title"]=title 
+
             data ["messages"].append (msg )
             data ["updated"]=timestamp 
             self ._write_sync (session_id ,data )
@@ -210,9 +264,11 @@ class Memory :
 
     def get_sessions (self )->List [Dict ]:
         sessions =[]
-        paths =sorted (self .conv_dir .glob ("*.json"),key =lambda p :p .stat ().st_mtime ,reverse =True )
-        for path in paths :
-            data =self ._read_sync (path .stem )
+        for path in self ._iter_session_paths ():
+            sid =self ._path_to_session_id (path )
+            if not sid :
+                continue 
+            data =self ._read_sync (sid )
             if data is None :
                 continue 
             msgs =data .get ("messages",[])
@@ -227,6 +283,10 @@ class Memory :
             "last_active":data .get ("updated"),
             "message_count":len (msgs ),
             "preview":preview ,
+            "title":data .get ("title",""),
+            "character":data .get ("character",""),
+            "provider":data .get ("provider",""),
+            "model":data .get ("model",""),
             })
         return sessions 
 
@@ -440,6 +500,6 @@ class Memory :
         metadata ={"hnsw:space":"cosine"},
         )
         loop =asyncio .get_running_loop ()
-        for path in list (self .conv_dir .glob ("*.json")):
+        for path in list (self ._iter_session_paths ()):
             await loop .run_in_executor (self ._executor ,path .unlink )
         self ._known_sessions .clear ()
