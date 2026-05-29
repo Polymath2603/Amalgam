@@ -23,9 +23,8 @@ memory as memory_route ,
 vault ,
 relationship ,
 tts as tts_route ,
-root ,
 )
-from backend .core .paths import FRONTEND_DIR ,DATA_DIR ,CHARACTERS_DIR ,PROJECT_ROOT 
+from backend .core .paths import DATA_DIR ,CHARACTERS_DIR ,PROJECT_ROOT 
 from backend .core .startup import init_application 
 from backend .core .utils .icon_generator import generate_missing_icons 
 
@@ -46,16 +45,6 @@ def create_app ():
     app .include_router (vault .router )
     app .include_router (relationship .router )
     app .include_router (tts_route .router )
-    app .include_router (root .router )
-
-
-    REPO_ANIM =str (CHARACTERS_DIR /"default"/"anim")
-    if os .path .exists (REPO_ANIM ):
-        app .mount ("/static/animations",StaticFiles (directory =REPO_ANIM ),name ="default_animations")
-
-
-    if os .path .exists (str (FRONTEND_DIR )):
-        app .mount ("/static",StaticFiles (directory =str (FRONTEND_DIR )),name ="static")
 
 
     DATA_DIR .mkdir (parents =True ,exist_ok =True )
