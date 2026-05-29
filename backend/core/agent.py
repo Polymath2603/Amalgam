@@ -7,6 +7,7 @@ from backend .core .memory import Memory
 from backend .core .context_builder import ContextBuilder 
 from backend .core .llm import LLMRouter 
 from backend .core .plugin import get_registry as get_plugin_registry 
+from backend .core .utils .tokens import estimate_message_list_tokens ,estimate_tokens 
 
 logger =logging .getLogger (__name__ )
 
@@ -88,42 +89,32 @@ class Agent :
         return "".join (parts )
 
     def _estimate_tokens (self ,messages :List [Dict ],tools :List [Dict ]=None )->int :
-
-        total =0 
-        for m in messages :
-            content =str (m .get ("content",""))
-            total +=len (content )//3 
+        total =estimate_message_list_tokens (messages )
         if tools :
-            total +=len (json .dumps (tools ))//3 
-        return total 
+            total +=estimate_tokens (json .dumps (tools ))
+        return total +1 
 
     def _truncate_context (self ,messages :List [Dict ],max_tokens :int ,tools :List [Dict ]=None )->List [Dict ]:
         if not messages :
             return []
-        system =messages [0 ].copy ()
-        history =list (messages [1 :])
-
+        system =messages [0 ]
+        history =messages [1 :]
 
         while self ._estimate_tokens ([system ]+history ,tools )>max_tokens and len (history )>1 :
             history .pop (0 )
 
-
-        total_est =self ._estimate_tokens ([system ]+history ,tools )
-        if total_est >max_tokens :
-            tools_tokens =(len (json .dumps (tools ))//3 )if tools else 0 
-            history_tokens =self ._estimate_tokens (history )
-            sys_budget_tokens =max_tokens -tools_tokens -history_tokens -100 
-            sys_budget_chars =max (sys_budget_tokens *3 ,300 )
-
+        if self ._estimate_tokens ([system ]+history ,tools )>max_tokens :
             sys_str =str (system .get ("content",""))
+            tools_tokens =estimate_tokens (json .dumps (tools ))if tools else 0 
+            history_tokens =estimate_message_list_tokens (history )
+            sys_budget =max_tokens -tools_tokens -history_tokens -20 
+            sys_budget_chars =max (int (sys_budget *4 ),300 )
+
             if len (sys_str )>sys_budget_chars :
-                half =sys_budget_chars //2 
-                system ["content"]=(
-                sys_str [:half ]
-                +"\n\n...[System Prompt Truncated to fit Context]...\n\n"
-                +sys_str [-half :]
-                )
-                logger .debug (f"System prompt truncated from {len (sys_str )} to ~{sys_budget_chars } chars")
+                truncated =sys_str [:sys_budget_chars ]
+                system =system .copy ()
+                system ["content"]=truncated +"\n\n...[System Prompt Truncated to fit Context]..."
+                logger .debug (f"System prompt truncated from {len (sys_str )} to {sys_budget_chars } chars")
 
         return [system ]+history 
 
@@ -184,13 +175,20 @@ class Agent :
     async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [Union [str ,Tuple [str ,str ]]]:
         await self .memory .add_turn ("user",text )
 
+
+        if self .mcp_client is not None :
+            await self .mcp_client .wait_for_tools (timeout =8.0 ,min_tools =1 )
+
         iterations =0 
         current_input =text 
         native_tools =self .llm .supports_native_tools ()
         last_tool_call =None 
+        _pending_tool_announce =[]
 
         while iterations <5 :
             iterations +=1 
+            _flushed_this_iter =False 
+
             tools =self .mcp_client .get_tool_schema ()if self .mcp_client else []
             history =self .memory .get_recent ()
             summary =self .memory .get_summary ()
@@ -218,11 +216,13 @@ class Agent :
             )
 
 
-            messages =self ._truncate_context (messages ,max_tokens -500 ,tools if native_tools else None )
+            out_tokens =self .llm .get_max_output_tokens ()
+            tools_tokens =estimate_tokens (json .dumps (tools ))if tools else 0 
+            available =max_tokens -tools_tokens -out_tokens -50 
+            messages =self ._truncate_context (messages ,max (available ,500 ),tools )
 
             est =self ._estimate_tokens (messages ,tools if native_tools else None )
-            out_tokens =self .llm .get_max_output_tokens ()
-            logger .debug (f"TOKEN BUDGET: context_limit={max_tokens }, est_after_trunc={est }, max_output={out_tokens }, total={est +out_tokens }")
+            logger .debug (f"TOKEN BUDGET: context_limit={max_tokens }, tools={tools_tokens }, output={out_tokens }, available={available }, used={est }")
             messages =await plugins .hook_messages (messages )
 
             if images :
@@ -242,6 +242,15 @@ class Agent :
                 if native_tools and tools :
                     async for item in self .llm .stream_with_tools (messages ,tools ):
                         if isinstance (item ,str ):
+                            if item .startswith ("[Error:"):
+                                yield ("__error__",item )
+                                _pending_tool_announce .clear ()
+                                continue 
+                            if not _flushed_this_iter :
+                                _flushed_this_iter =True 
+                                for msg in _pending_tool_announce :
+                                    yield ("__tool__",msg )
+                                _pending_tool_announce =[]
                             accumulated +=item 
                             in_think ='<think>'in accumulated and '</think>'not in accumulated 
                             if in_think :
@@ -262,6 +271,11 @@ class Agent :
                             _last_clean =cleaned 
                             accumulated =cleaned 
                         elif isinstance (item ,dict )and item .get ("type")=="tool_use":
+                            if not _flushed_this_iter :
+                                _flushed_this_iter =True 
+                                for msg in _pending_tool_announce :
+                                    yield ("__tool__",msg )
+                                _pending_tool_announce =[]
                             tool_called =True 
                             tool_name =item ["name"]
                             tool_args =item .get ("arguments")or {}
@@ -276,7 +290,7 @@ class Agent :
                                 await self .memory .add_turn ("system",current_input )
                                 break 
                             last_tool_call =tool_sig 
-                            yield ("__tool__",f"Calling tool: {tool_name }")
+                            _pending_tool_announce .append (f"Calling tool: {tool_name }")
                             result ="No MCP client"
                             if self .mcp_client :
                                 result =await self .mcp_client .call_tool (tool_name ,tool_args )
@@ -286,7 +300,7 @@ class Agent :
                             if result .startswith ("COMMAND_BLOCKED:"):
                                 blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                 yield ("__permission__",blocked_cmd )
-                                yield ("__tool__",f"Command blocked — needs permission: {blocked_cmd }")
+                                _pending_tool_announce .append (f"Command blocked — needs permission: {blocked_cmd }")
                                 current_input =f"Tool result for {tool_name }: BLOCKED — {blocked_cmd }"
                             else :
                                 current_input =f"Tool result for {tool_name } (call_id={tool_id }): {result }"
@@ -296,6 +310,15 @@ class Agent :
                     tool_block_buf =""
                     in_tool_block =False 
                     async for token in self .llm .stream (messages ):
+                        if token .startswith ("[Error:"):
+                            yield ("__error__",token )
+                            _pending_tool_announce .clear ()
+                            continue 
+                        if not _flushed_this_iter :
+                            _flushed_this_iter =True 
+                            for msg in _pending_tool_announce :
+                                yield ("__tool__",msg )
+                            _pending_tool_announce =[]
                         if not in_tool_block and "```tool"in accumulated +token +tool_block_buf :
                             in_tool_block =True 
 
@@ -323,7 +346,7 @@ class Agent :
                                             tool_called =True 
                                             break 
                                         last_tool_call =tool_sig 
-                                        yield ("__tool__",f"Calling tool: {name }")
+                                        _pending_tool_announce .append (f"Calling tool: {name }")
                                         result ="No MCP client"
                                         if self .mcp_client :
                                             result =await self .mcp_client .call_tool (name ,args )
@@ -333,7 +356,7 @@ class Agent :
                                         if result .startswith ("COMMAND_BLOCKED:"):
                                             blocked_cmd =result [len ("COMMAND_BLOCKED:"):]
                                             yield ("__permission__",blocked_cmd )
-                                            yield ("__tool__",f"Command blocked — needs permission: {blocked_cmd }")
+                                            _pending_tool_announce .append (f"Command blocked — needs permission: {blocked_cmd }")
                                         current_input =f"Tool result for {name }: {result }"
                                         await self .memory .add_turn ("system",current_input )
                                         tool_called =True 
@@ -375,6 +398,7 @@ class Agent :
 
             except Exception as e :
                 logger .error (f"agent: stream exception: {type (e ).__name__ }: {e }")
+                _pending_tool_announce .clear ()
                 yield ("__error__",str (e ))
                 if accumulated .strip ():
                     await self .memory .add_turn ("assistant",accumulated .strip ())
@@ -383,6 +407,11 @@ class Agent :
                 if in_tool_block and not tool_called :
                     logger .warning ("agent: stream ended mid-tool-block")
                     in_tool_block =False 
+
+
+        for msg in _pending_tool_announce :
+            yield ("__tool__",msg )
+        _pending_tool_announce =[]
 
         if iterations >=5 :
             yield "\n[Max tool iterations reached.]\n"

@@ -3,6 +3,7 @@ MCP Client — connects to MCP servers via stdio or SSE transport, discovers too
 Supports both local (stdio) and remote (SSE/HTTP) MCP servers.
 """
 import json 
+import time 
 import asyncio 
 import logging 
 from typing import Dict ,Any ,List ,Optional 
@@ -200,6 +201,15 @@ class MCPClient :
             delay =min (delay *2 ,16 )
         if not self ._closed :
             logger .error (f"Max reconnect delay reached for {name }")
+
+    async def wait_for_tools (self ,timeout :float =10.0 ,min_tools :int =1 )->bool :
+        """Wait until at least `min_tools` tools are discovered, or timeout."""
+        t0 =time .monotonic ()
+        while time .monotonic ()-t0 <timeout :
+            if len (self .tools_cache )>=min_tools :
+                return True 
+            await asyncio .sleep (0.1 )
+        return False 
 
     def get_tool_schema (self )->List [Dict [str ,Any ]]:
         schema =[]

@@ -18,28 +18,34 @@ logger =logging .getLogger (__name__ )
 
 def _normalize_error (error_text :str )->str :
     """Normalize common error messages to user-friendly versions."""
+    import re as _re 
+
+    m =_re .search (r'\{.*\}',error_text ,_re .DOTALL )
+    if m :
+        try :
+            obj =json .loads (m .group ())
+            inner =obj .get ('error',obj )
+            if isinstance (inner ,dict ):
+                msg =inner .get ('message','')
+                if msg :
+                    error_text =msg 
+        except Exception :
+            pass 
+
     friendly ={
-    "content must be a string":"This provider doesn't support image input. Try a different model or remove the image.",
-    "content must be a non-empty string":"This provider doesn't support image input. Try a different model or remove the image.",
-    "unsupported image format":"The image format is not supported. Try a different image.",
-    "image_url is not supported":"This provider doesn't support image input. Try a different model or remove the image.",
-    "API key not set":"API key not configured. Go to Settings > Providers to set it.",
-    "401":"Authentication failed. Check your API key.",
-    "402":"Payment required. Check your account billing.",
-    "Rate limit exceeded":"Rate limit exceeded. Please wait and try again.",
+    "rate limit":"Rate limit exceeded. Please wait and try again.",
     "quota exceeded":"Quota exceeded. Check your plan and billing.",
     "RESOURCE_EXHAUSTED":"Quota exceeded. Check your plan and billing.",
+    "API key not set":"API key not configured. Go to Settings > Providers to set it.",
+    "content must be a string":"This provider doesn't support image input. Try a different model or remove the image.",
+    "unsupported image format":"The image format is not supported. Try a different image.",
+    "image_url is not supported":"This provider doesn't support image input. Try a different model or remove the image.",
+    "401":"Authentication failed. Check your API key.",
+    "402":"Payment required. Check your account billing.",
     }
     for key ,msg in friendly .items ():
         if key .lower ()in error_text .lower ():
             return msg 
-
-    try :
-        if error_text .startswith ('{'):
-            err_obj =json .loads (error_text )
-            error_text =err_obj .get ('message',err_obj .get ('error',error_text ))
-    except Exception :
-        pass 
     return error_text 
 
 
@@ -200,14 +206,18 @@ async def handle_chat (websocket :WebSocket ):
                 args =data .get ("args","")
                 if cmd =="clear":
                     await memory ().clear ()
-                    memory ().start_session ()
+                    sid =memory ().start_session ()
                     relationship ()._cache .clear ()
-                    await _send_json (
-                    {"type":"chat_append","role":"system","text":"Memory cleared.","finished":True })
+                    await _send_json ({
+                    "type":"chat_append","role":"system",
+                    "text":"Memory cleared.","finished":True ,"session_id":sid 
+                    })
                 elif cmd =="new":
                     sid =memory ().start_session ()
-                    await _send_json (
-                    {"type":"chat_append","role":"system","text":f"New session started: {sid }","finished":True })
+                    await _send_json ({
+                    "type":"chat_append","role":"system",
+                    "text":f"New session started: {sid }","finished":True ,"session_id":sid 
+                    })
                 elif cmd =="help":
                     help_text =(
                     "Slash commands:\n"
@@ -320,6 +330,7 @@ async def handle_chat (websocket :WebSocket ):
                     logger .debug (f"ws:user_message - calling agent.handle_user_input for char_id={char_id }, text={text [:50 ]}")
 
                     item_count =0 
+                    had_error =False 
                     async for item in agent ().handle_user_input (text ,images =images ,relationship_context =rel_context ):
                         item_count +=1 
                         logger .debug (f"ws:item received #{item_count }: {type (item ).__name__ } = {item [:50 ]if isinstance (item ,str )else item }")
@@ -360,6 +371,7 @@ async def handle_chat (websocket :WebSocket ):
                             await _send_json ({"type":"tool_call","text":item [1 ]})
                             continue 
                         if isinstance (item ,tuple )and item [0 ]=='__error__':
+                            had_error =True 
                             await _send_json ({
                             "type":"chat_append","role":"assistant",
                             "text":_normalize_error (str (item [1 ])),"finished":True ,"error":True 
@@ -433,11 +445,12 @@ async def handle_chat (websocket :WebSocket ):
                     "text":f"Error: {error_text }","finished":True ,"error":True 
                     })
                 else :
-                    await _send_json ({"type":"emotion","emotion":"neutral"})
-                    await _send_json ({"type":"expression","expression":"neutral"})
-                    await _send_json ({
-                    "type":"chat_append","role":"assistant","text":"","finished":True 
-                    })
+                    if not had_error :
+                        await _send_json ({"type":"emotion","emotion":"neutral"})
+                        await _send_json ({"type":"expression","expression":"neutral"})
+                        await _send_json ({
+                        "type":"chat_append","role":"assistant","text":"","finished":True 
+                        })
 
     except WebSocketDisconnect :
         logger .warning ("Chat WebSocket disconnected")

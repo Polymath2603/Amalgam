@@ -61,11 +61,17 @@ def _print_help ():
 
 def _launch_desktop ():
     import subprocess 
+    import signal 
     if not os .path .isdir (TAURI_DIR ):
         print (f"Error: Tauri directory not found at {TAURI_DIR }")
         sys .exit (1 )
     print ("Launching desktop app...")
-    subprocess .run (["cargo","run"],cwd =TAURI_DIR )
+    try :
+        subprocess .run (["cargo","run"],cwd =TAURI_DIR )
+    except KeyboardInterrupt :
+        print ("\nShutting down...")
+        _kill_port (8000 )
+        sys .exit (0 )
 
 
 def main ():

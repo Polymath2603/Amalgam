@@ -368,6 +368,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
             } else if (data.role === 'system') {
+                if (data.session_id && data.session_id !== _currentSessionId) {
+                    _currentSessionId = data.session_id;
+                    location.hash = 'chat/' + data.session_id;
+                    loadSession(data.session_id);
+                    return;
+                }
                 addMessage('system', data.text);
             }
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -551,7 +557,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     function clearErrors() {
-        chatMessages.querySelectorAll('.msg-assistant.msg-error').forEach(el => el.remove());
+        chatMessages.querySelectorAll('.msg-assistant.msg-error').forEach(el => {
+            const prev = el.previousElementSibling;
+            if (prev?.classList.contains('msg-user')) prev.remove();
+            el.remove();
+        });
     }
 
     let _sending = false;
@@ -684,6 +694,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
     });
+
+    
+    if (IS_TAURI) {
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'r') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    
+                    window.location.href = window.location.pathname + '?_=' + Date.now();
+                } else {
+                    window.location.reload();
+                }
+            }
+        });
+    }
+
     let CMD_LIST = [];
     const cmdSuggestions = document.getElementById('cmd-suggestions');
     let _cmdSelectedIndex = -1;

@@ -106,16 +106,17 @@ class Memory :
 
     def start_session (self )->str :
         session_id =uuid .uuid4 ().hex [:12 ]
-        self ._current_session =session_id 
-        self ._known_sessions .add (session_id )
-        data ={
-        "id":session_id ,
-        "created":datetime .now (timezone .utc ).isoformat (),
-        "updated":datetime .now (timezone .utc ).isoformat (),
-        "messages":[],
-        "summary":None ,
-        }
-        self ._write_sync (session_id ,data )
+        with self ._lock :
+            self ._current_session =session_id 
+            self ._known_sessions .add (session_id )
+            data ={
+            "id":session_id ,
+            "created":datetime .now (timezone .utc ).isoformat (),
+            "updated":datetime .now (timezone .utc ).isoformat (),
+            "messages":[],
+            "summary":None ,
+            }
+            self ._write_sync (session_id ,data )
         return session_id 
 
     def session_exists (self ,session_id :str )->bool :
@@ -255,7 +256,8 @@ class Memory :
         if n is None :
             n =self ._setting ("memory.context_window",50 )
         session_id =self .get_current_session ()
-        data =self ._read_sync (session_id )
+        with self ._lock :
+            data =self ._read_sync (session_id )
         if data is None :
             return []
         msgs =data .get ("messages",[])
@@ -283,7 +285,8 @@ class Memory :
 
     def get_summary (self )->str :
         session_id =self .get_current_session ()
-        data =self ._read_sync (session_id )
+        with self ._lock :
+            data =self ._read_sync (session_id )
         if data is None :
             return ""
         return data .get ("summary")or ""
