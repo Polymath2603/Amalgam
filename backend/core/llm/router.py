@@ -34,6 +34,9 @@ class LLMRouter :
     def get_context_token_limit (self )->int :
         return self ._provider .get_context_token_limit ()
 
+    def get_model_name (self )->str :
+        return self ._provider .get_model_name ()
+
     async def stream (self ,messages :list ,temperature :float =None )->AsyncIterator [str ]:
         async for token in self ._provider .stream (messages ,temperature ):
             yield token 

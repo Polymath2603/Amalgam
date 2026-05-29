@@ -88,25 +88,25 @@ class Agent :
                 parts .append (chunk )
         return "".join (parts )
 
-    def _estimate_tokens (self ,messages :List [Dict ],tools :List [Dict ]=None )->int :
-        total =estimate_message_list_tokens (messages )
+    def _estimate_tokens (self ,messages :List [Dict ],tools :List [Dict ]=None ,model :str =None )->int :
+        total =estimate_message_list_tokens (messages ,model =model )
         if tools :
-            total +=estimate_tokens (json .dumps (tools ))
+            total +=estimate_tokens (json .dumps (tools ),model =model )
         return total +1 
 
-    def _truncate_context (self ,messages :List [Dict ],max_tokens :int ,tools :List [Dict ]=None )->List [Dict ]:
+    def _truncate_context (self ,messages :List [Dict ],max_tokens :int ,tools :List [Dict ]=None ,model :str =None )->List [Dict ]:
         if not messages :
             return []
         system =messages [0 ]
         history =messages [1 :]
 
-        while self ._estimate_tokens ([system ]+history ,tools )>max_tokens and len (history )>1 :
+        while self ._estimate_tokens ([system ]+history ,tools ,model =model )>max_tokens and len (history )>1 :
             history .pop (0 )
 
-        if self ._estimate_tokens ([system ]+history ,tools )>max_tokens :
+        if self ._estimate_tokens ([system ]+history ,tools ,model =model )>max_tokens :
             sys_str =str (system .get ("content",""))
-            tools_tokens =estimate_tokens (json .dumps (tools ))if tools else 0 
-            history_tokens =estimate_message_list_tokens (history )
+            tools_tokens =estimate_tokens (json .dumps (tools ),model =model )if tools else 0 
+            history_tokens =estimate_message_list_tokens (history ,model =model )
             sys_budget =max_tokens -tools_tokens -history_tokens -20 
             sys_budget_chars =max (int (sys_budget *4 ),300 )
 
@@ -218,11 +218,12 @@ class Agent :
 
 
             out_tokens =self .llm .get_max_output_tokens ()
+            model_name =self .llm .get_model_name ()if hasattr (self .llm ,'get_model_name')else None 
             available =max_tokens -out_tokens -50 
-            messages =self ._truncate_context (messages ,max (available ,500 ),tools )
+            messages =self ._truncate_context (messages ,max (available ,500 ),tools ,model =model_name )
 
-            est =self ._estimate_tokens (messages ,tools if native_tools else None )
-            logger .debug (f"TOKEN BUDGET: context_limit={max_tokens }, output={out_tokens }, available={available }, used={est }")
+            est =self ._estimate_tokens (messages ,tools if native_tools else None ,model =model_name )
+            logger .debug (f"TOKEN BUDGET: model={model_name }, context_limit={max_tokens }, output={out_tokens }, available={available }, used={est }")
             messages =await plugins .hook_messages (messages )
 
             if images :

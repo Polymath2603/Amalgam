@@ -176,6 +176,11 @@ class LiteLLMProvider :
             return int (self ._settings .get ("llm.context_token_limit",8192 ))
         return 8192 
 
+    def get_model_name (self )->str :
+        """Return the full model string (e.g. 'groq/llama-3.3-70b-versatile')."""
+        model ,_ =self ._get_model_config ()
+        return model 
+
     async def stream (self ,messages :list ,temperature :float =None )->AsyncIterator [str ]:
         """Stream text-only completion."""
         model ,kwargs =self ._get_model_config ()
