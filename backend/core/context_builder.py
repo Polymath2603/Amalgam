@@ -272,10 +272,15 @@ class ContextBuilder :
                 if content :
 
                     max_tokens =200 
+                    model =None 
                     if self .settings :
                         max_tokens =int (self .settings .get ("vault.inject_tokens",max_tokens ))
-                    if estimate_tokens (content )>max_tokens :
-                        content =truncate_to_token_limit (content ,max_tokens )
+                        provider =self .settings .get ("provider.active")
+                        if provider :
+                            model_raw =self .settings .get (f"provider.{provider }.model","")
+                            model =f"groq/{model_raw }"if provider =="groq"and not model_raw .startswith ("groq/")else model_raw 
+                    if estimate_tokens (content ,model =model )>max_tokens :
+                        content =truncate_to_token_limit (content ,max_tokens ,model =model )
                     return f"\n\n## Active Rules\n{content }"
             except Exception as e :
                 logger .warning (f"Failed to read rules.md: {e }")
@@ -309,10 +314,16 @@ class ContextBuilder :
 
 
         max_sys_tokens =1500 
+        model =None 
         if self .settings :
             max_sys_tokens =int (self .settings .get ("system_prompt.max_tokens",max_sys_tokens ))
-        if estimate_tokens (sys_prompt )>max_sys_tokens :
-            sys_prompt =truncate_to_token_limit (sys_prompt ,max_sys_tokens )
+            provider =self .settings .get ("provider.active")
+            if provider :
+                model_raw =self .settings .get (f"provider.{provider }.model","")
+                model =f"groq/{model_raw }"if provider =="groq"and not model_raw .startswith ("groq/")else model_raw 
+
+        if estimate_tokens (sys_prompt ,model =model )>max_sys_tokens :
+            sys_prompt =truncate_to_token_limit (sys_prompt ,max_sys_tokens ,model =model )
             logger .debug (f"System prompt truncated to {max_sys_tokens } tokens")
 
         messages =[{"role":"system","content":sys_prompt }]

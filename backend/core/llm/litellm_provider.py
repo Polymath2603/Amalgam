@@ -5,6 +5,7 @@ Replaces per-provider classes (gemini, claude, ollama, openai_compat, etc.)
 with a single class that delegates to litellm.acompletion().
 """
 
+import asyncio 
 import json 
 import logging 
 from typing import AsyncIterator ,List ,Dict ,Any ,Optional 
@@ -47,17 +48,24 @@ TOOL_CAPABLE ={
 }
 
 
+
+
 CONTEXT_LIMITS ={
+"groq":3000 ,
 "llamacpp":4096 ,
 "koboldai":4096 ,
 }
 
 
 OUTPUT_LIMITS ={
-"groq":1024 ,
+"groq":512 ,
 "llamacpp":2048 ,
 "koboldai":2048 ,
 }
+
+
+_RATE_LIMIT_MAX_RETRIES =3 
+_RATE_LIMIT_BASE_DELAY =5.0 
 
 
 EMBEDDING_CAPABLE ={
@@ -83,6 +91,26 @@ EMBEDDING_MODEL_DEFAULTS ={
 "aws":"bedrock/amazon.titan-embed-text-v2:0",
 "gcp":"vertex_ai/textembedding-gecko",
 }
+
+
+def _is_rate_limit_error (exc :Exception )->bool :
+    """Check if an exception is a rate-limit (429) error."""
+    exc_type =type (exc ).__name__ 
+    if "RateLimitError"in exc_type :
+        return True 
+    msg =str (exc ).lower ()
+    return "rate limit"in msg or "429"in msg or "rate_limit_exceeded"in msg 
+
+
+def _get_retry_delay (exc :Exception ,attempt :int )->float :
+    """Extract retry delay from error message or use exponential backoff."""
+    msg =str (exc )
+
+    import re 
+    match =re .search (r'try again in ([\d.]+)s',msg )
+    if match :
+        return float (match .group (1 ))+0.5 
+    return _RATE_LIMIT_BASE_DELAY *(2 **attempt )
 
 
 class LiteLLMProvider :
@@ -187,18 +215,26 @@ class LiteLLMProvider :
         temp =self ._get_temperature (temperature )
         max_tokens =self .get_max_output_tokens ()
 
-        try :
-            response =await acompletion (
-            model =model ,messages =messages ,stream =True ,
-            temperature =temp ,max_tokens =max_tokens ,**kwargs 
-            )
-            async for chunk in response :
-                delta =chunk .choices [0 ].delta if chunk .choices else None 
-                if delta and delta .content :
-                    yield delta .content 
-        except Exception as e :
-            logger .error (f"LiteLLM stream error ({self ._provider }): {e }")
-            yield f"[Error: {e }]"
+        for attempt in range (_RATE_LIMIT_MAX_RETRIES ):
+            try :
+                response =await acompletion (
+                model =model ,messages =messages ,stream =True ,
+                temperature =temp ,max_tokens =max_tokens ,**kwargs 
+                )
+                async for chunk in response :
+                    delta =chunk .choices [0 ].delta if chunk .choices else None 
+                    if delta and delta .content :
+                        yield delta .content 
+                return 
+            except Exception as e :
+                if _is_rate_limit_error (e )and attempt <_RATE_LIMIT_MAX_RETRIES -1 :
+                    delay =_get_retry_delay (e ,attempt )
+                    logger .warning (f"Rate limited ({self ._provider }), retrying in {delay :.1f}s (attempt {attempt +1 }/{_RATE_LIMIT_MAX_RETRIES })")
+                    await asyncio .sleep (delay )
+                    continue 
+                logger .error (f"LiteLLM stream error ({self ._provider }): {e }")
+                yield f"[Error: {e }]"
+                return 
 
     async def stream_with_tools (
     self ,messages :list ,tools :List [Dict [str ,Any ]],temperature :float =None 
@@ -211,59 +247,68 @@ class LiteLLMProvider :
         temp =self ._get_temperature (temperature )
         max_tokens =self .get_max_output_tokens ()
 
+        for attempt in range (_RATE_LIMIT_MAX_RETRIES ):
 
-        pending_tool_calls :Dict [int ,dict ]={}
+            pending_tool_calls :Dict [int ,dict ]={}
 
-        try :
-            response =await acompletion (
-            model =model ,messages =messages ,stream =True ,
-            tools =tools ,tool_choice ="auto",
-            temperature =temp ,max_tokens =max_tokens ,**kwargs 
-            )
-            async for chunk in response :
-                delta =chunk .choices [0 ].delta if chunk .choices else None 
-                if not delta :
+            try :
+                response =await acompletion (
+                model =model ,messages =messages ,stream =True ,
+                tools =tools ,tool_choice ="auto",
+                temperature =temp ,max_tokens =max_tokens ,**kwargs 
+                )
+                async for chunk in response :
+                    delta =chunk .choices [0 ].delta if chunk .choices else None 
+                    if not delta :
+                        continue 
+
+
+                    if delta .content :
+                        yield delta .content 
+
+
+                    if delta .tool_calls :
+                        for tc in delta .tool_calls :
+                            idx =tc .index or 0 
+                            if idx not in pending_tool_calls :
+                                pending_tool_calls [idx ]={"id":"","name":"","arguments":""}
+                            pt =pending_tool_calls [idx ]
+                            if tc .id :
+                                pt ["id"]=tc .id 
+                            if tc .function and tc .function .name :
+                                pt ["name"]=tc .function .name 
+                            if tc .function and tc .function .arguments :
+                                pt ["arguments"]+=tc .function .arguments 
+
+
+                    finish =chunk .choices [0 ].finish_reason if chunk .choices else None 
+                    if finish =="tool_calls"and pending_tool_calls :
+                        for idx in sorted (pending_tool_calls .keys ()):
+                            pt =pending_tool_calls [idx ]
+                            if pt ["id"]and pt ["name"]:
+                                try :
+                                    args =json .loads (pt ["arguments"])if pt ["arguments"]else {}
+                                except json .JSONDecodeError :
+                                    args ={}
+                                yield {
+                                "type":"tool_use",
+                                "id":pt ["id"],
+                                "name":pt ["name"],
+                                "arguments":args ,
+                                }
+                        pending_tool_calls .clear ()
+
+                return 
+
+            except Exception as e :
+                if _is_rate_limit_error (e )and attempt <_RATE_LIMIT_MAX_RETRIES -1 :
+                    delay =_get_retry_delay (e ,attempt )
+                    logger .warning (f"Rate limited ({self ._provider }), retrying in {delay :.1f}s (attempt {attempt +1 }/{_RATE_LIMIT_MAX_RETRIES })")
+                    await asyncio .sleep (delay )
                     continue 
-
-
-                if delta .content :
-                    yield delta .content 
-
-
-                if delta .tool_calls :
-                    for tc in delta .tool_calls :
-                        idx =tc .index or 0 
-                        if idx not in pending_tool_calls :
-                            pending_tool_calls [idx ]={"id":"","name":"","arguments":""}
-                        pt =pending_tool_calls [idx ]
-                        if tc .id :
-                            pt ["id"]=tc .id 
-                        if tc .function and tc .function .name :
-                            pt ["name"]=tc .function .name 
-                        if tc .function and tc .function .arguments :
-                            pt ["arguments"]+=tc .function .arguments 
-
-
-                finish =chunk .choices [0 ].finish_reason if chunk .choices else None 
-                if finish =="tool_calls"and pending_tool_calls :
-                    for idx in sorted (pending_tool_calls .keys ()):
-                        pt =pending_tool_calls [idx ]
-                        if pt ["id"]and pt ["name"]:
-                            try :
-                                args =json .loads (pt ["arguments"])if pt ["arguments"]else {}
-                            except json .JSONDecodeError :
-                                args ={}
-                            yield {
-                            "type":"tool_use",
-                            "id":pt ["id"],
-                            "name":pt ["name"],
-                            "arguments":args ,
-                            }
-                    pending_tool_calls .clear ()
-
-        except Exception as e :
-            logger .error (f"LiteLLM stream_with_tools error ({self ._provider }): {e }")
-            yield f"[Error: {e }]"
+                logger .error (f"LiteLLM stream_with_tools error ({self ._provider }): {e }")
+                yield f"[Error: {e }]"
+                return 
 
     async def generate (self ,messages :list ,temperature :float =None )->str :
         """Non-streaming completion."""
@@ -271,15 +316,22 @@ class LiteLLMProvider :
         temp =self ._get_temperature (temperature )
         max_tokens =self .get_max_output_tokens ()
 
-        try :
-            response =await acompletion (
-            model =model ,messages =messages ,
-            temperature =temp ,max_tokens =max_tokens ,**kwargs 
-            )
-            return response .choices [0 ].message .content or ""
-        except Exception as e :
-            logger .error (f"LiteLLM generate error ({self ._provider }): {e }")
-            return f"[Error: {e }]"
+        for attempt in range (_RATE_LIMIT_MAX_RETRIES ):
+            try :
+                response =await acompletion (
+                model =model ,messages =messages ,
+                temperature =temp ,max_tokens =max_tokens ,**kwargs 
+                )
+                return response .choices [0 ].message .content or ""
+            except Exception as e :
+                if _is_rate_limit_error (e )and attempt <_RATE_LIMIT_MAX_RETRIES -1 :
+                    delay =_get_retry_delay (e ,attempt )
+                    logger .warning (f"Rate limited ({self ._provider }), retrying in {delay :.1f}s (attempt {attempt +1 }/{_RATE_LIMIT_MAX_RETRIES })")
+                    await asyncio .sleep (delay )
+                    continue 
+                logger .error (f"LiteLLM generate error ({self ._provider }): {e }")
+                return f"[Error: {e }]"
+        return "[Error: max retries exceeded]"
 
     async def get_embedding (self ,text :str )->List [float ]:
         """Generate embedding vector."""

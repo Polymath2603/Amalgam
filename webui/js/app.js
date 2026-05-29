@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             navItem.classList.add('active');
             panel.classList.add('active');
             panel.focus({ preventScroll: true });
-            sessionStorage.setItem('activeTab', tabId);
+            localStorage.setItem('activeTab', tabId);
             if (tabId === 'settings') loadMCP();
             
             if (tabId === 'avatar') {
@@ -223,7 +223,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     
     const _hash = window.location.hash.replace('#', '').split('/');
-    switchTab(sessionStorage.getItem('activeTab') || _hash[0] || 'chat');
+    switchTab(localStorage.getItem('activeTab') || _hash[0] || 'chat');
 
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => {

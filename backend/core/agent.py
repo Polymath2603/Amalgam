@@ -108,13 +108,18 @@ class Agent :
             tools_tokens =estimate_tokens (json .dumps (tools ),model =model )if tools else 0 
             history_tokens =estimate_message_list_tokens (history ,model =model )
             sys_budget =max_tokens -tools_tokens -history_tokens -20 
-            sys_budget_chars =max (int (sys_budget *4 ),300 )
 
-            if len (sys_str )>sys_budget_chars :
-                truncated =sys_str [:sys_budget_chars ]
+            if sys_budget >0 :
+                truncated =truncate_to_token_limit (sys_str ,sys_budget ,model =model )
                 system =system .copy ()
                 system ["content"]=truncated +"\n\n...[System Prompt Truncated to fit Context]..."
-                logger .debug (f"System prompt truncated from {len (sys_str )} to {sys_budget_chars } chars")
+                logger .debug (f"System prompt truncated to {sys_budget } tokens to fit budget")
+            else :
+                fallback_budget =300 
+                truncated =truncate_to_token_limit (sys_str ,fallback_budget ,model =model )
+                system =system .copy ()
+                system ["content"]=truncated +"\n\n...[System Prompt HEAVILY Truncated due to large Tools/History payload]..."
+                logger .warning (f"Token budget exceeded by tools/history! System prompt heavily truncated to {fallback_budget } tokens.")
 
         return [system ]+history 
 
