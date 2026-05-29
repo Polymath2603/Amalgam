@@ -13,10 +13,12 @@ import { VISEME_SHAPES, EXTENDED_TO_SIMPLE, getTransitionWeight } from './viseme
 const DEFAULTS = {
   fftSize: 256,
   silenceThreshold: 0.015,
+  silenceHysteresis: 0.03,    
   smoothingFactor: 0.35,
-  holdFrames: 2,           
-  intensitySmoothing: 0.2,
-  energySmoothing: 0.5,    
+  holdFrames: 3,               
+  intensitySmoothing: 0.15,    
+  transitionRate: 0.25,        
+  energySmoothing: 0.5,
 };
 
 export class FrequencyAnalyzer {
@@ -43,6 +45,7 @@ export class FrequencyAnalyzer {
     this._previousViseme = 'sil';
     this._transitionProgress = 1; 
     this._frameCount = 0;
+    this._silenceRelease = 0; 
   }
 
   
@@ -72,8 +75,30 @@ export class FrequencyAnalyzer {
     const bands = this._smoothedBands;
 
     
-    if (this._smoothedAmplitude < this.opts.silenceThreshold) {
-      return this._emitViseme('sil', 0, bands);
+    const wasSilent = this._currentViseme === 'sil';
+    const threshold = wasSilent ? this.opts.silenceHysteresis : this.opts.silenceThreshold;
+    if (this._smoothedAmplitude < threshold) {
+      this._silenceRelease = Math.min(this._silenceRelease + 1, 10);
+      if (this._silenceRelease >= 3) {
+        return this._emitViseme('sil', 0, bands);
+      }
+    } else {
+      this._silenceRelease = 0;
+    }
+
+    
+    const nyquist = this.sampleRate / 2;
+    const emphasis = new Uint8Array(this.frequencyData.length);
+    for (let i = 0; i < this.frequencyData.length; i++) {
+      const freq = (i / this.frequencyData.length) * nyquist;
+      const gain = 1 + 0.4 * (freq / nyquist);
+      emphasis[i] = Math.min(255, Math.round(this.frequencyData[i] * gain));
+    }
+    const emphasisBands = extractBandEnergies(emphasis, this.sampleRate);
+    for (const key of Object.keys(emphasisBands)) {
+      if (key === 'high' || key === 'veryHigh') {
+        bands[key] = smoothValue(bands[key], emphasisBands[key], 0.3);
+      }
     }
 
     
@@ -179,7 +204,7 @@ export class FrequencyAnalyzer {
     } else {
       
       const weight = getTransitionWeight(this._previousViseme, this._currentViseme);
-      this._transitionProgress = Math.min(1, this._transitionProgress + (1 - weight) * 0.3);
+      this._transitionProgress = Math.min(1, this._transitionProgress + this.opts.transitionRate * (1 - weight * 0.5));
     }
 
     
