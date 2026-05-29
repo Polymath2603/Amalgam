@@ -233,9 +233,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     
+    let _initComplete = false;
     window.addEventListener('hashchange', () => {
         const h = window.location.hash.replace('#', '').split('/');
-        switchTab(h[0] || 'chat');
+        
+        
+        if (!_initComplete) return;
+        const currentPanel = document.querySelector('.tab-panel.active');
+        const currentTab = currentPanel ? currentPanel.id.replace('tab-', '') : null;
+        if (h[0] && h[0] !== currentTab) {
+            switchTab(h[0] || 'chat');
+        }
     });
 
     
@@ -1147,6 +1155,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadHistory();
         
         [2000, 4000, 8000].forEach(delay => setTimeout(() => loadHistory(), delay));
+        
+        _initComplete = true;
     }
 
     function applyTheme(theme) {
@@ -2276,5 +2286,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     init().catch(e => {
         console.error('Init failed:', e);
         showToast('Failed to connect to server', 'danger');
+        _initComplete = true;
     });
 });
