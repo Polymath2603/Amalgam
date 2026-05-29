@@ -48,7 +48,6 @@ TOOL_CAPABLE ={
 
 
 CONTEXT_LIMITS ={
-"groq":3000 ,
 "llamacpp":4096 ,
 "koboldai":4096 ,
 }

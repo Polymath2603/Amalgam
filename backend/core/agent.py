@@ -216,13 +216,13 @@ class Agent :
             )
 
 
+
             out_tokens =self .llm .get_max_output_tokens ()
-            tools_tokens =estimate_tokens (json .dumps (tools ))if tools else 0 
-            available =max_tokens -tools_tokens -out_tokens -50 
+            available =max_tokens -out_tokens -50 
             messages =self ._truncate_context (messages ,max (available ,500 ),tools )
 
             est =self ._estimate_tokens (messages ,tools if native_tools else None )
-            logger .debug (f"TOKEN BUDGET: context_limit={max_tokens }, tools={tools_tokens }, output={out_tokens }, available={available }, used={est }")
+            logger .debug (f"TOKEN BUDGET: context_limit={max_tokens }, output={out_tokens }, available={available }, used={est }")
             messages =await plugins .hook_messages (messages )
 
             if images :
