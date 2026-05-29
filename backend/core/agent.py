@@ -264,7 +264,7 @@ class Agent :
                         elif isinstance (item ,dict )and item .get ("type")=="tool_use":
                             tool_called =True 
                             tool_name =item ["name"]
-                            tool_args =item .get ("arguments",{})
+                            tool_args =item .get ("arguments")or {}
                             tool_id =item .get ("id","")
                             if accumulated .strip ():
                                 await self .memory .add_turn ("assistant",accumulated .strip ())
@@ -313,7 +313,7 @@ class Agent :
                                     if start_idx !=-1 and end_idx !=-1 :
                                         tool_call =json .loads (tool_block_buf [start_idx :end_idx ])
                                         name =tool_call .get ("name")
-                                        args =tool_call .get ("arguments",{})
+                                        args =tool_call .get ("arguments")or {}
                                         tool_sig =(name ,frozenset ((k ,str (v ))for k ,v in sorted (args .items ())))
                                         if tool_sig ==last_tool_call :
                                             msg =f"Repeated identical tool call to {name } — not retrying. Respond based on the previous result."

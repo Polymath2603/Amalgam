@@ -19,8 +19,9 @@ class TestMCPClient :
     def test_get_tool_schema_with_agent (self ,mcp_client ):
         mcp_client .register_agent (object ())
         schema =mcp_client .get_tool_schema ()
-        names =[t ["name"]for t in schema ]
+        names =[t ["function"]["name"]for t in schema ]
         assert "task"in names 
+        assert all (t ["type"]=="function"for t in schema )
 
     def test_call_tool_no_session (self ,mcp_client ):
         result =mcp_client .call_tool ("nonexistent",{})

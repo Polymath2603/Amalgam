@@ -63,7 +63,7 @@ OUTPUT_LIMITS ={
 
 EMBEDDING_CAPABLE ={
 "gemini","ollama","openai","deepseek","mistral",
-"together","groq","chatgpt","azure-openai",
+"together","chatgpt","azure-openai",
 "openrouter","alibaba","huggingface","aws","gcp",
 }
 

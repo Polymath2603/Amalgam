@@ -330,8 +330,17 @@ class ContextBuilder :
         lines .append ("You can call multiple tools in sequence — after a tool result arrives, you may call another tool or respond to the user.")
 
 
-        skill_tools ={t ['name']for t in tools if t ['name']in ('skill','create_skill','delete_skill','list_skills')}
-        other_tools =[t for t in tools if t ['name']not in skill_tools ]
+        def _tool_name (t ):
+            return t .get ('function',{}).get ('name',t .get ('name',''))
+        def _tool_desc (t ):
+            return t .get ('function',{}).get ('description',t .get ('description',''))
+        def _tool_params (t ):
+            f =t .get ('function',t )
+            return f .get ('parameters',{})
+
+        skill_names ={'skill','create_skill','delete_skill','list_skills'}
+        skill_tools =[t for t in tools if _tool_name (t )in skill_names ]
+        other_tools =[t for t in tools if _tool_name (t )not in skill_names ]
         has_skills =bool (skill_tools )
 
         if has_skills :
@@ -344,11 +353,11 @@ class ContextBuilder :
             lines .append ("Consider loading a relevant skill whenever a task involves a known framework, tool, or domain — the skill content will give you precise guidance.")
 
         for t in other_tools :
-            lines .append (f"\n## {t ['name']}")
-            lines .append (t ['description'])
-            if 'parameters'in t and t ['parameters'].get ('properties'):
-                params =t ['parameters']['properties']
-                for k ,v in params .items ():
+            lines .append (f"\n## {_tool_name (t )}")
+            lines .append (_tool_desc (t ))
+            params =_tool_params (t )
+            if params .get ('properties'):
+                for k ,v in params ['properties'].items ():
                     lines .append (f"  - {k } ({v .get ('type','string')})")
 
         if not native_tools_available :
