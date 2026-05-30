@@ -13,8 +13,10 @@ logger =logging .getLogger (__name__ )
 
 
 class VoicePipeline :
-    def __init__ (self ,agent_callback =None ,stt_engine ="browser",settings =None ):
+    def __init__ (self ,agent_callback =None ,stt_engine ="browser",settings =None ,
+    on_speech_start =None ):
         self .agent_callback =agent_callback 
+        self .on_speech_start =on_speech_start 
         self ._stop_event =threading .Event ()
         self ._vad =None 
         self ._stt =STTRouter (engine =stt_engine )
@@ -106,6 +108,11 @@ class VoicePipeline :
                                 recording =bytearray ()
                                 silence_frames =0 
                                 logger .debug ("VoicePipeline: Speech detected")
+                                if self .on_speech_start :
+                                    try :
+                                        self .on_speech_start ()
+                                    except Exception as e :
+                                        logger .error (f"VoicePipeline: on_speech_start error: {e }")
                             recording .extend (frame )
                             silence_frames =0 
                         elif is_recording :

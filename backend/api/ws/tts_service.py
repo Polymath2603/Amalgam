@@ -93,7 +93,7 @@ async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
                 logger .warning ("No voice_ref for OpenVoice, skipping speak")
                 return 
         result =await asyncio .wait_for (tts ().synthesize (text ,ref_audio =ref_audio ,emotion =emotion ),timeout =60.0 )
-        audio_np ,_ ,sr =result 
+        audio_np ,viseme_schedule ,sr =result 
         if len (audio_np )>0 :
             pcm =(audio_np *32767 ).astype ("int16").tobytes ()
             data_size =len (pcm )
@@ -107,10 +107,13 @@ async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
             wav_bytes =header +pcm 
             b64_audio =base64 .b64encode (wav_bytes ).decode ()
             duration =len (audio_np )/sr 
-            await ws .send_json ({
+            msg ={
             "type":"tts_audio","audio":b64_audio ,"format":"wav",
             "duration":round (duration ,2 ),"sentence_idx":0 ,"emotion":emotion 
-            })
+            }
+            if viseme_schedule :
+                msg ["viseme_schedule"]=viseme_schedule 
+            await ws .send_json (msg )
             logger .debug (f"Speak TTS: sent {duration :.2f}s audio")
         else :
             logger .warning ("Speak TTS: empty audio")

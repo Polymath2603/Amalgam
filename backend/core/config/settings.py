@@ -12,7 +12,10 @@ from backend .core .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VA
 
 logger =logging .getLogger (__name__ )
 
+CONFIG_VERSION =1 
+
 DEFAULTS ={
+"config_version":CONFIG_VERSION ,
 "provider":{
 "active":"gemini",
 "ollama":{
@@ -200,6 +203,12 @@ DEFAULTS ={
 "summarize_keep":15 ,
 "embedding_backend":"provider",
 "fact_extraction":True 
+},
+"wake_word":{
+"enabled":False ,
+"engine":"openwakeword",
+"sensitivity":0.5 ,
+"model":"hey_amalgam"
 },
 "avatar":{
 "model_path":"",
@@ -410,10 +419,30 @@ class Settings :
         else :
             self .data ={}
 
+        self ._run_migrations ()
+        self .data .setdefault ("config_version",CONFIG_VERSION )
+
 
         self .data =self ._deep_merge (DEFAULTS ,self .data )
 
         self ._merge_mcp_servers ()
+
+    def _run_migrations (self ):
+        """Run version-to-version migrations."""
+        current =self .data .get ("config_version",0 )
+        if current >=CONFIG_VERSION :
+            return 
+        for v in range (current ,CONFIG_VERSION ):
+            next_v =v +1 
+            migrator =getattr (self ,f"_migrate_v{v }_to_v{next_v }",None )
+            if migrator :
+                try :
+                    migrator ()
+                    logger .info (f"Config migrated v{v } → v{next_v }")
+                except Exception as e :
+                    logger .error (f"Config migration v{v }→v{next_v } failed: {e }")
+        self .data ["config_version"]=CONFIG_VERSION 
+        self .save ()
 
     def save (self ):
         os .makedirs (os .path .dirname (self .path ),exist_ok =True )

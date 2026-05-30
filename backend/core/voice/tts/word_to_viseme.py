@@ -159,3 +159,7 @@ def viseme_schedule_from_words (word_boundaries :list [dict ])->list [dict ]:
         filled .append (entry )
 
     return filled 
+
+
+
+build_viseme_schedule =viseme_schedule_from_words 

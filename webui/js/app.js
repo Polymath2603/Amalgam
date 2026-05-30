@@ -234,6 +234,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     
     let _initComplete = false;
+    let _settingsLoaded = false;
     window.addEventListener('hashchange', () => {
         const h = window.location.hash.replace('#', '').split('/');
         
@@ -288,7 +289,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             statusDot.className = 'status-dot online';
             statusText.textContent = 'Connected';
             
+            if (!_settingsLoaded) {
+                api(BASE_URL + '/api/settings').then(s => { if (s) { applySettings(s); markSettingsClean(); _settingsLoaded = true; }});
+                loadCharacters();
+                fetchCommands();
+                loadSession('current');
+            }
             loadHistory();
+            [2000, 4000, 8000].forEach(delay => setTimeout(() => loadHistory(), delay));
             
             if (ws.readyState === WebSocket.OPEN) {
                 if (voiceInputEnabled && isBrowserStt()) {
@@ -1095,11 +1103,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const session = await api(BASE_URL + `/api/memory/session/${sessionId}`);
             chatMessages.innerHTML = '';
+            function _setHash(sid) {
+                const tab = document.querySelector('.tab-panel.active');
+                if (!tab || tab.id === 'tab-chat') {
+                    location.hash = 'chat/' + sid;
+                }
+            }
             if (session?.exists === false) {
                 const res = await api(BASE_URL + '/api/memory/new-session', { method: 'POST' });
                 if (res?.session_id) {
                     _currentSessionId = res.session_id;
-                    location.hash = 'chat/' + res.session_id;
+                    _setHash(res.session_id);
                 }
                 return;
             }
@@ -1123,13 +1137,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
             _currentSessionId = session?.session_id || sessionId;
-            if (_currentSessionId) location.hash = 'chat/' + _currentSessionId;
+            if (_currentSessionId) _setHash(_currentSessionId);
             updateSessionButtons();
         } catch (e) {
             chatMessages.innerHTML = '';
             const res = await api(BASE_URL + '/api/memory/new-session', { method: 'POST' });
             _currentSessionId = res?.session_id || sessionId;
-            if (res?.session_id) location.hash = 'chat/' + res.session_id;
+            if (res?.session_id) _setHash(res.session_id);
             updateSessionButtons();
         }
     }
@@ -1143,7 +1157,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     async function init() {
         const settings = await api(BASE_URL + '/api/settings');
-        if (settings) { await applySettings(settings); markSettingsClean(); }
+        if (settings) { await applySettings(settings); markSettingsClean(); _settingsLoaded = true; }
         await loadCharacters();
                 await fetchCommands();
 

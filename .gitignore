@@ -42,3 +42,4 @@ frontend/godot/.godot/
 *.swo
 *~
 .DS_Store
+.playwright-mcp/

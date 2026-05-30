@@ -7,7 +7,7 @@ import re
 import logging 
 
 from fastapi import WebSocket ,WebSocketDisconnect 
-from backend .api .deps import settings ,memory ,tts ,agent ,relationship 
+from backend .api .deps import settings ,memory ,tts ,agent ,relationship ,wakeword 
 from backend .api .ws .tts_service import synthesize_sentence ,synthesize_now 
 from pathlib import Path 
 from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
@@ -91,6 +91,17 @@ async def handle_chat (websocket :WebSocket ):
     voice_output_enabled =False 
     voice_pipeline =None 
     voice_task =None 
+    wake_word_enabled =False 
+
+    def _wakeword_callback (word :str ):
+        logger .info (f"Wake word detected: {word }")
+        try :
+            asyncio .run_coroutine_threadsafe (
+            _send_json ({"type":"wake_word_detected","word":word }),
+            asyncio .get_running_loop ()
+            )
+        except Exception as e :
+            logger .error (f"Wake word send failed: {e }")
 
     def _track_task (t :asyncio .Task ):
         pending_tasks .add (t )
@@ -147,9 +158,20 @@ async def handle_chat (websocket :WebSocket ):
                                 except Exception as e :
                                     logger .error (f"Voice transcription send failed: {e }")
 
+                            def on_speech_start ():
+                                if voice_output_enabled :
+                                    try :
+                                        asyncio .run_coroutine_threadsafe (
+                                        _send_json ({"type":"tts_interrupt"}),
+                                        _main_loop 
+                                        )
+                                    except Exception as e :
+                                        logger .debug (f"Interrupt send failed (expected if already stopped): {e }")
+
                             voice_cfg =settings ()
                             voice_pipeline =VoicePipeline (
                             agent_callback =on_transcription ,
+                            on_speech_start =on_speech_start ,
                             stt_engine =stt_engine ,
                             settings =voice_cfg ,
                             )
@@ -193,6 +215,25 @@ async def handle_chat (websocket :WebSocket ):
                         voice_pipeline =None 
                         await _send_json ({"type":"voice_state","state":"idle"})
                         logger .debug ("Voice input stopped")
+                elif cmd =="wake_word_on":
+                    ww =wakeword ()
+                    ww .set_callback (_wakeword_callback )
+                    ok =ww .start ()
+                    if ok :
+                        wake_word_enabled =True 
+                        await _send_json ({"type":"wake_word_state","enabled":True })
+                        logger .debug ("Wake word detection started")
+                    else :
+                        await _send_json ({
+                        "type":"wake_word_state","enabled":False ,
+                        "error":"Failed to start wake word detection. Is openwakeword installed?"
+                        })
+                elif cmd =="wake_word_off":
+                    ww =wakeword ()
+                    ww .stop ()
+                    wake_word_enabled =False 
+                    await _send_json ({"type":"wake_word_state","enabled":False })
+                    logger .debug ("Wake word detection stopped")
                 elif cmd =="speak":
                     speak_text =data .get ("text","").strip ()
                     if speak_text :
@@ -428,10 +469,6 @@ async def handle_chat (websocket :WebSocket ):
                         tts_tasks .append (t )
                         sentence_idx +=1 
 
-                    if tts_tasks :
-                        await asyncio .gather (*tts_tasks ,return_exceptions =True )
-                        await _send_json ({"type":"voice_state","state":"idle"})
-
                 except (WebSocketDisconnect ,asyncio .CancelledError ):
                     raise 
                 except Exception as e :
@@ -451,6 +488,9 @@ async def handle_chat (websocket :WebSocket ):
                         await _send_json ({
                         "type":"chat_append","role":"assistant","text":"","finished":True 
                         })
+                    if tts_tasks :
+                        await asyncio .gather (*tts_tasks ,return_exceptions =True )
+                        await _send_json ({"type":"voice_state","state":"idle"})
 
     except WebSocketDisconnect :
         logger .warning ("Chat WebSocket disconnected")
@@ -464,3 +504,8 @@ async def handle_chat (websocket :WebSocket ):
             voice_pipeline .stop_listening ()
         if voice_task and not voice_task .done ():
             voice_task .cancel ()
+        if wake_word_enabled :
+            try :
+                wakeword ().stop ()
+            except Exception :
+                pass 

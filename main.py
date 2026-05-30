@@ -1,12 +1,11 @@
 """
 Amalgam launcher.
-Starts the backend or launches the full desktop app.
 
 Usage:
   python main.py help               # Print this help
-  python main.py webui              # Launch web UI (default)
+  python main.py desktop            # Launch Tauri desktop app (recommended)
+  python main.py webui              # Launch standalone web UI
   python main.py cli                # Launch interactive CLI
-  python main.py desktop            # Launch Tauri desktop app
   python main.py --grpc             # gRPC server only
   python main.py cli --grpc         # CLI via remote gRPC
 """
@@ -61,23 +60,33 @@ def _print_help ():
 
 def _launch_desktop ():
     import subprocess 
-    import signal 
     if not os .path .isdir (TAURI_DIR ):
         print (f"Error: Tauri directory not found at {TAURI_DIR }")
         sys .exit (1 )
+
+    print ("Starting backend server...")
+    server =subprocess .Popen (
+    [sys .executable ,__file__ ,"webui"],
+    stdout =subprocess .DEVNULL ,stderr =subprocess .DEVNULL ,
+    )
+
     print ("Launching desktop app...")
+    env ={**os .environ ,"AMALGAM_SKIP_BACKEND":"1"}
     try :
-        subprocess .run (["cargo","run"],cwd =TAURI_DIR )
+        subprocess .run (["cargo","run"],cwd =TAURI_DIR ,env =env )
     except KeyboardInterrupt :
         print ("\nShutting down...")
+    finally :
+        server .terminate ()
+        server .wait (timeout =5 )
         _kill_port (8000 )
-        sys .exit (0 )
+        print ("Shut down.")
 
 
 def main ():
     parser =argparse .ArgumentParser (description ="Amalgam")
     parser .add_argument ("frontend",nargs ="?",choices =["help","webui","cli","desktop"],
-    help ="Frontend to launch")
+    help ="Frontend to launch (desktop is recommended)")
     parser .add_argument ("--grpc",action ="store_true",help ="Run gRPC server (or connect via CLI)")
     parser .add_argument ("--grpc-host",default ="0.0.0.0",help ="gRPC bind host")
     parser .add_argument ("--grpc-port",type =int ,default =50051 ,help ="gRPC bind port")

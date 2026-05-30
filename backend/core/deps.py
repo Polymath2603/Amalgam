@@ -15,6 +15,7 @@ from backend .core .agent import Agent
 from backend .core .relationship import Relationship 
 from backend .core .mcp .client import MCPClient 
 from backend .core .voice .tts import TTS 
+from backend .voice .wakeword import WakeWordRouter 
 
 logger =logging .getLogger (__name__ )
 
@@ -29,6 +30,7 @@ _shared ={
 "tts":None ,
 "agent":None ,
 "relationship":None ,
+"wakeword":None ,
 }
 
 
@@ -78,6 +80,9 @@ def get_shared ():
             _shared ["tts"].configure_deepgram (deepgram_key ,deepgram_model )
     if _shared ["relationship"]is None :
         _shared ["relationship"]=Relationship ()
+    if _shared ["wakeword"]is None :
+        ww_engine =_shared ["settings"].get ("wake_word.engine","openwakeword")
+        _shared ["wakeword"]=WakeWordRouter (engine =ww_engine )
     if _shared ["agent"]is None :
         _shared ["agent"]=Agent (
         mcp_client =_shared ["mcp"],
@@ -100,3 +105,4 @@ def mcp ():return get_shared ()["mcp"]
 def tts ():return get_shared ()["tts"]
 def agent ():return get_shared ()["agent"]
 def relationship ():return get_shared ()["relationship"]
+def wakeword ():return get_shared ()["wakeword"]

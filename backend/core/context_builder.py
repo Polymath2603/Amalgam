@@ -26,26 +26,7 @@ Your responses are displayed as chat messages in a web UI.
 - You can use connected tools to interact with the local system
 - You have access to conversation history within the current session — refer back to earlier topics when relevant
 
-# Avatar Control (use MCP tools instead of text tags)
-You control your avatar's expressions, voice emotion, and body animations exclusively through the **avatar** MCP server tools. Do NOT use /[[emotion]] /((expression)) /**action**/ tags — use the tools below instead.
-
-## Voice Emotion — avatar_set_emotion
-Sets the emotional tone of your spoken voice. Call this when your character's emotional state shifts.
-Available emotions: happy, sad, angry, surprised, thinking, relaxed, confused, shy, jealous, bored, suspicious, victory, sleep, love, excited
-- Use one call per response to set your vocal tone
-- Voice emotion is independent of facial expression
-
-## Facial Expression — avatar_set_expression
-Sets your avatar's facial expression (VRM blend shape) independently of voice emotion.
-Available expressions: happy, angry, sad, relaxed, surprised, blink
-- Use when your character's face should show an emotion distinct from their voice
-
-## Body Animation — avatar_perform_action
-Triggers a full-body gesture or animation. Describe the action naturally.
-$action_notes
-- Use when your character would physically gesture (bow, wave, nod, react)
-- Keep descriptions brief and natural
-- Not every response needs an action — reserve for meaningful moments
+$avatar_section
 
 # Response Guidelines
 ## Tone
@@ -297,7 +278,7 @@ class ContextBuilder :
         character =self ._characters .get (character_id ,{})
 
         sys_prompt =self ._build_character_prompt (
-        character ,additional_prompt ,character_id 
+        character ,additional_prompt ,character_id ,tools 
         )
 
         tool_section =self ._build_tool_section (tools ,native_tools_available =native_tools_available )
@@ -397,7 +378,7 @@ class ContextBuilder :
         return f"\n\n# Relationship Context\n{relationship_context }"
 
     def _build_character_prompt (self ,character :Dict ,additional_prompt :str ="",
-    character_id :str =None )->str :
+    character_id :str =None ,tools :list =None )->str :
         name =character .get ("name","Assistant")if character else "Assistant"
         system_prompt =character .get ("system_prompt","")if character else ""
         personality =character .get ("personality","")if character else ""
@@ -442,6 +423,36 @@ class ContextBuilder :
         else :
             action_notes ="No predefined animations — describe the action naturally (e.g. \"nods thoughtfully\", \"waves happily\"). The system will attempt to match it to an animation."
 
+        has_avatar =tools and any (
+        t .get ("function",{}).get ("name","").startswith ("avatar_")
+        for t in tools 
+        )
+        if has_avatar :
+            avatar_section =(
+            "# Avatar Control (use MCP tools instead of text tags)\n"
+            "You control your avatar's expressions, voice emotion, and body animations exclusively through the **avatar** MCP server tools. Do NOT use /[[emotion]] /((expression)) /**action**/ tags — use the tools below instead.\n"
+            "\n"
+            "## Voice Emotion — avatar_set_emotion\n"
+            "Sets the emotional tone of your spoken voice. Call this when your character's emotional state shifts.\n"
+            "Available emotions: happy, sad, angry, surprised, thinking, relaxed, confused, shy, jealous, bored, suspicious, victory, sleep, love, excited\n"
+            "- Use one call per response to set your vocal tone\n"
+            "- Voice emotion is independent of facial expression\n"
+            "\n"
+            "## Facial Expression — avatar_set_expression\n"
+            "Sets your avatar's facial expression (VRM blend shape) independently of voice emotion.\n"
+            "Available expressions: happy, angry, sad, relaxed, surprised, blink\n"
+            "- Use when your character's face should show an emotion distinct from their voice\n"
+            "\n"
+            "## Body Animation — avatar_perform_action\n"
+            "Triggers a full-body gesture or animation. Describe the action naturally.\n"
+            f"{action_notes }\n"
+            "- Use when your character would physically gesture (bow, wave, nod, react)\n"
+            "- Keep descriptions brief and natural\n"
+            "- Not every response needs an action — reserve for meaningful moments"
+            )
+        else :
+            avatar_section =""
+
         vault_rules =self ._build_vault_section ()
 
         if self .settings and not self .settings .get ("ui.thinking_enabled",True ):
@@ -451,7 +462,7 @@ class ContextBuilder :
 
         rendered =Template (_PROMPT_TEMPLATE ).safe_substitute (
         identity =identity ,
-        action_notes =action_notes ,
+        avatar_section =avatar_section ,
         character_style =character_style ,
         vault_rules =vault_rules ,
         tool_section ="$tool_section",

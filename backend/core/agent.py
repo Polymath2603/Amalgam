@@ -181,7 +181,7 @@ class Agent :
         await self .memory .add_turn ("user",text )
 
 
-        if self .mcp_client is not None :
+        if self .mcp_client is not None and self .mcp_client .has_servers ():
             await self .mcp_client .wait_for_tools (timeout =8.0 ,min_tools =1 )
 
         iterations =0 

@@ -202,6 +202,10 @@ class MCPClient :
         if not self ._closed :
             logger .error (f"Max reconnect delay reached for {name }")
 
+    def has_servers (self )->bool :
+        """True if at least one external MCP server is connected."""
+        return bool (self .sessions )
+
     async def wait_for_tools (self ,timeout :float =10.0 ,min_tools :int =1 )->bool :
         """Wait until at least `min_tools` tools are discovered, or timeout."""
         t0 =time .monotonic ()
@@ -222,7 +226,7 @@ class MCPClient :
             "parameters":tool .inputSchema 
             }
             })
-        if self ._agent is not None :
+        if self ._agent is not None and self .sessions :
             schema .append ({
             "type":"function",
             "function":{
