@@ -86,44 +86,160 @@ async def handle_chat (websocket :WebSocket ):
     logger .warning ("Chat WebSocket connected")
 
 
-    current_stream_idx =0 
-    pending_tasks :set [asyncio .Task ]=set ()
-    voice_output_enabled =False 
-    voice_pipeline =None 
-    voice_task =None 
-    wake_word_enabled =False 
+    current_assistant_task :asyncio .Task |None =None 
 
-    def _wakeword_callback (word :str ):
-        logger .info (f"Wake word detected: {word }")
+    async def _cancel_assistant ():
+        nonlocal current_assistant_task ,current_stream_idx 
+        if current_assistant_task and not current_assistant_task .done ():
+            current_assistant_task .cancel ()
+            current_assistant_task =None 
+
+            current_stream_idx +=1 
+            await _send_json ({"type":"tts_interrupt"})
+            logger .debug ("Assistant task cancelled and TTS interrupted")
+
+    async def _process_assistant_response (text :str ,images :list =None ):
+        nonlocal current_stream_idx ,current_assistant_task 
+        await _cancel_assistant ()
+
+        current_stream_idx +=1 
+        this_stream =current_stream_idx 
+
+        t =asyncio .create_task (_run_agent_loop (text ,images ,this_stream ))
+        current_assistant_task =t 
+        _track_task (t )
+
+    async def _run_agent_loop (text :str ,images :list ,this_stream :int ):
+        await _send_json ({"type":"chat_start","role":"assistant"})
+        await _send_json ({"type":"emotion","emotion":"neutral"})
+        await _send_json ({"type":"expression","expression":"neutral"})
+
+        tts_tasks =[]
         try :
-            asyncio .run_coroutine_threadsafe (
-            _send_json ({"type":"wake_word_detected","word":word }),
-            asyncio .get_running_loop ()
-            )
+            full_response =""
+            sentence_buffer =""
+            sentence_idx =0 
+            current_emotion ="neutral"
+
+            char_id =settings ().get ("character.active","default")
+            rel_context =relationship ().get_context_string (char_id )
+
+            async for item in agent ().handle_user_input (text ,images =images ,relationship_context =rel_context ):
+
+                if this_stream !=current_stream_idx :
+                    break 
+
+                if isinstance (item ,tuple )and item [0 ]=='__emotion__':
+                    current_emotion =item [1 ]
+                    await _send_json ({"type":"emotion","emotion":current_emotion })
+                    continue 
+                if isinstance (item ,tuple )and item [0 ]=='__expression__':
+                    await _send_json ({"type":"expression","expression":item [1 ]})
+                    continue 
+                if isinstance (item ,tuple )and item [0 ]=='__thinking__':
+                    await _send_json ({"type":"thinking","text":item [1 ]})
+                    continue 
+                if isinstance (item ,tuple )and item [0 ]=='__animation__':
+                    anim_name =item [1 ]
+                    await _send_json ({"type":"animation","name":anim_name ,"url":f"/characters/{char_id }/anim/{anim_name }.vrma"})
+                    continue 
+                if isinstance (item ,tuple )and item [0 ]=='__avatar__':
+                    try :
+                        av =json .loads (item [1 ])
+                        av_type =av .get ("type")if isinstance (av ,dict )else None 
+                        if av_type =="emotion":
+                            current_emotion =av .get ("emotion","neutral")
+                            await _send_json ({"type":"emotion","emotion":current_emotion })
+                        elif av_type =="expression":
+                            await _send_json ({"type":"expression","expression":av .get ("expression","neutral")})
+                        elif av_type =="roleplay":
+                            action =av .get ("action","")
+                            rp_text =f"*{action }* "
+                            full_response +=rp_text 
+                            sentence_buffer +=rp_text 
+                            anim_url =_resolve_animation (action ,char_id )
+                            await _send_json ({"type":"roleplay","text":action ,"animation_url":anim_url })
+                    except Exception :
+                        pass 
+                    continue 
+                if isinstance (item ,tuple )and item [0 ]=='__tool__':
+                    await _send_json ({"type":"tool_call","text":item [1 ]})
+                    continue 
+                if isinstance (item ,tuple )and item [0 ]=='__error__':
+                    await _send_json ({
+                    "type":"chat_append","role":"assistant",
+                    "text":_normalize_error (str (item [1 ])),"finished":True ,"error":True 
+                    })
+                    return 
+                if isinstance (item ,tuple )and item [0 ]=='__permission__':
+                    await _send_json ({"type":"permission_request","command":item [1 ]})
+                    continue 
+                if isinstance (item ,tuple )and item [0 ]=='__roleplay__':
+                    rp_text =f"*{item [1 ]}* "
+                    full_response +=rp_text 
+                    sentence_buffer +=rp_text 
+                    anim_url =_resolve_animation (item [1 ],char_id )
+                    await _send_json ({"type":"roleplay","text":item [1 ],"animation_url":anim_url })
+                    continue 
+
+                token =item 
+                full_response +=token 
+                sentence_buffer +=token 
+                await _send_json ({"type":"chat_append","role":"assistant","text":token ,"finished":False })
+
+                if voice_output_enabled and re .search (r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}',sentence_buffer ):
+                    parts =re .split (r'(?<=[.!?。！？])\s',sentence_buffer )
+                    if len (parts )>1 :
+                        complete =parts [0 ].strip ()
+                        sentence_buffer =' '.join (parts [1 :])
+                        if complete :
+                            await _send_json ({"type":"voice_state","state":"speaking"})
+                            t =asyncio .create_task (synthesize_sentence (
+                            complete ,sentence_idx ,this_stream ,current_stream_idx ,
+                            websocket ,current_emotion ))
+                            _track_task (t )
+                            tts_tasks .append (t )
+                            sentence_idx +=1 
+
+            if full_response .strip ()and this_stream ==current_stream_idx :
+                try :
+                    relationship ().analyze_message ("user",text ,char_id )
+                    relationship ().analyze_message ("assistant",full_response ,char_id )
+                except Exception as e :
+                    logger .warning (f"Relationship tracking error: {e }")
+
+            if this_stream ==current_stream_idx :
+                await _send_json ({"type":"viseme","value":0.0 })
+                if voice_output_enabled and sentence_buffer .strip ():
+                    await _send_json ({"type":"voice_state","state":"speaking"})
+                    t =asyncio .create_task (synthesize_sentence (
+                    sentence_buffer .strip (),sentence_idx ,this_stream ,
+                    current_stream_idx ,websocket ,current_emotion ))
+                    _track_task (t )
+                    tts_tasks .append (t )
+                    sentence_idx +=1 
+
+                await _send_json ({"type":"emotion","emotion":"neutral"})
+                await _send_json ({"type":"expression","expression":"neutral"})
+                await _send_json ({"type":"chat_append","role":"assistant","text":"","finished":True })
+
+                if tts_tasks :
+                    await asyncio .gather (*tts_tasks ,return_exceptions =True )
+                    if this_stream ==current_stream_idx :
+                        await _send_json ({"type":"voice_state","state":"idle"})
+
+        except asyncio .CancelledError :
+            logger .debug (f"Agent loop for stream {this_stream } cancelled")
+            for t in tts_tasks :
+                if not t .done ():t .cancel ()
+            raise 
         except Exception as e :
-            logger .error (f"Wake word send failed: {e }")
+            logger .error (f"Agent error in loop: {e }")
+            await _send_json ({
+            "type":"chat_append","role":"assistant",
+            "text":f"Error: {_normalize_error (str (e ))}","finished":True ,"error":True 
+            })
 
-    def _track_task (t :asyncio .Task ):
-        pending_tasks .add (t )
-        t .add_done_callback (pending_tasks .discard )
-
-    async def _send_json (data :dict ):
-        """Send JSON, raising WebSocketDisconnect and breaking on any failure."""
-        try :
-            await websocket .send_json (data )
-        except WebSocketDisconnect :
-            raise 
-        except Exception :
-            logger .warning ("send_json failed — connection likely dead")
-            raise 
-
-    try :
-        await _send_json ({
-        "type":"session",
-        "id":memory ().get_current_session ()
-        })
-    except Exception :
-        pass 
 
     try :
         while True :
@@ -150,6 +266,11 @@ async def handle_chat (websocket :WebSocket ):
                             _main_loop =asyncio .get_running_loop ()
 
                             def on_transcription (text ):
+                                logger .info (f"Voice loop transcription: {text }")
+                                asyncio .run_coroutine_threadsafe (
+                                _process_assistant_response (text ),
+                                _main_loop 
+                                )
                                 try :
                                     asyncio .run_coroutine_threadsafe (
                                     _send_json ({"type":"user_message_from_voice","text":text }),
@@ -159,14 +280,8 @@ async def handle_chat (websocket :WebSocket ):
                                     logger .error (f"Voice transcription send failed: {e }")
 
                             def on_speech_start ():
-                                if voice_output_enabled :
-                                    try :
-                                        asyncio .run_coroutine_threadsafe (
-                                        _send_json ({"type":"tts_interrupt"}),
-                                        _main_loop 
-                                        )
-                                    except Exception as e :
-                                        logger .debug (f"Interrupt send failed (expected if already stopped): {e }")
+                                logger .debug ("User speech started - interrupting assistant")
+                                asyncio .run_coroutine_threadsafe (_cancel_assistant (),_main_loop )
 
                             voice_cfg =settings ()
                             voice_pipeline =VoicePipeline (
@@ -342,155 +457,8 @@ async def handle_chat (websocket :WebSocket ):
                 images =data .get ("images",None )
                 if not text and not images :
                     continue 
+                await _process_assistant_response (text ,images )
 
-                current_stream_idx +=1 
-                this_stream =current_stream_idx 
-
-                await _send_json ({"type":"chat_start","role":"assistant"})
-                await _send_json ({"type":"emotion","emotion":"neutral"})
-                await _send_json ({"type":"expression","expression":"neutral"})
-
-                tts_tasks =[]
-
-                try :
-                    full_response =""
-                    sentence_buffer =""
-                    sentence_idx =0 
-                    current_emotion ="neutral"
-                    lipsync_on =settings ().get ("voice.lipsync_enabled",True )
-
-                    if voice_output_enabled :
-                        char =settings ().get_active_character ()
-                        if tts ().engine !="openvoice":
-                            char_voice =char .get ("voice","en-US-AriaNeural")if char else "en-US-AriaNeural"
-                            if tts ().voice !=char_voice :
-                                tts ().voice =char_voice 
-
-                    char_id =settings ().get ("character.active","default")
-                    rel_context =relationship ().get_context_string (char_id )
-                    logger .debug (f"ws:user_message - calling agent.handle_user_input for char_id={char_id }, text={text [:50 ]}")
-
-                    item_count =0 
-                    had_error =False 
-                    async for item in agent ().handle_user_input (text ,images =images ,relationship_context =rel_context ):
-                        item_count +=1 
-                        logger .debug (f"ws:item received #{item_count }: {type (item ).__name__ } = {item [:50 ]if isinstance (item ,str )else item }")
-                        if isinstance (item ,tuple )and item [0 ]=='__emotion__':
-                            current_emotion =item [1 ]
-                            await _send_json ({"type":"emotion","emotion":current_emotion })
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__expression__':
-                            await _send_json ({"type":"expression","expression":item [1 ]})
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__thinking__':
-                            await _send_json ({"type":"thinking","text":item [1 ]})
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__animation__':
-                            anim_name =item [1 ]
-                            await _send_json ({"type":"animation","name":anim_name ,"url":f"/characters/{char_id }/anim/{anim_name }.vrma"})
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__avatar__':
-                            try :
-                                av =json .loads (item [1 ])
-                                av_type =av .get ("type")if isinstance (av ,dict )else None 
-                                if av_type =="emotion":
-                                    current_emotion =av .get ("emotion","neutral")
-                                    await _send_json ({"type":"emotion","emotion":current_emotion })
-                                elif av_type =="expression":
-                                    await _send_json ({"type":"expression","expression":av .get ("expression","neutral")})
-                                elif av_type =="roleplay":
-                                    action =av .get ("action","")
-                                    rp_text =f"*{action }* "
-                                    full_response +=rp_text 
-                                    sentence_buffer +=rp_text 
-                                    anim_url =_resolve_animation (action ,char_id )
-                                    await _send_json ({"type":"roleplay","text":action ,"animation_url":anim_url })
-                            except Exception :
-                                pass 
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__tool__':
-                            await _send_json ({"type":"tool_call","text":item [1 ]})
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__error__':
-                            had_error =True 
-                            await _send_json ({
-                            "type":"chat_append","role":"assistant",
-                            "text":_normalize_error (str (item [1 ])),"finished":True ,"error":True 
-                            })
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__permission__':
-                            await _send_json ({"type":"permission_request","command":item [1 ]})
-                            continue 
-                        if isinstance (item ,tuple )and item [0 ]=='__roleplay__':
-                            rp_text =f"*{item [1 ]}* "
-                            full_response +=rp_text 
-                            sentence_buffer +=rp_text 
-
-                            anim_url =_resolve_animation (item [1 ],char_id )
-                            await _send_json ({"type":"roleplay","text":item [1 ],"animation_url":anim_url })
-                            continue 
-
-                        token =item 
-                        full_response +=token 
-                        sentence_buffer +=token 
-                        await _send_json ({
-                        "type":"chat_append","role":"assistant","text":token ,"finished":False 
-                        })
-
-                        if voice_output_enabled and re .search (r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}',sentence_buffer ):
-                            parts =re .split (r'(?<=[.!?。！？])\s',sentence_buffer )
-                            if len (parts )>1 :
-                                complete =parts [0 ].strip ()
-                                sentence_buffer =' '.join (parts [1 :])
-                                if complete :
-                                    await _send_json ({"type":"voice_state","state":"speaking"})
-                                    t =asyncio .create_task (synthesize_sentence (
-                                    complete ,sentence_idx ,this_stream ,current_stream_idx ,
-                                    websocket ,current_emotion ))
-                                    _track_task (t )
-                                    tts_tasks .append (t )
-                                    sentence_idx +=1 
-
-                    if full_response .strip ():
-                        try :
-                            relationship ().analyze_message ("user",text ,char_id )
-                            relationship ().analyze_message ("assistant",full_response ,char_id )
-                        except Exception as e :
-                            logger .warning (f"Relationship tracking error: {e }")
-
-                    await _send_json ({"type":"viseme","value":0.0 })
-
-                    if voice_output_enabled and sentence_buffer .strip ():
-                        await _send_json ({"type":"voice_state","state":"speaking"})
-                        t =asyncio .create_task (synthesize_sentence (
-                        sentence_buffer .strip (),sentence_idx ,this_stream ,
-                        current_stream_idx ,websocket ,current_emotion ))
-                        _track_task (t )
-                        tts_tasks .append (t )
-                        sentence_idx +=1 
-
-                except (WebSocketDisconnect ,asyncio .CancelledError ):
-                    raise 
-                except Exception as e :
-                    logger .error (f"Agent error: {e }, item_count={item_count if 'item_count'in locals ()else 'unknown'}")
-                    for t in tts_tasks :
-                        if not t .done ():
-                            t .cancel ()
-                    error_text =_normalize_error (str (e ))
-                    await _send_json ({
-                    "type":"chat_append","role":"assistant",
-                    "text":f"Error: {error_text }","finished":True ,"error":True 
-                    })
-                else :
-                    if not had_error :
-                        await _send_json ({"type":"emotion","emotion":"neutral"})
-                        await _send_json ({"type":"expression","expression":"neutral"})
-                        await _send_json ({
-                        "type":"chat_append","role":"assistant","text":"","finished":True 
-                        })
-                    if tts_tasks :
-                        await asyncio .gather (*tts_tasks ,return_exceptions =True )
-                        await _send_json ({"type":"voice_state","state":"idle"})
 
     except WebSocketDisconnect :
         logger .warning ("Chat WebSocket disconnected")
