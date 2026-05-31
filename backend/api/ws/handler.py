@@ -87,6 +87,15 @@ async def handle_chat(websocket: WebSocket):
 
     current_assistant_task: asyncio.Task | None = None
     current_stream_idx: int = 0
+    voice_output_enabled: bool = False
+    voice_pipeline = None
+    voice_task = None
+    wake_word_enabled: bool = False
+    pending_tasks: list[asyncio.Task] = []
+
+    def _track_task(t: asyncio.Task):
+        pending_tasks.append(t)
+        t.add_done_callback(pending_tasks.remove)
 
     async def _cancel_assistant():
         nonlocal current_assistant_task, current_stream_idx

@@ -80,7 +80,7 @@ class VoicePipeline :
         recording =bytearray ()
         is_recording =False 
         silence_frames =0 
-        frame_size =self ._settings .get ("voice.vad_frame_size",960 )
+        frame_size =self ._settings .get ("voice.vad_frame_size",480 )
         energy_threshold =self ._settings .get ("voice.vad_energy_threshold",0.02 )
         max_silence_frames =self ._settings .get ("voice.vad_silence_frames",33 )
 

@@ -29,7 +29,7 @@ class Memory:
         self.settings = settings
         self.conv_dir = Path(db_path) if db_path else CONVERSATIONS_DIR
         self.conv_dir.mkdir(parents=True, exist_ok=True)
-        self.summarizing = False
+        self._summarize_lock = asyncio.Lock()
         self._current_session: Optional[str] = None
         self._known_sessions: set = set()
         self._lock = threading.Lock()
@@ -437,57 +437,59 @@ class Memory:
                 self._write_sync(session_id, data)
 
     async def check_and_summarize(self):
-        if self.summarizing or not self.llm:
+        if not self.llm:
+            return
+        if self._summarize_lock.locked():
             return
 
-        threshold = self._setting("memory.summarize_threshold", 40)
-        keep = self._setting("memory.summarize_keep", 15)
-        session_id = self.get_current_session()
+        async with self._summarize_lock:
+            threshold = self._setting("memory.summarize_threshold", 40)
+            keep = self._setting("memory.summarize_keep", 15)
+            session_id = self.get_current_session()
 
-        data = self._read_sync(session_id)
-        if data is None:
-            return
+            with self._lock:
+                data = self._read_sync(session_id)
+            if data is None:
+                return
 
-        count = len(data.get("messages", []))
-        if count <= threshold:
-            return
+            count = len(data.get("messages", []))
+            if count <= threshold:
+                return
 
-        self.summarizing = True
-        try:
-            await self._prune_tool_outputs(session_id)
+            try:
+                await self._prune_tool_outputs(session_id)
 
-            data = self._read_sync(session_id)
-            msgs = data["messages"]
-            to_summarize = msgs[:-keep] if keep < len(msgs) else msgs
-
-            existing = data.get("summary") or ""
-            context_hint = f"\nPrevious summary:\n{existing}" if existing else ""
-
-            chat_log = "\n".join(f"{m['role']}: {m['content']}" for m in to_summarize)
-            prompt = (
-                "Analyze the following conversation history and produce a structured compaction summary. "
-                "Focus on preserving actionable information: decisions, file paths, commands, user preferences, and next steps. "
-                "Use these sections:\n"
-                "# Decisions\n# File Paths\n# Commands\n# Preferences\n# Next Steps\n"
-                f"Conversation:\n{chat_log}\n{context_hint}\n\nCompacted summary:"
-            )
-            summary = await self.llm.generate([{"role": "user", "content": prompt}])
-
-            from backend.core.plugin import get_registry as get_plugin_registry
-            summary = await get_plugin_registry().hook_compaction(summary or "")
-
-            if summary and not summary.startswith("Error"):
                 with self._lock:
                     data = self._read_sync(session_id)
-                    if data:
-                        if keep < len(data["messages"]):
-                            data["messages"] = data["messages"][-keep:]
-                        data["summary"] = summary
-                        self._write_sync(session_id, data)
-        except Exception as e:
-            logger.error(f"Compaction failed: {e}")
-        finally:
-            self.summarizing = False
+                msgs = data["messages"]
+                to_summarize = msgs[:-keep] if keep < len(msgs) else msgs
+
+                existing = data.get("summary") or ""
+                context_hint = f"\nPrevious summary:\n{existing}" if existing else ""
+
+                chat_log = "\n".join(f"{m['role']}: {m['content']}" for m in to_summarize)
+                prompt = (
+                    "Analyze the following conversation history and produce a structured compaction summary. "
+                    "Focus on preserving actionable information: decisions, file paths, commands, user preferences, and next steps. "
+                    "Use these sections:\n"
+                    "# Decisions\n# File Paths\n# Commands\n# Preferences\n# Next Steps\n"
+                    f"Conversation:\n{chat_log}\n{context_hint}\n\nCompacted summary:"
+                )
+                summary = await self.llm.generate([{"role": "user", "content": prompt}])
+
+                from backend.core.plugin import get_registry as get_plugin_registry
+                summary = await get_plugin_registry().hook_compaction(summary or "")
+
+                if summary and not summary.startswith("Error"):
+                    with self._lock:
+                        data = self._read_sync(session_id)
+                        if data:
+                            if keep < len(data["messages"]):
+                                data["messages"] = data["messages"][-keep:]
+                            data["summary"] = summary
+                            self._write_sync(session_id, data)
+            except Exception as e:
+                logger.error(f"Compaction failed: {e}")
 
     async def clear(self):
         try:

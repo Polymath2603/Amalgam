@@ -47,7 +47,7 @@ TOOL_CAPABLE ={
 
 
 CONTEXT_LIMITS ={
-"groq":3000 ,
+"groq":32768 ,
 "llamacpp":4096 ,
 "koboldai":4096 ,
 }
@@ -284,7 +284,23 @@ class LiteLLMProvider :
                                 }
                         pending_tool_calls .clear ()
 
-                return 
+                if pending_tool_calls :
+                    for idx in sorted (pending_tool_calls .keys ()):
+                        pt =pending_tool_calls [idx ]
+                        if pt ["id"]and pt ["name"]:
+                            try :
+                                args =json .loads (pt ["arguments"])if pt ["arguments"]else {}
+                            except json .JSONDecodeError :
+                                args ={}
+                            yield {
+                            "type":"tool_use",
+                            "id":pt ["id"],
+                            "name":pt ["name"],
+                            "arguments":args ,
+                            }
+                    pending_tool_calls .clear ()
+
+                return
 
             except Exception as e :
                 if _is_rate_limit_error (e )and attempt <_RATE_LIMIT_MAX_RETRIES -1 :

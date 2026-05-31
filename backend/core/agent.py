@@ -254,25 +254,17 @@ class Agent :
                                 for msg in _pending_tool_announce :
                                     yield ("__tool__",msg )
                                 _pending_tool_announce =[]
-                            accumulated +=item 
-                            in_think ='<think>'in accumulated and '</think>'not in accumulated 
+                            accumulated +=item
+                            in_think ='<think>'in accumulated and '</think>'not in accumulated
                             if in_think :
-                                continue 
+                                continue
                             tags =list (self ._process_tags (accumulated ))
                             cleaned =self ._strip_all_tags (accumulated )
                             for tag_type ,tag_val in tags :
                                 yield (tag_type ,tag_val )
-                            common_len =0 
-                            for a ,b in zip (cleaned ,_last_clean ):
-                                if a ==b :
-                                    common_len +=1 
-                                else :
-                                    break 
-                            delta =cleaned [common_len :]
-                            if delta :
-                                yield delta 
-                            _last_clean =cleaned 
-                            accumulated =cleaned 
+                            if len(cleaned) > len(_last_clean):
+                                yield cleaned[len(_last_clean):]
+                            _last_clean =cleaned
                         elif isinstance (item ,dict )and item .get ("type")=="tool_use":
                             if not _flushed_this_iter :
                                 _flushed_this_iter =True 
@@ -371,25 +363,17 @@ class Agent :
                                     tool_called =True 
                                     break 
                         else :
-                            accumulated +=token 
-                            in_think ='<think>'in accumulated and '</think>'not in accumulated 
+                            accumulated +=token
+                            in_think ='<think>'in accumulated and '</think>'not in accumulated
                             if in_think :
-                                continue 
+                                continue
                             tags =list (self ._process_tags (accumulated ))
                             cleaned =self ._strip_all_tags (accumulated )
                             for tag_type ,tag_val in tags :
                                 yield (tag_type ,tag_val )
-                            common_len =0 
-                            for a ,b in zip (cleaned ,_last_clean ):
-                                if a ==b :
-                                    common_len +=1 
-                                else :
-                                    break 
-                            delta =cleaned [common_len :]
-                            if delta :
-                                yield delta 
+                            if len(cleaned) > len(_last_clean):
+                                yield cleaned[len(_last_clean):]
                             _last_clean =cleaned 
-                            accumulated =cleaned 
 
                 if not tool_called :
                     if accumulated .strip ():

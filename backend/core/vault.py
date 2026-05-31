@@ -44,10 +44,11 @@ class VaultManager:
         if not self._vault_path.exists():
             return []
         files = []
-        for f in sorted(self._vault_path.iterdir()):
+        for f in sorted(self._vault_path.rglob("*")):
             if f.is_file():
+                rel = str(f.relative_to(self._vault_path))
                 files.append({
-                    "name": f.name,
+                    "name": rel,
                     "size": f.stat().st_size,
                     "modified": f.stat().st_mtime,
                 })
@@ -105,8 +106,8 @@ class VaultManager:
         query_words = set(query_lower.split())
         scored = []
 
-        for f in self._vault_path.iterdir():
-            if not f.is_file() or not f.name.endswith(".md"):
+        for f in self._vault_path.rglob("*.md"):
+            if not f.is_file():
                 continue
             try:
                 content = f.read_text(encoding="utf-8")
@@ -151,8 +152,8 @@ class VaultManager:
             return []
         pattern = re.compile(rf'#\s*{re.escape(tag)}\b', re.IGNORECASE)
         results = []
-        for f in self._vault_path.iterdir():
-            if not f.is_file() or not f.name.endswith(".md"):
+        for f in self._vault_path.rglob("*.md"):
+            if not f.is_file():
                 continue
             try:
                 content = f.read_text(encoding="utf-8")
@@ -313,8 +314,8 @@ class VaultManager:
 
         chars_budget = max_tokens * 4
 
-        for f in sorted(self._vault_path.iterdir()):
-            if not f.is_file() or not f.name.endswith(".md"):
+        for f in sorted(self._vault_path.rglob("*.md")):
+            if not f.is_file():
                 continue
             try:
                 content = f.read_text(encoding="utf-8").strip()
