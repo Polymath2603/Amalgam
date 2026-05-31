@@ -1,20 +1,27 @@
 import os
 import logging
-from string import Template
 from typing import List, Dict
 
+import jinja2
 from backend.core.paths import PROJECT_ROOT, VAULT_DIR, CHARACTERS_DIR
 from backend.core.vault import VaultManager
 from backend.core.utils.tokens import estimate_tokens, truncate_to_token_limit
 
 logger = logging.getLogger(__name__)
 
+_jinja_env = jinja2.Environment(
+    loader=jinja2.BaseLoader(),
+    undefined=jinja2.Undefined,
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
+
 VRM_EXPRESSIONS = ["happy", "angry", "sad", "relaxed", "surprised", "blink"]
 
 
 _PROMPT_TEMPLATE = """\
 
-$identity
+{{ identity }}
 
 Your responses are displayed as chat messages in a web UI.
 - The user communicates via text or voice input
@@ -25,10 +32,10 @@ Your responses are displayed as chat messages in a web UI.
 - You can use connected tools to interact with the local system
 - You have access to conversation history within the current session — refer back to earlier topics when relevant
 
-$avatar_section
+{{ avatar_section }}
 
 
-$character_style
+{{ character_style }}
 
 - **Consult your Vault for persistent rules (`rules.md`).** The vault contains your core instructions for formatting, tool usage, safety, and edge cases. You must strictly adhere to them.
 - Use tools for actions; use text output only for communication.
@@ -181,12 +188,12 @@ journal/              — personal diary entries
 - **Review periodically**: at the start of a session, `search-vault` for notes relevant to the user's context
 
 
-$relationship_section\
-$vault_rules\
-$tool_section\
-$summary_section\
-$relevant_section\
-$reasoning_note\
+{{ relationship_section }}\
+{{ vault_rules }}\
+{{ tool_section }}\
+{{ summary_section }}\
+{{ relevant_section }}\
+{{ reasoning_note }}\
 """
 
 
@@ -270,7 +277,7 @@ class ContextBuilder:
             character_id = self.settings.get("character.active", "default")
         character = self._characters.get(character_id, {})
 
-        sys_prompt = self._build_character_prompt(
+        char_ctx = self._build_character_prompt(
             character, additional_prompt, character_id, tools
         )
 
@@ -279,7 +286,9 @@ class ContextBuilder:
         relevant_section = self._build_relevant_section(relevant)
         relationship_section = self._build_relationship_section(relationship_context)
 
-        sys_prompt = Template(sys_prompt).safe_substitute(
+        template = _jinja_env.from_string(_PROMPT_TEMPLATE)
+        sys_prompt = template.render(
+            **char_ctx,
             tool_section=tool_section,
             summary_section=summary_section,
             relevant_section=relevant_section,
@@ -451,18 +460,13 @@ class ContextBuilder:
         else:
             reasoning_note = "\n\nFor reasoning models, use <think>your reasoning</think> before your response."
 
-        rendered = Template(_PROMPT_TEMPLATE).safe_substitute(
-            identity=identity,
-            avatar_section=avatar_section,
-            character_style=character_style,
-            vault_rules=vault_rules,
-            tool_section="$tool_section",
-            summary_section="$summary_section",
-            relevant_section="$relevant_section",
-            relationship_section="$relationship_section",
-            reasoning_note=reasoning_note,
-        )
-        return rendered
+        return {
+            "identity": identity,
+            "avatar_section": avatar_section,
+            "character_style": character_style,
+            "vault_rules": vault_rules,
+            "reasoning_note": reasoning_note,
+        }
 
     def build_from_messages(self, messages: list, new_user_msg: str) -> list:
         messages.append({"role": "user", "content": new_user_msg})
