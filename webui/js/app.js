@@ -1515,7 +1515,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await api(BASE_URL + '/api/settings/set', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key: 'avatar.model_path', value: vrmPath.replace(/^\
+                    body: JSON.stringify({ key: 'avatar.model_path', value: vrmPath.replace(/^\/+/, '') })
                 });
                 showToast(`Switched to ${c.name || id}`);
             });
