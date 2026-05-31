@@ -1,4 +1,4 @@
-# K
+# Amalgam
 
 A voice-first AI companion with 3D VRM avatar, MCP tool integration, multi-provider LLM support, extensible skills, and persistent memory.
 
