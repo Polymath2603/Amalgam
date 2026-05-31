@@ -1,13 +1,17 @@
-import sqlite3 
-import json 
-import math 
-import os 
-import asyncio 
-import concurrent .futures 
-import logging 
-import re 
-from datetime import datetime ,timezone 
-from typing import Dict 
+import sqlite3
+import json
+import math
+import os
+import asyncio
+import concurrent.futures
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Dict
+
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+_VADER = SentimentIntensityAnalyzer()
 
 logger =logging .getLogger (__name__ )
 
@@ -114,16 +118,11 @@ class Relationship :
             stats ["avg_sentiment"]=0.5 +(stats ["avg_sentiment"]-0.5 )*factor 
             stats ["avg_depth"]=stats ["avg_depth"]*factor 
 
-    def _analyze_sentiment (self ,text :str )->float :
-        words =set (re .sub (r'[^a-zA-Z\s]','',text .lower ()).split ())
-        if not words :
-            return 0.5 
-        pos =len (words &POSITIVE_WORDS )
-        neg =len (words &NEGATIVE_WORDS )
-        total =pos +neg 
-        if total ==0 :
-            return 0.5 
-        return pos /total 
+    def _analyze_sentiment(self, text: str) -> float:
+        if not text or not text.strip():
+            return 0.5
+        compound = _VADER.polarity_scores(text)["compound"]
+        return (compound + 1.0) / 2.0
 
     def _analyze_depth (self ,text :str )->float :
         words =set (re .sub (r'[^a-zA-Z\s]','',text .lower ()).split ())

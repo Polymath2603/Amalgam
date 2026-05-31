@@ -11,6 +11,7 @@ from typing import List, Dict, Optional
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
+from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,10 @@ class VaultManager:
         self._vault_path = Path(vault_path)
         self._chroma = None
         self._chroma_col = None
-        self._index_mtime: Dict[str, float] = {}  
+        self._index_mtime: Dict[str, float] = {}
+        self._bm25 = None
+        self._bm25_docs = []
+        self._bm25_mtimes = {}
         if embeddings_path:
             ep = Path(embeddings_path)
             ep.mkdir(parents=True, exist_ok=True)
@@ -95,40 +99,63 @@ class VaultManager:
             logger.error(f"Failed to delete vault file {filename}: {e}")
             return False
 
-    def search(self, query: str, max_results: int = 5) -> List[Dict]:
-        """Simple keyword search across all markdown files in the vault.
-        
-        Returns up to max_results file snippets ranked by keyword density.
-        """
+    def _build_bm25_index(self):
+        """Build or rebuild the BM25 index from vault files. Cached with mtime invalidation."""
         if not self._vault_path.exists():
-            return []
-        query_lower = query.lower()
-        query_words = set(query_lower.split())
-        scored = []
+            self._bm25 = None
+            self._bm25_docs = []
+            self._bm25_mtimes = {}
+            return
 
+        current_mtimes = {}
         for f in self._vault_path.rglob("*.md"):
-            if not f.is_file():
-                continue
+            if f.is_file():
+                current_mtimes[str(f.relative_to(self._vault_path))] = f.stat().st_mtime
+
+        if current_mtimes == self._bm25_mtimes and hasattr(self, '_bm25') and self._bm25 is not None:
+            return
+
+        self._bm25_docs = []
+        tokenized_corpus = []
+        for rel_path, mtime in current_mtimes.items():
             try:
-                content = f.read_text(encoding="utf-8")
+                content = (self._vault_path / rel_path).read_text(encoding="utf-8")
             except Exception:
                 continue
-            content_lower = content.lower()
+            tokens = content.lower().split()
+            self._bm25_docs.append({"path": rel_path, "content": content})
+            tokenized_corpus.append(tokens)
 
-            matches = sum(1 for w in query_words if w in content_lower)
-            if matches == 0:
-                continue
+        if tokenized_corpus:
+            self._bm25 = BM25Okapi(tokenized_corpus)
+        else:
+            self._bm25 = None
+        self._bm25_mtimes = current_mtimes
 
-            word_count = len(content_lower.split())
-            density = matches / max(word_count, 1)
-            score = density * 100 + matches * 10
+    def search(self, query: str, max_results: int = 5) -> List[Dict]:
+        """BM25 search across all markdown files in the vault."""
+        self._build_bm25_index()
+        if not self._bm25 or not self._bm25_docs:
+            return []
+
+        query_tokens = query.lower().split()
+        scores = self._bm25.get_scores(query_tokens)
+
+        ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+        results = []
+        for idx, score in ranked[:max_results]:
+            if score <= 0:
+                break
+            doc = self._bm25_docs[idx]
+            content = doc["content"]
 
             snippet = ""
-            for word in query_words:
-                idx = content_lower.find(word)
-                if idx != -1:
-                    start = max(0, idx - 60)
-                    end = min(len(content), idx + len(word) + 60)
+            query_lower = query.lower()
+            for word in query_lower.split():
+                ci = content.lower().find(word)
+                if ci != -1:
+                    start = max(0, ci - 60)
+                    end = min(len(content), ci + len(word) + 60)
                     snippet = content[start:end].strip()
                     if start > 0:
                         snippet = "..." + snippet
@@ -136,15 +163,14 @@ class VaultManager:
                         snippet = snippet + "..."
                     break
 
-            scored.append({
-                "filename": f.name,
-                "score": round(score, 1),
+            results.append({
+                "filename": doc["path"],
+                "score": round(float(score), 1),
                 "snippet": snippet or content[:200],
-                "size": f.stat().st_size,
+                "size": len(content.encode("utf-8")),
             })
 
-        scored.sort(key=lambda x: x["score"], reverse=True)
-        return scored[:max_results]
+        return results
 
     def tag_search(self, tag: str, max_results: int = 10) -> List[Dict]:
         """Search for files containing a specific tag."""
