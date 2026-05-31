@@ -101,6 +101,7 @@ class VaultManager:
 
     def _build_bm25_index(self):
         """Build or rebuild the BM25 index from vault files. Cached with mtime invalidation."""
+        self._vault_path.mkdir(parents=True, exist_ok=True)
         if not self._vault_path.exists():
             self._bm25 = None
             self._bm25_docs = []
@@ -144,8 +145,6 @@ class VaultManager:
         ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
         results = []
         for idx, score in ranked[:max_results]:
-            if score <= 0:
-                break
             doc = self._bm25_docs[idx]
             content = doc["content"]
 
