@@ -4,10 +4,27 @@ Runs in-process (direct) or connects to a remote gRPC server.
 """
 import asyncio 
 import argparse 
+import logging 
+import os 
 import sys 
 
-from backend .core .log_config import configure_logging 
-logger =configure_logging ()
+os .environ ["HF_HUB_DISABLE_SYMLINKS_WARNING"]="1"
+os .environ ["HF_TOKEN"]=""
+logging .getLogger ("huggingface_hub").setLevel (logging .ERROR )
+logging .getLogger ("huggingface_hub.utils._http").setLevel (logging .ERROR )
+logging .getLogger ("urllib3").setLevel (logging .ERROR )
+logging .getLogger ("httpx").setLevel (logging .ERROR )
+logging .getLogger ("httpcore").setLevel (logging .ERROR )
+logging .getLogger ("chromadb").setLevel (logging .ERROR )
+logging .getLogger ("asyncio").setLevel (logging .ERROR )
+logging .getLogger ("mcp.os.posix.utilities").setLevel (logging .ERROR )
+
+_COMMANDS =[
+"/exit","/clear","/new","/session","/status",
+"/compact","/provider","/model","/companion","/help",
+]
+
+_HISTFILE =os .path .join (os .path .expanduser ("~"),".amalgam_history")
 
 
 def _make_console ():
@@ -29,6 +46,22 @@ def _show_banner (console ,session_id ,provider ,model ):
     console .print ("[dim]Type /exit to quit, /new for new session, /help for commands[/dim]\n")
 
 
+def _setup_readline ():
+    import readline 
+    try :
+        readline .read_history_file (_HISTFILE )
+    except FileNotFoundError :
+        pass 
+    readline .set_history_length (1000 )
+
+    def complete (text ,state ):
+        opts =[c for c in _COMMANDS if c .startswith (text )]
+        return opts [state ]if state <len (opts )else None 
+
+    readline .parse_and_bind ("tab: complete")
+    readline .set_completer (complete )
+
+
 async def run_cli_direct ():
     """Run the agent directly in-process (no gRPC needed)."""
     from backend .core .startup import init_application ,shutdown_application 
@@ -40,6 +73,7 @@ async def run_cli_direct ():
     agent =shared ["agent"]
     memory =shared ["memory"]
     settings =shared ["settings"]
+    _voice_active =[False ]
 
     session_id =memory .start_session ()
     active =settings .get ("provider.active","?")
@@ -47,13 +81,20 @@ async def run_cli_direct ():
     con =_make_console ()
     _show_banner (con ,session_id ,active ,model )
 
+    _setup_readline ()
+
     try :
         while True :
+            sys .stdout .write ("> ")
+            sys .stdout .flush ()
             try :
-                text =con .input ("[bold cyan]>[/bold cyan] ").strip ()
-            except (EOFError ,KeyboardInterrupt ):
+                text =input ().strip ()
+            except EOFError :
                 con .print ()
                 break 
+            except KeyboardInterrupt :
+                con .print ()
+                continue 
 
             if not text :
                 continue 
@@ -61,8 +102,11 @@ async def run_cli_direct ():
             if text =="/exit":
                 break 
             elif text =="/new":
+                con .clear ()
                 session_id =memory .start_session ()
-                con .print (f"[green]New session:[/green] {session_id [:16 ]}...")
+                active =settings .get ("provider.active","?")
+                model =settings .get (f"provider.{active }.model","?")
+                _show_banner (con ,session_id ,active ,model )
                 continue 
             elif text =="/help":
                 from rich .table import Table 
@@ -75,15 +119,27 @@ async def run_cli_direct ():
                 ("/clear","Clear conversation history"),
                 ("/new","Start a new session"),
                 ("/session","Show current session ID"),
-                ("/status","Show provider, model, session info"),
-                ("/compact","Force memory compaction"),
-                ("/provider <name>","Switch AI provider"),
-                ("/model <name>","Switch model for current provider"),
-                ("/help","Show this help"),
+                 ("/status","Show provider, model, session info"),
+                 ("/compact","Force memory compaction"),
+                 ("/provider <name>","Switch AI provider"),
+                 ("/model <name>","Switch model for current provider"),
+                 ("/companion","Toggle companion mode (voice + avatar)"),
                 ]:
                     tbl .add_row (*row )
                 con .print (tbl )
                 continue 
+            elif text =="/companion":
+                _voice_active [0 ]=not _voice_active [0 ]
+                if _voice_active [0 ]:
+                    settings .set ("voice.input_enabled",True )
+                    settings .set ("voice.output_enabled",True )
+                    con .print ("[green]Companion mode ON[/green]")
+                else :
+                    settings .set ("voice.input_enabled",False )
+                    settings .set ("voice.output_enabled",False )
+                    con .print ("[red]Companion mode OFF[/red]")
+                continue 
+
             elif text =="/clear":
                 await memory .clear ()
                 memory .start_session ()
@@ -128,6 +184,10 @@ async def run_cli_direct ():
                     con .print (f"Current model: {settings .get (f'provider.{provider }.model','?')}")
                 continue 
 
+            if text .startswith ("/"):
+                con .print (f"[red]Unknown command:[/red] {text }")
+                continue 
+
             from rich .panel import Panel 
             async for chunk in agent .handle_user_input (text ):
                 if isinstance (chunk ,tuple ):
@@ -149,6 +209,11 @@ async def run_cli_direct ():
                     con .print (chunk ,end ="")
             con .print ()
     finally :
+        import readline 
+        try :
+            readline .write_history_file (_HISTFILE )
+        except Exception :
+            pass 
         await shutdown_application ()
 
 
@@ -212,12 +277,16 @@ def main ():
     help ="Log output format")
     args ,_ =parser .parse_known_args ()
 
+    from backend .core .log_config import configure_logging 
     logger =configure_logging (level =args .log_level ,log_format =args .log_format )
 
-    if args .grpc :
-        asyncio .run (run_cli_grpc (args .host ,args .port ))
-    else :
-        asyncio .run (run_cli_direct ())
+    try :
+        if args .grpc :
+            asyncio .run (run_cli_grpc (args .host ,args .port ))
+        else :
+            asyncio .run (run_cli_direct ())
+    except KeyboardInterrupt :
+        pass 
 
 
 if __name__ =="__main__":

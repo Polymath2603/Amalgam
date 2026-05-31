@@ -65,6 +65,11 @@ fn show_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
 fn show_notification(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
     app.notification()
         .builder()
@@ -109,7 +114,8 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
 
-            let icon = app.default_window_icon().cloned().unwrap();
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                .expect("Failed to load tray icon");
 
             TrayIconBuilder::new()
                 .icon(icon)
@@ -144,19 +150,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            let is_companion = std::env::var("AMALGAM_MODE").map(|v| v == "companion").unwrap_or(false);
-            if let Some(window) = app.get_webview_window("main") {
-                if is_companion {
-                    let _ = window.set_decorations(false);
-                    let _ = window.set_always_on_top(true);
-                    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 300.0, height: 400.0 }));
-                    
-                    
-                    
-                    let _ = window.eval("window.location.href += '?mode=companion'");
-                }
-            }
-
             let child = if std::env::var("AMALGAM_SKIP_BACKEND").is_ok() {
                 println!("Backend launched externally, skipping");
                 None
@@ -170,7 +163,8 @@ pub fn run() {
             launch_godot,
             get_data_dir,
             show_notification,
-            show_window
+            show_window,
+            exit_app
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

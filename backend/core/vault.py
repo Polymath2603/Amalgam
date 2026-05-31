@@ -146,7 +146,7 @@ class VaultManager:
         return scored[:max_results]
 
     def tag_search(self, tag: str, max_results: int = 10) -> List[Dict]:
-        """Search for files containing a specific 
+        """Search for files containing a specific tag."""
         if not self._vault_path.exists():
             return []
         pattern = re.compile(rf'#\s*{re.escape(tag)}\b', re.IGNORECASE)
@@ -331,7 +331,7 @@ class VaultManager:
                 content = truncate_to_token_limit(content, estimate_tokens(content[:remaining]) or 1)
 
             section_name = f.stem.replace("_", " ").title()
-            sections.append(f"\n\n
+            sections.append(f"\n\n### {section_name}\n{content}")
             chars_used += len(content)
 
         if sections:

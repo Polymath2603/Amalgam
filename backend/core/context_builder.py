@@ -255,7 +255,7 @@ class ContextBuilder:
                             model = f"groq/{model_raw}" if provider == "groq" and not model_raw.startswith("groq/") else model_raw
                     if estimate_tokens(content, model=model) > max_tokens:
                         content = truncate_to_token_limit(content, max_tokens, model=model)
-                    return f"\n\n
+                    return f"\n\n{content}"
             except Exception as e:
                 logger.warning(f"Failed to read rules.md: {e}")
 
@@ -309,7 +309,7 @@ class ContextBuilder:
     def _build_tool_section(self, tools: List[Dict], native_tools_available: bool = False) -> str:
         if not tools:
             return ""
-        lines = ["\n\n
+        lines = ["\n\n### Available Tools"]
         lines.append("You have access to the following tools. Use them when appropriate — do not preemptively refuse to call them. If a tool call is blocked or needs permission, the system will prompt the user automatically.")
         lines.append("You can call multiple tools in sequence — after a tool result arrives, you may call another tool or respond to the user.")
 
@@ -327,16 +327,16 @@ class ContextBuilder:
         has_skills = bool(skill_tools)
 
         if has_skills:
-            lines.append("\n
+            lines.append("\n### Task Tool")
             lines.append("You can spawn a sub-agent for focused, self-contained tasks using the `task` tool. The sub-agent has the same capabilities (MCP tools, LLM) but runs in an isolated context. Use this for tasks independent of the current conversation, such as code reviews, document generation, or research. Returns the sub-agent's complete output.")
-            lines.append("\n
+            lines.append("\n### Skills")
             lines.append("Skills are reusable knowledge files (SKILL.md) you can load on-demand.")
             lines.append("Use `list_skills` to see available skills, then `skill(\"name\")` to load one into context when a task matches its description.")
             lines.append("Use `create_skill` to save useful patterns, conventions, or knowledge as new skills for future reuse.")
             lines.append("Consider loading a relevant skill whenever a task involves a known framework, tool, or domain — the skill content will give you precise guidance.")
 
         for t in other_tools:
-            lines.append(f"\n
+            lines.append(f"\n### {_tool_name(t)}")
             lines.append(_tool_desc(t))
             params = _tool_params(t)
             if params.get('properties'):
@@ -353,12 +353,12 @@ class ContextBuilder:
     def _build_summary_section(self, summary: str) -> str:
         if not summary:
             return ""
-        return f"\n\n
+        return f"\n\n{summary}"
 
     def _build_relevant_section(self, relevant: List[Dict]) -> str:
         if not relevant:
             return ""
-        lines = ["\n\n
+        lines = ["\n\n### Relevant Context"]
         for r in relevant:
             lines.append(f"- {r['role']}: {r['content']}")
         return "\n".join(lines)
@@ -366,7 +366,7 @@ class ContextBuilder:
     def _build_relationship_section(self, relationship_context: str) -> str:
         if not relationship_context:
             return ""
-        return f"\n\n
+        return f"\n\n{relationship_context}"
 
     def _build_character_prompt(self, character: Dict, additional_prompt: str = "",
                                 character_id: str = None, tools: list = None) -> str:
@@ -400,12 +400,12 @@ class ContextBuilder:
         character_style = "\n".join(style_parts) if style_parts else "Be warm, natural, and engaging."
 
         if dialogue_examples:
-            character_style += "\n\n
+            character_style += "\n\n### Dialogue Examples"
             for ex in dialogue_examples:
                 character_style += f'\n- "{ex}"'
 
         if additional_prompt and additional_prompt.strip():
-            character_style += f"\n\n
+            character_style += f"\n\n{additional_prompt}"
 
         anims = self._get_available_animations(character_id)
         if anims:
@@ -423,18 +423,18 @@ class ContextBuilder:
                 "# Avatar Control (use MCP tools instead of text tags)\n"
                 "You control your avatar's expressions, voice emotion, and body animations exclusively through the **avatar** MCP server tools. Do NOT use /[[emotion]] /((expression)) /**action**/ tags — use the tools below instead.\n"
                 "\n"
-                "#
+                "# avatar_set_voice_emotion\n"
                 "Sets the emotional tone of your spoken voice. Call this when your character's emotional state shifts.\n"
                 "Available emotions: happy, sad, angry, surprised, thinking, relaxed, confused, shy, jealous, bored, suspicious, victory, sleep, love, excited\n"
                 "- Use one call per response to set your vocal tone\n"
                 "- Voice emotion is independent of facial expression\n"
                 "\n"
-                "#
+                "# avatar_set_expression\n"
                 "Sets your avatar's facial expression (VRM blend shape) independently of voice emotion.\n"
                 "Available expressions: happy, angry, sad, relaxed, surprised, blink\n"
                 "- Use when your character's face should show an emotion distinct from their voice\n"
                 "\n"
-                "#
+                "# avatar_perform_action\n"
                 "Triggers a full-body gesture or animation. Describe the action naturally.\n"
                 f"{action_notes}\n"
                 "- Use when your character would physically gesture (bow, wave, nod, react)\n"

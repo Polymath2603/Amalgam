@@ -6,6 +6,7 @@ import json
 import os 
 import yaml 
 import logging 
+import threading 
 from typing import Any ,Dict ,List 
 from pathlib import Path 
 from backend .core .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
@@ -411,10 +412,50 @@ BUILTIN_VOICES =[
 
 class Settings :
     def __init__ (self ,path :str =SETTINGS_PATH ):
-        self .path =path 
+        self .path =str (path )
         self .data ={}
         self ._characters =load_characters_from_yaml ()
+        self ._callbacks :list =[]
+        self ._last_mtime :float =0 
+        self ._watcher_thread =None 
+        self ._watcher_stop =threading .Event ()
         self .load ()
+
+    def on_change (self ,callback ):
+        """Register a callback invoked on settings change. Callback receives the updated Settings instance."""
+        self ._callbacks .append (callback )
+
+    def start_watcher (self ):
+        """Start a background thread polling settings.json for changes."""
+        if self ._watcher_thread and self ._watcher_thread .is_alive ():
+            return 
+        try :
+            self ._last_mtime =os .path .getmtime (self .path )
+        except OSError :
+            self ._last_mtime =0 
+        self ._watcher_stop .clear ()
+        self ._watcher_thread =threading .Thread (target =self ._watch_loop ,daemon =True )
+        self ._watcher_thread .start ()
+
+    def stop_watcher (self ):
+        self ._watcher_stop .set ()
+
+    def _watch_loop (self ):
+        while not self ._watcher_stop .is_set ():
+            self ._watcher_stop .wait (2 )
+            if self ._watcher_stop .is_set ():
+                break 
+            try :
+                mtime =os .path .getmtime (self .path )
+            except OSError :
+                continue 
+            if mtime >self ._last_mtime :
+                self ._last_mtime =mtime 
+                old_data =dict (self .data )
+                self .load ()
+                if self .data !=old_data :
+                    logger .info ("Settings file changed, hot-reloading")
+                    self ._fire_callbacks ()
 
     def load (self ):
         if os .path .exists (self .path ):
@@ -468,7 +509,7 @@ class Settings :
                 return default 
         return val 
 
-    def set (self ,dotpath :str ,value :Any ):
+    def set (self ,dotpath :str ,value :Any ,fire_callbacks :bool =True ):
         """Set a nested value using dot notation: 'provider.gemini.api_key'"""
         keys =dotpath .split (".")
         d =self .data 
@@ -478,6 +519,8 @@ class Settings :
             d =d [k ]
         d [keys [-1 ]]=value 
         self .save ()
+        if fire_callbacks :
+            self ._fire_callbacks ()
 
     def get_all (self )->dict :
         return self .data 
@@ -485,6 +528,14 @@ class Settings :
     def update_all (self ,new_data :dict ):
         self .data =self ._deep_merge (self .data ,new_data )
         self .save ()
+        self ._fire_callbacks ()
+
+    def _fire_callbacks (self ):
+        for cb in self ._callbacks :
+            try :
+                cb (self )
+            except Exception as e :
+                logger .error (f"Settings callback failed: {e }")
 
     def get_characters (self )->Dict [str ,Dict ]:
         """Get all available characters (YAML-defined)."""

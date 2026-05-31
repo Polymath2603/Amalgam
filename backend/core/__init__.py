@@ -1,2 +1,2 @@
 
-from backend .core .deps import get_shared 
+# All shared dependencies accessed via backend.core.deps directly.

@@ -1,7 +1,13 @@
 
 const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
-const BASE_URL = IS_TAURI ? 'http:
-const WS_BASE = IS_TAURI ? 'ws:
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey && (e.key === 'q' || e.key === 'd'))) {
+        e.preventDefault();
+        if (window.__TAURI__) { window.__TAURI__.core.invoke('exit_app'); }
+    }
+});
+const BASE_URL = IS_TAURI ? 'http://localhost:8000' : '';
+const WS_BASE = IS_TAURI ? 'ws://localhost:8000' : '';
 
 import { initCustomSelects, syncAllCustomSelects } from './custom-select.js';
 import { t, setLanguage, initI18n, getCurrentLang } from './i18n.js';

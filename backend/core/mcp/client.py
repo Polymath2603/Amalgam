@@ -97,6 +97,10 @@ class MCPClient :
 
         await self ._close_server (name )
         server_env =os .environ .copy ()
+        local_bin =os .path .join (os .path .expanduser ("~"),".local","bin")
+        server_env ["PATH"]=f"{local_bin }:{server_env .get ('PATH','')}"
+        server_env ["COREPACK_ENABLE_STRICT"]="0"
+        server_env ["npm_config_user_agent"]="npm"
         if env :
             server_env .update (env )
 
@@ -124,7 +128,7 @@ class MCPClient :
             await stack .aclose ()
             return False 
         except BaseException as e :
-            logger .error (f"Failed to connect to stdio server {name }: {e }")
+            logger .error (f"Failed to connect to stdio server {name }: [{type (e ).__name__ }] {e }")
             await stack .aclose ()
             if isinstance (e ,(asyncio .CancelledError ,KeyboardInterrupt )):
                 raise 

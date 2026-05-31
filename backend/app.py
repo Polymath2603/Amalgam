@@ -27,6 +27,9 @@ tts as tts_route ,
 from backend .core .paths import DATA_DIR ,CHARACTERS_DIR ,PROJECT_ROOT 
 from backend .core .startup import init_application 
 from backend .core .utils .icon_generator import generate_missing_icons 
+from pathlib import Path 
+
+WEBUI_DIR =PROJECT_ROOT /"webui"
 
 logger =logging .getLogger (__name__ )
 
@@ -75,6 +78,14 @@ def create_app ():
         from backend .core .startup import shutdown_application 
         await shutdown_application ()
 
+    index_path =WEBUI_DIR /"index.html"
+    if index_path .exists ():
+        @app .get ("/{path:path}")
+        async def serve_webui (path :str ):
+            file_path =WEBUI_DIR /path 
+            if file_path .exists ()and file_path .is_file ():
+                return FileResponse (str (file_path ))
+            return FileResponse (str (index_path ))
     return app 
 
 

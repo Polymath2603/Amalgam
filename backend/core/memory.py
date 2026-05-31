@@ -468,7 +468,7 @@ class Memory:
                 "Analyze the following conversation history and produce a structured compaction summary. "
                 "Focus on preserving actionable information: decisions, file paths, commands, user preferences, and next steps. "
                 "Use these sections:\n"
-                "#
+                "# Decisions\n# File Paths\n# Commands\n# Preferences\n# Next Steps\n"
                 f"Conversation:\n{chat_log}\n{context_hint}\n\nCompacted summary:"
             )
             summary = await self.llm.generate([{"role": "user", "content": prompt}])

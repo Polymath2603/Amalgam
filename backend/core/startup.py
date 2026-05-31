@@ -9,6 +9,7 @@ import logging
 
 from backend .core .deps import get_shared 
 from backend .core .paths import VAULT_DIR 
+from backend .core .config .settings import load_characters_from_yaml 
 
 logger =logging .getLogger (__name__ )
 
@@ -63,6 +64,38 @@ async def init_application ():
                 s ["env"]["AMALGAM_SHELL_MODE"]=shell_mode 
                 s ["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"]=",".join (shell_prefixes )
         asyncio .create_task (mcp_client .connect_from_settings (mcp_servers ))
+
+    settings .start_watcher ()
+    settings .on_change (make_settings_reloader (mcp_client )) 
+
+
+def make_settings_reloader (mcp_client ):
+    """Return a callback that hot-reloads components when settings change."""
+    import asyncio 
+    from backend .core .deps import get_shared 
+
+    def _reload (settings ):
+        """Reload MCP servers and refresh character data on settings change."""
+        shared =get_shared ()
+        try :
+            loop =asyncio .get_event_loop ()
+            if loop .is_running ():
+                mcp_servers =settings .get_mcp_servers ()
+                if mcp_servers :
+                    for s in mcp_servers :
+                        if s .get ("name")=="shell":
+                            shell_mode =settings .get ("shell.mode","safe")
+                            shell_prefixes =settings .get ("shell.allowed_prefixes",[])
+                            s .setdefault ("env",{})
+                            s ["env"]["AMALGAM_SHELL_MODE"]=shell_mode 
+                            s ["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"]=",".join (shell_prefixes )
+                    asyncio .create_task (mcp_client .connect_from_settings (mcp_servers ))
+
+                settings ._characters =load_characters_from_yaml ()
+        except Exception as e :
+            logger .warning (f"Settings hot-reload failed: {e }")
+
+    return _reload 
 
 
 async def shutdown_application ():

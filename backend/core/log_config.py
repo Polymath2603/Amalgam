@@ -7,6 +7,9 @@ import sys
 import logging 
 import structlog 
 
+os .environ .setdefault ("HF_HUB_DISABLE_SYMLINKS_WARNING","1")
+os .environ ["HF_TOKEN"]=""
+
 LOG_LEVELS ={
 "DEBUG":logging .DEBUG ,
 "INFO":logging .INFO ,
@@ -95,6 +98,11 @@ module_levels :dict =None ,
         logging .getLogger ("httpx").setLevel (logging .WARNING )
         logging .getLogger ("httpcore").setLevel (logging .WARNING )
         logging .getLogger ("chromadb").setLevel (logging .WARNING )
+        logging .getLogger ("huggingface_hub").setLevel (logging .WARNING )
+        logging .getLogger ("huggingface_hub.utils._http").setLevel (logging .ERROR )
+        logging .getLogger ("urllib3").setLevel (logging .WARNING )
+        logging .getLogger ("asyncio").setLevel (logging .WARNING )
+        logging .getLogger ("mcp.os.posix.utilities").setLevel (logging .ERROR )
 
         _configured =True 
     elif root_level !=logging .getLogger ().level :

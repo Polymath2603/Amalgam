@@ -13,6 +13,9 @@ import os
 import sys 
 import argparse 
 
+os .environ ["HF_HUB_DISABLE_SYMLINKS_WARNING"]="1"
+os .environ ["HF_TOKEN"]=""
+
 sys .path .insert (0 ,os .path .dirname (os .path .abspath (__file__ )))
 
 TAURI_DIR =os .path .join (os .path .dirname (os .path .abspath (__file__ )),"desktop","tauri")
@@ -58,19 +61,44 @@ def _print_help ():
     print ("  --log-format   Output format: console (default) or json")
 
 
-def _launch_desktop ():
+def _launch_desktop (args =None ):
     import subprocess 
     if not os .path .isdir (TAURI_DIR ):
         print (f"Error: Tauri directory not found at {TAURI_DIR }")
         sys .exit (1 )
 
     print ("Starting backend server...")
+    backend_args =[sys .executable ,__file__ ,"webui"]
+    if args :
+        if args .log_level :
+            backend_args .extend (["--log-level",args .log_level ])
+        elif args .verbose >0 :
+            v ="-"+"v"*args .verbose 
+            backend_args .append (v )
     server =subprocess .Popen (
-    [sys .executable ,__file__ ,"webui"],
+    backend_args ,
     stdout =subprocess .DEVNULL ,stderr =subprocess .DEVNULL ,
     )
 
+    import time ,urllib .request 
+    print ("Waiting for backend...",end ="",flush =True )
+    for _ in range (30 ):
+        try :
+            with urllib .request .urlopen ("http://localhost:8000/",timeout =1 )as r :
+                if r .status ==200 :
+                    break 
+        except Exception :
+            pass 
+        print (".",end ="",flush =True )
+        time .sleep (1 )
+    else :
+        print ("\nBackend failed to start")
+        server .terminate ()
+        return 
+    print (" ready")
+
     print ("Launching desktop app...")
+    print ("[if CSS looks wrong, run: cargo build in desktop/tauri/ to pick up changes]")
     env ={**os .environ ,"AMALGAM_SKIP_BACKEND":"1"}
     try :
         subprocess .run (["cargo","run"],cwd =TAURI_DIR ,env =env )
@@ -83,51 +111,9 @@ def _launch_desktop ():
         print ("Shut down.")
 
 
-def _launch_companion (args ):
-    import subprocess 
-    import time 
-    import asyncio 
-    port =int (os .environ .get ("AMALGAM_PORT","8000"))
-    _kill_port (port )
-
-    print ("Starting backend server...")
-    backend_args =[sys .executable ,__file__ ,"webui"]
-    if args .verbose >=3 or args .log_level =="DEBUG":
-        backend_args .append ("-vvv")
-
-    server =subprocess .Popen (
-    backend_args ,
-    stdout =subprocess .DEVNULL ,stderr =subprocess .DEVNULL ,
-    )
-
-    time .sleep (2 )
-
-    print ("Launching avatar overlay...")
-
-    env ={**os .environ ,"AMALGAM_SKIP_BACKEND":"1","AMALGAM_MODE":"companion"}
-    overlay =subprocess .Popen (["cargo","run","--quiet"],cwd =TAURI_DIR ,env =env ,
-    stdout =subprocess .DEVNULL ,stderr =subprocess .DEVNULL )
-
-    try :
-        from cli .companion import run_companion 
-        asyncio .run (run_companion ())
-    except KeyboardInterrupt :
-        print ("\nShutting down companion...")
-    finally :
-        overlay .terminate ()
-        server .terminate ()
-        try :
-            overlay .wait (timeout =5 )
-            server .wait (timeout =5 )
-        except subprocess .TimeoutExpired :
-            overlay .kill ()
-            server .kill ()
-        _kill_port (port )
-        print ("Shut down.")
-
 def main ():
     parser =argparse .ArgumentParser (description ="Amalgam")
-    parser .add_argument ("frontend",nargs ="?",choices =["help","webui","cli","desktop","companion","telegram"],
+    parser .add_argument ("frontend",nargs ="?",choices =["help","webui","cli","desktop","telegram"],
     help ="Frontend to launch (desktop is recommended)")
     parser .add_argument ("--grpc",action ="store_true",help ="Run gRPC server (or connect via CLI)")
     parser .add_argument ("--grpc-host",default ="0.0.0.0",help ="gRPC bind host")
@@ -155,9 +141,7 @@ def main ():
         return 
 
     if args .frontend =="desktop":
-        _launch_desktop ()
-    elif args .frontend =="companion":
-        _launch_companion (args )
+        _launch_desktop (args )
     elif args .frontend =="telegram":
         import asyncio 
         from backend .api .telegram import run_telegram 
@@ -172,11 +156,12 @@ def main ():
         import uvicorn 
         logger .info ("Starting Amalgam web UI...")
         logger .info (f"Chat UI: http://localhost:{port }")
+        uvicorn_log =log_level .lower ()if log_level !="ERROR"else "error"
         uvicorn .run (
         "backend.app:app",
         host =host ,
         port =port ,
-        log_level ="warning",
+        log_level =uvicorn_log ,
         reload =False 
         )
 

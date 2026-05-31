@@ -86,6 +86,7 @@ async def handle_chat(websocket: WebSocket):
     logger.warning("Chat WebSocket connected")
 
     current_assistant_task: asyncio.Task | None = None
+    current_stream_idx: int = 0
 
     async def _cancel_assistant():
         nonlocal current_assistant_task, current_stream_idx
@@ -417,7 +418,7 @@ async def handle_chat(websocket: WebSocket):
                 elif cmd == "session":
                     if args:
                         await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Load session by navigating to 
+                            {"type": "chat_append", "role": "system", "text": f"Load session by navigating to {args}", "finished": True})
                     else:
                         sid = memory().get_current_session()
                         await _send_json(
