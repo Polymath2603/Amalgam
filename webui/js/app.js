@@ -95,7 +95,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             initIdleManager();
         } catch(err) {
             console.error('Main avatar creation failed:', err);
-            avatarContainer.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#e74c3c;font-size:0.8rem;gap:0.5rem;padding:1rem;text-align:center"><span class="material-icons-round" style="font-size:2rem">error</span><span>Avatar error: ${err.message || err}</span></div>`;
+            const errDiv = document.createElement('div');
+            errDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#e74c3c;font-size:0.8rem;gap:0.5rem;padding:1rem;text-align:center';
+            const icon = document.createElement('span');
+            icon.className = 'material-icons-round';
+            icon.style.fontSize = '2rem';
+            icon.textContent = 'error';
+            const msg = document.createElement('span');
+            msg.textContent = `Avatar error: ${err.message || err}`;
+            errDiv.append(icon, msg);
+            avatarContainer.replaceChildren(errDiv);
         }
     }
 
@@ -287,14 +296,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     showTtsSection(ttsEngine.value);
     showSttSection(sttEngine.value);
 
-    
+
+    let _reconnectAttempts = 0;
+    const _reconnectDelays = [500, 1000, 2000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
+    let _reconnectTimer = null;
+    const _pendingMessages = [];
+
+    function _showReconnecting(attempt) {
+        statusDot.className = 'status-dot';
+        statusText.textContent = `Reconnecting (${attempt})...`;
+    }
+
     function connectWS() {
+        if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
         ws = new WebSocket(`${WS_BASE}/ws/chat`);
 
         ws.onopen = () => {
+            _reconnectAttempts = 0;
             statusDot.className = 'status-dot online';
             statusText.textContent = 'Connected';
-            
+
             if (!_settingsLoaded) {
                 api(BASE_URL + '/api/settings').then(s => { if (s) { applySettings(s); markSettingsClean(); _settingsLoaded = true; }});
                 loadCharacters();
@@ -303,7 +324,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             loadHistory();
             [2000, 4000, 8000].forEach(delay => setTimeout(() => loadHistory(), delay));
-            
+
             if (ws.readyState === WebSocket.OPEN) {
                 if (voiceInputEnabled && isBrowserStt()) {
                     ws.send(JSON.stringify({ type: 'command', command: 'voice_input_on' }));
@@ -314,11 +335,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 ws.send(JSON.stringify({ type: 'command', command: voiceOutputEnabled ? 'voice_output_on' : 'voice_output_off' }));
             }
+
+            while (_pendingMessages.length > 0) {
+                const msg = _pendingMessages.shift();
+                if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+            }
         };
         ws.onclose = () => {
-            statusDot.className = 'status-dot';
-            statusText.textContent = 'Disconnected';
-            setTimeout(connectWS, 3000);
+            if (_reconnectAttempts >= _reconnectDelays.length) {
+                statusDot.className = 'status-dot';
+                statusText.textContent = 'Disconnected';
+                return;
+            }
+            _showReconnecting(_reconnectAttempts + 1);
+            const delay = _reconnectDelays[_reconnectAttempts];
+            _reconnectAttempts++;
+            _reconnectTimer = setTimeout(connectWS, delay);
         };
         ws.onerror = () => {
             console.warn('WebSocket error');
@@ -618,9 +650,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!ws) { _sending = false; console.warn('send: ws null'); showToast('Not connected', 'danger'); return; }
         if (ws.readyState === WebSocket.CONNECTING) { _sending = false; console.warn('send: ws connecting'); showToast('Connecting...', 'danger'); return; }
         if (ws.readyState !== WebSocket.OPEN) {
+            _pendingMessages.push(JSON.stringify({ type: 'user_message', text }));
+            chatInput.value = '';
+            chatInput.style.height = 'auto';
             _sending = false;
-            console.warn('send: ws state', ws.readyState);
-            showToast('Not connected (reconnecting...)', 'danger');
+            showToast('Message queued — reconnecting...', 'warning');
             return;
         }
 
