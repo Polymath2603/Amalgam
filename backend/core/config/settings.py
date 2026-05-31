@@ -377,9 +377,7 @@ def load_characters_from_yaml ()->Dict [str ,Dict ]:
     """Load all character definitions from characters/*/index.yaml."""
     characters ={}
 
-
     characters .update (_scan_characters_in (Path (str (CHARACTERS_DIR ))))
-
 
     if "default"not in characters :
         characters ["default"]={**_DEFAULT_CHARACTER ,"icon_url":"/icons/logo.png","model_url":"","_dir":""}
@@ -432,7 +430,6 @@ class Settings :
 
         self ._run_migrations ()
         self .data .setdefault ("config_version",CONFIG_VERSION )
-
 
         self .data =self ._deep_merge (DEFAULTS ,self .data )
 

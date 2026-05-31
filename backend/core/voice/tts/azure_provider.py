@@ -7,7 +7,6 @@ from .base import TTSProvider
 
 logger =logging .getLogger (__name__ )
 
-
 AZURE_VISEME_MAP ={
 0 :'sil',1 :'PP',2 :'FF',3 :'TH',4 :'DD',
 5 :'kk',6 :'CH',7 :'SS',8 :'nn',9 :'RR',
@@ -62,7 +61,6 @@ class AzureTTSProvider (TTSProvider ):
         speechsdk .SpeechSynthesisOutputFormat .Riff16Khz16BitMonoPcm 
         )
 
-
         prosody =''
         if emotion and emotion !="neutral":
             emotion_map ={
@@ -83,7 +81,6 @@ class AzureTTSProvider (TTSProvider ):
         )
 
         synthesizer =speechsdk .SpeechSynthesizer (speech_config =speech_config )
-
 
         viseme_schedule =[]
 
@@ -106,11 +103,9 @@ class AzureTTSProvider (TTSProvider ):
             logger .error (f"Azure TTS failed: {error .reason } - {error .error_details }")
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-
         audio_bytes =result .audio_data 
         audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32767.0 
         sr =16000 
-
 
         for i in range (len (viseme_schedule )):
             if i +1 <len (viseme_schedule ):

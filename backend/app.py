@@ -36,7 +36,6 @@ def create_app ():
     app =FastAPI (title ="Amalgam")
     app .add_middleware (CORSMiddleware ,allow_origins =["*"],allow_methods =["*"],allow_headers =["*"])
 
-
     app .include_router (settings_route .router )
     app .include_router (characters .router )
     app .include_router (commands_route .router )
@@ -46,10 +45,8 @@ def create_app ():
     app .include_router (relationship .router )
     app .include_router (tts_route .router )
 
-
     DATA_DIR .mkdir (parents =True ,exist_ok =True )
     app .mount ("/data",StaticFiles (directory =str (DATA_DIR )),name ="data")
-
 
     REPO_CHARS =str (CHARACTERS_DIR )
     @app .get ("/characters/{file_path:path}")
@@ -59,11 +56,9 @@ def create_app ():
             return FileResponse (str (full_path ))
         return Response (status_code =404 )
 
-
     @app .websocket ("/ws/chat")
     async def ws_chat (websocket :WebSocket ):
         await handle_chat (websocket )
-
 
     @app .on_event ("startup")
     async def startup ():
@@ -90,7 +85,5 @@ async def _delayed_startup_tasks ():
         await generate_missing_icons ()
     except Exception as e :
         logger .error (f"Error in delayed startup tasks: {e }")
-
-
 
 app =create_app ()

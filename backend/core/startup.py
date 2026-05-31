@@ -26,7 +26,6 @@ async def init_application ():
     shared =get_shared ()
     settings =shared ["settings"]
 
-
     log_level =settings .get ("log.level","WARNING")
     log_format =settings .get ("log.format","console")
     from backend .core .log_config import configure_logging 
@@ -35,7 +34,6 @@ async def init_application ():
     mcp_client =shared ["mcp"]
     tts_engine =shared ["tts"]
 
-
     vault_path =settings .get ("vault.path",str (VAULT_DIR ))
     os .makedirs (vault_path ,exist_ok =True )
     rules_path =os .path .join (vault_path ,"rules.md")
@@ -43,9 +41,7 @@ async def init_application ():
         with open (rules_path ,"w")as f :
             f .write ("# Rules\n\nAdd your custom rules here. These will be injected into every conversation.\n")
 
-
     memory .start_session ()
-
 
     engine =settings .get ("voice.engine","edge-tts")
     if engine =="openvoice":
@@ -56,7 +52,6 @@ async def init_application ():
             logger .debug ("OpenVoice TTS engine ready")
         except Exception as e :
             logger .warning (f"OpenVoice preload failed: {e }")
-
 
     mcp_servers =settings .get_mcp_servers ()
     if mcp_servers :

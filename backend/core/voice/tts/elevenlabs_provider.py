@@ -73,7 +73,6 @@ class ElevenLabsProvider (TTSProvider ):
 
                         pass 
 
-
                 mp3_data =b''
                 async for chunk in response .aiter_bytes ():
                     mp3_chunks .append (chunk )
@@ -82,7 +81,6 @@ class ElevenLabsProvider (TTSProvider ):
             sr ,audio_np =self ._decode_mp3 (mp3_data )
             if len (audio_np )==0 :
                 return np .zeros (0 ,dtype =np .float32 ),[],16000 
-
 
             viseme_schedule =[]
             if alignment_data :
@@ -104,7 +102,6 @@ class ElevenLabsProvider (TTSProvider ):
 
         if not chars or not char_starts :
             return []
-
 
         word_boundaries =[]
         current_word =""
@@ -128,7 +125,6 @@ class ElevenLabsProvider (TTSProvider ):
                     "end":word_end ,
                     })
                     current_word =""
-
 
         if current_word :
             word_boundaries .append ({

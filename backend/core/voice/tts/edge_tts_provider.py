@@ -13,7 +13,6 @@ from .word_to_viseme import viseme_schedule_from_words
 
 logger =logging .getLogger (__name__ )
 
-
 TICKS_PER_SECOND =10_000_000 
 
 
@@ -74,7 +73,6 @@ class EdgeTTSProvider (TTSProvider ):
             else :
                 communicate =edge_tts .Communicate (text ,self .voice ,boundary ="WordBoundary")
 
-
             audio_chunks =[]
             word_events =[]
             async for chunk in communicate .stream ():
@@ -91,11 +89,9 @@ class EdgeTTSProvider (TTSProvider ):
                 logger .error ("Edge-TTS: no audio chunks received")
                 return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-
             with open (temp_mp3 ,"wb")as f :
                 for c in audio_chunks :
                     f .write (c )
-
 
             proc =await asyncio .create_subprocess_exec (
             "ffmpeg","-y","-i",temp_mp3 ,
@@ -112,7 +108,6 @@ class EdgeTTSProvider (TTSProvider ):
                 audio_np =data .astype (np .float32 )/32768.0 
             else :
                 audio_np =data .astype (np .float32 )
-
 
             word_boundaries =[]
             for ev in word_events :

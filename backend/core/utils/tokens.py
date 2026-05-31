@@ -22,9 +22,7 @@ except ImportError :
     pass 
 
 
-
 _CHARS_PER_TOKEN =4.0 
-
 
 
 
@@ -37,7 +35,6 @@ _SENTENCEPIECE_PREFIXES =(
 "vertex_ai/llama","vertex_ai/mistral",
 )
 _SENTENCEPIECE_CPT =3.2 
-
 
 _ENCODING_MAP ={
 "gpt-4":"cl100k_base",
@@ -82,7 +79,6 @@ def estimate_tokens (text :str ,model :Optional [str ]=None )->int :
     """
     if not text :
         return 0 
-
 
     model_str =model or ""
     if any (model_str .startswith (p )for p in _SENTENCEPIECE_PREFIXES ):

@@ -10,7 +10,6 @@ from backend .core .utils .tokens import estimate_tokens ,estimate_message_list_
 
 logger =logging .getLogger (__name__ )
 
-
 SYSTEM_PROMPT_OVERHEAD =50 
 TURN_OVERHEAD =8 
 
@@ -69,13 +68,11 @@ class ContextManager :
         budget =self ._get_token_budget ()
         truncated =[]
 
-
         user_msg_tokens =estimate_tokens (user_message ,model )+TURN_OVERHEAD 
         max_response =self ._get_max_tokens ()
         reserved =user_msg_tokens +max_response +50 
 
         available =budget -reserved 
-
 
         sys_tokens =estimate_tokens (system_prompt ,model )+SYSTEM_PROMPT_OVERHEAD 
         if sys_tokens >available :
@@ -83,7 +80,6 @@ class ContextManager :
             sys_tokens =estimate_tokens (system_prompt ,model )+SYSTEM_PROMPT_OVERHEAD 
             truncated .append ("system_prompt")
         available -=sys_tokens 
-
 
         summary_tokens =0 
         if summary :
@@ -93,7 +89,6 @@ class ContextManager :
                 summary_tokens =estimate_tokens (summary ,model )
                 truncated .append ("summary")
             available -=summary_tokens 
-
 
         relevant_tokens =0 
         if relevant :
@@ -113,7 +108,6 @@ class ContextManager :
             else :
                 available -=relevant_tokens 
 
-
         rel_tokens =0 
         if relationship_context :
             rel_tokens =estimate_tokens (relationship_context ,model )
@@ -123,14 +117,12 @@ class ContextManager :
                 truncated .append ("relationship_context")
             available -=rel_tokens 
 
-
         history_tokens =estimate_message_list_tokens (history ,model )
         if history_tokens >available :
             history =select_messages_within_budget (history ,available ,model )
             history_tokens =estimate_message_list_tokens (history ,model )
             truncated .append ("history")
         available -=history_tokens 
-
 
         vault_tokens =0 
         if vault_content :

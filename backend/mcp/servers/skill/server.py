@@ -31,7 +31,6 @@ app =Server ("skill-server")
 
 
 
-
 PROJECT_ROOT =Path (os .path .abspath (os .path .join (os .path .dirname (__file__ ),"..","..","..","..")))
 BUILTIN_SKILLS =PROJECT_ROOT /"backend"/"skills"
 DATA_DIR =Path (os .environ .get ("AMALGAM_DATA_DIR",str (PROJECT_ROOT /"data")))
@@ -46,7 +45,6 @@ def _discover_skill_files ()->list [dict ]:
     os .makedirs (str (USER_SKILLS ),exist_ok =True )
     os .makedirs (str (BUILTIN_SKILLS ),exist_ok =True )
 
-
     for entry in sorted (os .listdir (str (BUILTIN_SKILLS ))):
         src =BUILTIN_SKILLS /entry 
         dst =USER_SKILLS /entry 
@@ -58,7 +56,6 @@ def _discover_skill_files ()->list [dict ]:
                 logger .info ("Installed built-in skill '%s' to user data",entry )
             except Exception as e :
                 logger .warning ("Failed to copy skill '%s': %s",entry ,e )
-
 
     skills =[]
     if USER_SKILLS .is_dir ():
@@ -97,8 +94,6 @@ def _parse_frontmatter (content :str )->tuple [Optional [str ],Optional [str ]]:
         elif line .startswith ("description:"):
             description =line [len ("description:"):].strip ().strip ("\"'")
     return name ,description 
-
-
 
 
 
@@ -189,15 +184,11 @@ async def list_tools ()->list [Tool ]:
 
 
 
-
-
 _active_timers :dict [str ,asyncio .Task ]={}
 
 
 def _clean_timer (timer_id :str ):
     _active_timers .pop (timer_id ,None )
-
-
 
 
 

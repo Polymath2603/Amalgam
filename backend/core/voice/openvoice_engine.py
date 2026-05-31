@@ -72,16 +72,13 @@ class OpenVoiceEngine :
             "Download from the OpenVoice README."
             )
 
-
         self ._converter =ToneColorConverter (config_path ,device =self .device )
         self ._converter .load_ckpt (ckpt_path )
-
 
         lang_map ={"EN":"EN","EN_NEWEST":"EN_NEWEST","JP":"JP","ZH":"ZH"}
         melo_lang =lang_map .get (self .language ,"EN")
         self ._melo_model =TTS (language =melo_lang ,device =self .device )
         self ._speaker_id =list (self ._melo_model .hps .data .spk2id .values ())[0 ]
-
 
         speaker_key =list (self ._melo_model .hps .data .spk2id .keys ())[0 ].lower ().replace ("_","-")
         ses_dir =os .path .join (self .checkpoints_dir ,"base_speakers","ses")
@@ -103,7 +100,6 @@ class OpenVoiceEngine :
 
         if not os .path .exists (ref_audio_path ):
             raise FileNotFoundError (f"Reference audio not found: {ref_audio_path }")
-
 
         if ref_audio_path .endswith ('.pth'):
             target_se =self ._torch .load (ref_audio_path ,map_location =self .device )
@@ -134,12 +130,10 @@ class OpenVoiceEngine :
 
         target_se =self .get_speaker_embedding (ref_audio_path )
 
-
         fd ,src_path =tempfile .mkstemp (suffix =".wav")
         os .close (fd )
         try :
             self ._melo_model .tts_to_file (text ,self ._speaker_id ,src_path ,speed =1.0 )
-
 
             audio_np =self ._converter .convert (
             audio_src_path =src_path ,

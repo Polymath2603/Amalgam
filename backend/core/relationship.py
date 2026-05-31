@@ -150,7 +150,6 @@ class Relationship :
         elif role =="assistant":
             stats ["total_words_assistant"]+=len (content .split ())
 
-
         try :
             loop =asyncio .get_event_loop ()
             if loop .is_running ():

@@ -147,7 +147,6 @@ class TTSRouter :
         provider =self ._current ()
 
 
-
         if self .engine =="openvoice":
             async with self ._lock :
                 return await self ._do_synthesize (provider ,text ,ref_audio ,emotion =emotion )

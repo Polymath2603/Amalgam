@@ -64,8 +64,6 @@ def add_AgentServiceServicer_to_server (servicer ,server ):
     server .add_generic_rpc_handlers ((generic_handler ,))
     server .add_registered_method_handlers ('AgentService',rpc_method_handlers )
 
-
-
 class AgentService (object ):
     """Missing associated documentation comment in .proto file."""
 

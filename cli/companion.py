@@ -15,7 +15,6 @@ from rich .live import Live
 from rich .text import Text 
 from rich .markdown import Markdown 
 
-
 from cli import _make_console ,_show_banner 
 
 logger =logging .getLogger (__name__ )

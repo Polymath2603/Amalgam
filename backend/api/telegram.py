@@ -64,7 +64,6 @@ class TelegramBot :
         text =update .message .text 
         if not text :return 
 
-
         await context .bot .send_chat_action (chat_id =update .effective_chat .id ,action ="typing")
 
         response_msg =await update .message .reply_text ("...")
@@ -80,7 +79,6 @@ class TelegramBot :
 
                 full_text +=chunk 
 
-
                 now =asyncio .get_event_loop ().time ()
                 if now -last_update_time >1.5 :
                     try :
@@ -92,7 +90,6 @@ class TelegramBot :
                         last_update_time =now 
                     except Exception :
                         pass 
-
 
             if full_text :
                 await context .bot .edit_message_text (
@@ -114,10 +111,8 @@ class TelegramBot :
     async def handle_voice (self ,update :Update ,context :ContextTypes .DEFAULT_TYPE ):
         if not self ._is_allowed (update ):return 
 
-
         voice =update .message .voice 
         file =await context .bot .get_file (voice .file_id )
-
 
 
 
@@ -144,7 +139,6 @@ class TelegramBot :
             await self .application .initialize ()
             await self .application .start ()
             await self .application .updater .start_polling ()
-
 
             stop_event =asyncio .Event ()
             try :

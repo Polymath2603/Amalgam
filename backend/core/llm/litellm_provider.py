@@ -15,9 +15,7 @@ from litellm import acompletion ,aembedding
 
 logger =logging .getLogger (__name__ )
 
-
 litellm .suppress_debug_info =True 
-
 
 PROVIDER_PREFIX ={
 "gemini":"gemini",
@@ -40,13 +38,11 @@ PROVIDER_PREFIX ={
 "gcp":"vertex_ai",
 }
 
-
 TOOL_CAPABLE ={
 "gemini","openrouter","groq","deepseek","mistral","together",
 "chatgpt","azure-openai","alibaba","huggingface","zai","siliconflow",
 "claude","aws","gcp",
 }
-
 
 
 
@@ -56,24 +52,20 @@ CONTEXT_LIMITS ={
 "koboldai":4096 ,
 }
 
-
 OUTPUT_LIMITS ={
 "groq":512 ,
 "llamacpp":2048 ,
 "koboldai":2048 ,
 }
 
-
 _RATE_LIMIT_MAX_RETRIES =3 
 _RATE_LIMIT_BASE_DELAY =5.0 
-
 
 EMBEDDING_CAPABLE ={
 "gemini","ollama","openai","deepseek","mistral",
 "together","chatgpt","azure-openai",
 "openrouter","alibaba","huggingface","aws","gcp",
 }
-
 
 EMBEDDING_MODEL_DEFAULTS ={
 "gemini":"gemini/text-embedding-004",
@@ -148,7 +140,6 @@ class LiteLLMProvider :
         api_key =cfg .get ("api_key","")
         base_url =cfg .get ("base_url","")
 
-
         prefix =PROVIDER_PREFIX .get (provider ,provider )
         if provider in ("llamacpp","koboldai","siliconflow"):
 
@@ -158,13 +149,11 @@ class LiteLLMProvider :
         else :
             model =f"{prefix }/{model_name }"if model_name else prefix 
 
-
         kwargs ={}
         if api_key :
             kwargs ["api_key"]=api_key 
         if base_url :
             kwargs ["api_base"]=base_url .rstrip ("/")
-
 
         if provider =="aws":
             kwargs ["aws_access_key_id"]=cfg .get ("access_key","")
@@ -262,10 +251,8 @@ class LiteLLMProvider :
                     if not delta :
                         continue 
 
-
                     if delta .content :
                         yield delta .content 
-
 
                     if delta .tool_calls :
                         for tc in delta .tool_calls :
@@ -279,7 +266,6 @@ class LiteLLMProvider :
                                 pt ["name"]=tc .function .name 
                             if tc .function and tc .function .arguments :
                                 pt ["arguments"]+=tc .function .arguments 
-
 
                     finish =chunk .choices [0 ].finish_reason if chunk .choices else None 
                     if finish =="tool_calls"and pending_tool_calls :
@@ -339,7 +325,6 @@ class LiteLLMProvider :
             return []
 
         model ,kwargs =self ._get_model_config ()
-
 
         embed_model =None 
         if self ._settings :

@@ -13,7 +13,6 @@ logger =logging .getLogger (__name__ )
 
 THINK_RE =re .compile (r'<think>(.*?)</think>',re .DOTALL )
 
-
 _LEGACY_EMOTION_RE =re .compile (r'/\[\[.*?\]\]',re .IGNORECASE )
 _LEGACY_EXPRESSION_RE =re .compile (r'/\(\(.*?\)\)',re .IGNORECASE )
 _LEGACY_ACTION_RE =re .compile (r'/\*\*(.+?)\*\*/?',re .DOTALL )
@@ -180,7 +179,6 @@ class Agent :
     async def handle_user_input (self ,text :str ,images :list =None ,relationship_context :str ="")->AsyncIterator [Union [str ,Tuple [str ,str ]]]:
         await self .memory .add_turn ("user",text )
 
-
         if self .mcp_client is not None and self .mcp_client .has_servers ():
             await self .mcp_client .wait_for_tools (timeout =8.0 ,min_tools =1 )
 
@@ -219,7 +217,6 @@ class Agent :
             relationship_context =relationship_context ,
             native_tools_available =native_tools ,
             )
-
 
 
             out_tokens =self .llm .get_max_output_tokens ()
@@ -413,7 +410,6 @@ class Agent :
                 if in_tool_block and not tool_called :
                     logger .warning ("agent: stream ended mid-tool-block")
                     in_tool_block =False 
-
 
         for msg in _pending_tool_announce :
             yield ("__tool__",msg )

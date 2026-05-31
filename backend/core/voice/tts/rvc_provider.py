@@ -36,7 +36,6 @@ class RVCProvider (TTSProvider ):
             logger .error ("RVC requires a TTS provider set via set_tts_provider()")
             return np .zeros (0 ,dtype =np .float32 ),[],24000 
 
-
         source_result =await self ._tts_provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
         if isinstance (source_result ,tuple )and len (source_result )>=3 :
             source_audio ,_ ,source_sr =source_result 
@@ -46,7 +45,6 @@ class RVCProvider (TTSProvider ):
 
         if len (source_audio )==0 :
             return np .zeros (0 ,dtype =np .float32 ),[],24000 
-
 
         import io 
         import wave 
@@ -60,7 +58,6 @@ class RVCProvider (TTSProvider ):
             int_audio =(source_audio *32767.0 ).astype (np .int16 )
             wf .writeframes (int_audio .tobytes ())
         wav_bytes =buf .getvalue ()
-
 
         files ={"audio":("input.wav",wav_bytes ,"audio/wav")}
         data ={
@@ -84,7 +81,6 @@ class RVCProvider (TTSProvider ):
             if resp .status_code !=200 :
                 logger .error (f"RVC error {resp .status_code }: {resp .text [:200 ]}")
                 return np .zeros (0 ,dtype =np .float32 ),[],24000 
-
 
             audio_np =np .frombuffer (resp .content ,dtype =np .int16 ).astype (np .float32 )/32767.0 
             visemes =["A"]*(len (text )//2 )

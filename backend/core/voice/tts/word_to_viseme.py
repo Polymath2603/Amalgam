@@ -10,7 +10,6 @@ Not a full G2P — just enough to map word timing to plausible mouth shapes.
 import re 
 
 
-
 _PHONEME_TO_VISEME ={
 "AA":"aa","AE":"E","AH":"aa","AO":"O","AW":"aa",
 "AY":"aa","EH":"E","ER":"RR","EY":"E","IH":"I",
@@ -23,7 +22,6 @@ _PHONEME_TO_VISEME ={
 }
 
 
-
 _LETTER_VISEME ={
 "a":"aa","b":"PP","c":"kk","d":"DD","e":"E",
 "f":"FF","g":"kk","h":"aa","i":"I","j":"CH",
@@ -34,14 +32,12 @@ _LETTER_VISEME ={
 }
 
 
-
 _DIGRAPHS =[
 ("sh","CH"),("ch","CH"),("th","TH"),("ph","FF"),
 ("wh","U"),("ck","kk"),("ng","nn"),("nk","nn"),
 ("qu","kk"),("wr","RR"),("gn","nn"),("kn","nn"),
 ("mb","PP"),("mn","nn"),
 ]
-
 
 
 _VOWEL_GROUPS =[
@@ -68,7 +64,6 @@ def word_to_visemes (word :str )->list [str ]:
     while i <len (w ):
         matched =False 
 
-
         for pattern ,vis in _DIGRAPHS :
             if w [i :i +len (pattern )]==pattern :
                 visemes .append (vis )
@@ -77,7 +72,6 @@ def word_to_visemes (word :str )->list [str ]:
                 break 
         if matched :
             continue 
-
 
         for pattern ,vis in _VOWEL_GROUPS :
             if w [i :i +len (pattern )]==pattern :
@@ -88,17 +82,14 @@ def word_to_visemes (word :str )->list [str ]:
         if matched :
             continue 
 
-
         ch =w [i ]
         visemes .append (_LETTER_VISEME .get (ch ,"sil"))
         i +=1 
-
 
     collapsed =[]
     for v in visemes :
         if not collapsed or collapsed [-1 ]!=v :
             collapsed .append (v )
-
 
 
     syllable_count =max (1 ,len (re .findall (r'[aeiouy]+',w )))
@@ -134,7 +125,6 @@ def viseme_schedule_from_words (word_boundaries :list [dict ])->list [dict ]:
         if not visemes :
             continue 
 
-
         vis_dur =duration /len (visemes )
         t =start 
         for vis in visemes :
@@ -144,7 +134,6 @@ def viseme_schedule_from_words (word_boundaries :list [dict ])->list [dict ]:
             "duration":round (vis_dur ,4 ),
             })
             t +=vis_dur 
-
 
     filled =[]
     for i ,entry in enumerate (schedule ):
@@ -159,7 +148,5 @@ def viseme_schedule_from_words (word_boundaries :list [dict ])->list [dict ]:
         filled .append (entry )
 
     return filled 
-
-
 
 build_viseme_schedule =viseme_schedule_from_words 

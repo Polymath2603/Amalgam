@@ -15,7 +15,6 @@ ICONS_DIR =os .path .join (PROJECT_ROOT ,"frontend","webui","icons")
 SIZE =96 
 PADDING =8 
 
-
 PALETTE =[
 "#6c5ce7","#0984e3","#00b894","#e17055","#fd79a8",
 "#f39c12","#00cec9","#e74c3c","#2ecc71","#3498db",
@@ -67,15 +66,12 @@ def generate_icon (name :str ,letter :str ,color_hex :str ,output_path :str ):
     img =Image .new ('RGBA',(SIZE ,SIZE ),(0 ,0 ,0 ,0 ))
     draw =ImageDraw .Draw (img )
 
-
     draw_rounded_rect (draw ,(0 ,0 ,SIZE -1 ,SIZE -1 ),16 ,bg )
-
 
     for i in range (3 ):
         alpha =40 -i *12 
         highlight =lighten (bg ,0.25 )
         draw_rounded_rect (draw ,(2 +i ,2 +i ,SIZE -3 -i ,SIZE -3 -i ),14 -i ,highlight +(alpha ,))
-
 
     try :
         font =ImageFont .truetype ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",44 )
@@ -87,7 +83,6 @@ def generate_icon (name :str ,letter :str ,color_hex :str ,output_path :str ):
     th =bbox [3 ]-bbox [1 ]
     x =(SIZE -tw )/2 -bbox [0 ]
     y =(SIZE -th )/2 -bbox [1 ]-2 
-
 
     draw .text ((x +1 ,y +1 ),letter ,fill =darken (bg ,0.4 )+(100 ,),font =font )
 
@@ -105,19 +100,14 @@ def generate_logo (output_path :str ):
     bg =hex_to_rgb ("#1a1a2e")
     draw_rounded_rect (draw ,(0 ,0 ,SIZE -1 ,SIZE -1 ),16 ,bg )
 
-
     stroke_color =(148 ,163 ,184 ,200 )
-
 
     draw .ellipse ([28 ,14 ,68 ,54 ],outline =stroke_color ,width =2 )
 
-
     draw .arc ([28 ,42 ,68 ,82 ],0 ,180 ,fill =stroke_color ,width =2 )
-
 
     draw .ellipse ([38 ,30 ,42 ,34 ],fill =stroke_color )
     draw .ellipse ([54 ,30 ,58 ,34 ],fill =stroke_color )
-
 
     draw .arc ([37 ,36 ,59 ,50 ],0 ,180 ,fill =stroke_color ,width =2 )
 
@@ -128,11 +118,9 @@ def generate_logo (output_path :str ):
 def main ():
     print ("Generating character icons...")
 
-
     os .makedirs (ICONS_DIR ,exist_ok =True )
     logo_path =os .path .join (ICONS_DIR ,"logo.png")
     generate_logo (logo_path )
-
 
     char_dirs =sorted ([
     d for d in os .listdir (CHARACTERS_DIR )
@@ -145,11 +133,9 @@ def main ():
         icon_path =os .path .join (char_path ,"icon.png")
 
 
-
         if os .path .exists (icon_path ):
             print (f"  Skipping {char_dir } (icon.png exists)")
             continue 
-
 
         name =char_dir 
         if os .path .exists (index_path ):
@@ -160,9 +146,7 @@ def main ():
             except Exception :
                 pass 
 
-
         letter =name [0 ].upper ()if name else '?'
-
 
         color =get_color (char_dir ,idx )
 

@@ -2,12 +2,12 @@
 Amalgam launcher.
 
 Usage:
-  python main.py help               # Print this help
-  python main.py desktop            # Launch Tauri desktop app (recommended)
-  python main.py webui              # Launch standalone web UI
-  python main.py cli                # Launch interactive CLI
-  python main.py --grpc             # gRPC server only
-  python main.py cli --grpc         # CLI via remote gRPC
+  python main.py help               
+  python main.py desktop            
+  python main.py webui              
+  python main.py cli                
+  python main.py --grpc             
+  python main.py cli --grpc         
 """
 import os 
 import sys 
