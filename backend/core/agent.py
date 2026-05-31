@@ -78,7 +78,7 @@ class Agent :
         mcp_client =self .mcp_client ,
         llm =self .llm ,
         memory =sub_memory ,
-        context_builder =self .context_builder ,
+        context_builder =ContextBuilder (settings =self .settings ),
         settings =self .settings ,
         )
         parts =[]
