@@ -180,18 +180,34 @@ class LiteLLMProvider :
         return self ._provider in TOOL_CAPABLE 
 
     def get_max_output_tokens (self )->int :
+        try :
+            model_name =self .get_model_name ()
+            info =litellm .get_model_info (model_name )
+            max_output =info .get ("max_output_tokens")
+            if max_output and max_output >0 :
+                return max_output
+        except Exception :
+            pass
         if self ._provider in OUTPUT_LIMITS :
             return OUTPUT_LIMITS [self ._provider ]
         if self ._settings :
             return int (self ._settings .get ("llm.max_tokens",2048 ))
-        return 2048 
+        return 2048
 
     def get_context_token_limit (self )->int :
+        try :
+            model_name =self .get_model_name ()
+            info =litellm .get_model_info (model_name )
+            max_input =info .get ("max_input_tokens")
+            if max_input and max_input >0 :
+                return max_input
+        except Exception :
+            pass
         if self ._provider in CONTEXT_LIMITS :
             return CONTEXT_LIMITS [self ._provider ]
         if self ._settings :
             return int (self ._settings .get ("llm.context_token_limit",8192 ))
-        return 8192 
+        return 8192
 
     def get_model_name (self )->str :
         """Return the full model string (e.g. 'groq/llama-3.3-70b-versatile')."""
