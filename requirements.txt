@@ -16,3 +16,4 @@ webrtcvad==2.0.10
 faster-whisper==1.0.1
 sounddevice==0.4.6
 scipy==1.13.1
+python-telegram-bot==21.0.1

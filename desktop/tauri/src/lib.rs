@@ -144,6 +144,19 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            let is_companion = std::env::var("AMALGAM_MODE").map(|v| v == "companion").unwrap_or(false);
+            if let Some(window) = app.get_webview_window("main") {
+                if is_companion {
+                    let _ = window.set_decorations(false);
+                    let _ = window.set_always_on_top(true);
+                    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 300.0, height: 400.0 }));
+                    
+                    
+                    
+                    let _ = window.eval("window.location.href += '?mode=companion'");
+                }
+            }
+
             let child = if std::env::var("AMALGAM_SKIP_BACKEND").is_ok() {
                 println!("Backend launched externally, skipping");
                 None

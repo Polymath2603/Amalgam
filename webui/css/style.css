@@ -640,3 +640,31 @@ details.data-details > div {
     width: 100% !important;
     height: 100% !important;
 }
+
+
+body.companion-mode {
+    background: transparent !important;
+}
+body.companion-mode .app {
+    display: block;
+}
+body.companion-mode .sidebar,
+body.companion-mode .chat-header,
+body.companion-mode .chat-messages,
+body.companion-mode .chat-input-area,
+body.companion-mode .toast-container,
+body.companion-mode .img-preview {
+    display: none !important;
+}
+body.companion-mode .content,
+body.companion-mode .tab-panel.active,
+body.companion-mode .avatar-tab-container,
+body.companion-mode .chat-container {
+    background: transparent !important;
+    border: none !important;
+}
+body.companion-mode #vrm-view {
+    display: flex !important;
+    width: 100vw;
+    height: 100vh;
+}

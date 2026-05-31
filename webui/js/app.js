@@ -328,12 +328,33 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     
 
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const IS_COMPANION = urlParams.get('mode') === 'companion';
+    if (IS_COMPANION) {
+        document.body.classList.add('companion-mode');
+        
+    }
+
     function handleWSMessage(data) {
         if (data.type === 'user_message_from_voice') {
             
             addMessage('user', data.text);
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'user_message', text: data.text }));
+            }
+            return;
+        } else if (data.type === 'visibility') {
+            const visible = data.visible;
+            if (IS_TAURI && window.__TAURI__) {
+                const { getCurrentWindow } = window.__TAURI__.window;
+                const win = getCurrentWindow();
+                if (visible) win.show();
+                else win.hide();
+            } else {
+                
+                const avatarView = document.getElementById('vrm-view');
+                if (avatarView) avatarView.style.display = visible ? 'block' : 'none';
             }
             return;
         } else if (data.type === 'chat_start') {

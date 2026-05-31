@@ -112,6 +112,11 @@ DEFAULTS ={
 "level":"WARNING",
 "format":"console"
 },
+"telegram":{
+"token":"",
+"allowed_users":[],
+"enabled":False 
+},
 "character":{
 "active":"default",
 "system_prompt":"",
@@ -293,14 +298,20 @@ DEFAULTS ={
 },
 {
 "name":"windows",
-"command":"python3",
-"args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"windows"/"server.py")],
+"command":"npx",
+"args":["-y","@cool-mcp/desktop-automation"],
 "enabled":True 
 },
 {
 "name":"avatar",
 "command":"python3",
 "args":[str (PROJECT_ROOT /"backend"/"mcp"/"servers"/"avatar"/"server.py")],
+"enabled":True 
+},
+{
+"name":"duckduckgo",
+"command":"npx",
+"args":["-y","duckduckgo-mcp"],
 "enabled":True 
 }
 ]

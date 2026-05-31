@@ -83,9 +83,51 @@ def _launch_desktop ():
         print ("Shut down.")
 
 
+def _launch_companion (args ):
+    import subprocess 
+    import time 
+    import asyncio 
+    port =int (os .environ .get ("AMALGAM_PORT","8000"))
+    _kill_port (port )
+
+    print ("Starting backend server...")
+    backend_args =[sys .executable ,__file__ ,"webui"]
+    if args .verbose >=3 or args .log_level =="DEBUG":
+        backend_args .append ("-vvv")
+
+    server =subprocess .Popen (
+    backend_args ,
+    stdout =subprocess .DEVNULL ,stderr =subprocess .DEVNULL ,
+    )
+
+    time .sleep (2 )
+
+    print ("Launching avatar overlay...")
+
+    env ={**os .environ ,"AMALGAM_SKIP_BACKEND":"1","AMALGAM_MODE":"companion"}
+    overlay =subprocess .Popen (["cargo","run","--quiet"],cwd =TAURI_DIR ,env =env ,
+    stdout =subprocess .DEVNULL ,stderr =subprocess .DEVNULL )
+
+    try :
+        from cli .companion import run_companion 
+        asyncio .run (run_companion ())
+    except KeyboardInterrupt :
+        print ("\nShutting down companion...")
+    finally :
+        overlay .terminate ()
+        server .terminate ()
+        try :
+            overlay .wait (timeout =5 )
+            server .wait (timeout =5 )
+        except subprocess .TimeoutExpired :
+            overlay .kill ()
+            server .kill ()
+        _kill_port (port )
+        print ("Shut down.")
+
 def main ():
     parser =argparse .ArgumentParser (description ="Amalgam")
-    parser .add_argument ("frontend",nargs ="?",choices =["help","webui","cli","desktop"],
+    parser .add_argument ("frontend",nargs ="?",choices =["help","webui","cli","desktop","companion","telegram"],
     help ="Frontend to launch (desktop is recommended)")
     parser .add_argument ("--grpc",action ="store_true",help ="Run gRPC server (or connect via CLI)")
     parser .add_argument ("--grpc-host",default ="0.0.0.0",help ="gRPC bind host")
@@ -114,6 +156,12 @@ def main ():
 
     if args .frontend =="desktop":
         _launch_desktop ()
+    elif args .frontend =="companion":
+        _launch_companion (args )
+    elif args .frontend =="telegram":
+        import asyncio 
+        from backend .api .telegram import run_telegram 
+        asyncio .run (run_telegram ())
     elif args .frontend =="cli":
         from cli import main as cli_main 
         cli_main ()

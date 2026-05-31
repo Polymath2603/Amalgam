@@ -152,6 +152,8 @@ async def handle_chat (websocket :WebSocket ):
                             await _send_json ({"type":"emotion","emotion":current_emotion })
                         elif av_type =="expression":
                             await _send_json ({"type":"expression","expression":av .get ("expression","neutral")})
+                        elif av_type =="visibility":
+                            await _send_json ({"type":"visibility","visible":av .get ("visible",True )})
                         elif av_type =="roleplay":
                             action =av .get ("action","")
                             rp_text =f"*{action }* "
@@ -349,6 +351,9 @@ async def handle_chat (websocket :WebSocket ):
                     wake_word_enabled =False 
                     await _send_json ({"type":"wake_word_state","enabled":False })
                     logger .debug ("Wake word detection stopped")
+                elif cmd =="avatar_set_visibility":
+                    visible =data .get ("visible",True )
+                    await _send_json ({"type":"visibility","visible":visible })
                 elif cmd =="speak":
                     speak_text =data .get ("text","").strip ()
                     if speak_text :

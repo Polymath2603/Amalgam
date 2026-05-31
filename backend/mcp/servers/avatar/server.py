@@ -66,6 +66,20 @@ async def list_tools ()->list [Tool ]:
     "required":["action"],
     },
     ),
+    Tool (
+    name ="avatar_set_visibility",
+    description ="Show or hide the avatar overlay window. Use this proactively when arriving or leaving.",
+    inputSchema ={
+    "type":"object",
+    "properties":{
+    "visible":{
+    "type":"boolean",
+    "description":"True to show the avatar, False to hide it"
+    },
+    },
+    "required":["visible"],
+    },
+    ),
     ]
 
 
@@ -86,6 +100,10 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
             action =arguments .get ("action","")
             _state ["action"]=action 
             return [TextContent (type ="text",text =json .dumps ({"type":"roleplay","action":action }))]
+
+        if name =="avatar_set_visibility":
+            visible =arguments .get ("visible",True )
+            return [TextContent (type ="text",text =json .dumps ({"type":"visibility","visible":visible }))]
 
         raise ValueError (f"Unknown tool: {name }")
     except Exception as e :
