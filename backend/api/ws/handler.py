@@ -1,5 +1,5 @@
 """
-WebSocket chat handler — per-connection state, proper task tracking.
+WebSocket chat handler — per-connection ChatSession class.
 """
 import asyncio
 import json
@@ -50,14 +50,15 @@ def _normalize_error(error_text: str) -> str:
 
 
 def _animation_dir(char_id: str) -> str:
-    """Return the filesystem path to a character's animation directory, checking data/ then repo."""
+    """Return the filesystem path to a character's animation directory."""
     data_dir = CHARACTERS_DIR / char_id / "anim"
     if data_dir.exists():
         return str(data_dir)
     repo_dir = PROJECT_ROOT / "backend" / "characters" / char_id / "anim"
     if repo_dir.exists():
         return str(repo_dir)
-    return str(data_dir)  
+    return str(data_dir)
+
 
 def _resolve_animation(text: str, char_id: str) -> str | None:
     """Resolve an animation URL from roleplay/action text by keyword matching."""
@@ -81,47 +82,48 @@ def _resolve_animation(text: str, char_id: str) -> str | None:
     return None
 
 
-async def handle_chat(websocket: WebSocket):
-    await websocket.accept()
-    logger.warning("Chat WebSocket connected")
+class ChatSession:
+    """Per-WebSocket connection state and message handling."""
 
-    current_assistant_task: asyncio.Task | None = None
-    current_stream_idx: int = 0
-    voice_output_enabled: bool = False
-    voice_pipeline = None
-    voice_task = None
-    wake_word_enabled: bool = False
-    pending_tasks: list[asyncio.Task] = []
+    def __init__(self, websocket: WebSocket):
+        self.ws = websocket
+        self.stream_idx: int = 0
+        self.current_task: asyncio.Task | None = None
+        self.voice_output_enabled: bool = False
+        self.voice_pipeline = None
+        self.voice_task = None
+        self.wake_word_enabled: bool = False
+        self.pending_tasks: list[asyncio.Task] = []
 
-    def _track_task(t: asyncio.Task):
-        pending_tasks.append(t)
-        t.add_done_callback(pending_tasks.remove)
+    def _track_task(self, t: asyncio.Task):
+        self.pending_tasks.append(t)
+        t.add_done_callback(self.pending_tasks.remove)
 
-    async def _cancel_assistant():
-        nonlocal current_assistant_task, current_stream_idx
-        if current_assistant_task and not current_assistant_task.done():
-            current_assistant_task.cancel()
-            current_assistant_task = None
+    async def send(self, payload: dict):
+        try:
+            await self.ws.send_json(payload)
+        except Exception:
+            pass
 
-            current_stream_idx += 1
-            await _send_json({"type": "tts_interrupt"})
-            logger.debug("Assistant task cancelled and TTS interrupted")
+    async def cancel_assistant(self):
+        if self.current_task and not self.current_task.done():
+            self.current_task.cancel()
+            self.current_task = None
+            self.stream_idx += 1
+            await self.send({"type": "tts_interrupt"})
 
-    async def _process_assistant_response(text: str, images: list = None):
-        nonlocal current_stream_idx, current_assistant_task
-        await _cancel_assistant()
-        
-        current_stream_idx += 1
-        this_stream = current_stream_idx
-        
-        t = asyncio.create_task(_run_agent_loop(text, images, this_stream))
-        current_assistant_task = t
-        _track_task(t)
+    async def process_response(self, text: str, images: list = None):
+        await self.cancel_assistant()
+        self.stream_idx += 1
+        this_stream = self.stream_idx
+        t = asyncio.create_task(self._run_agent_loop(text, images, this_stream))
+        self.current_task = t
+        self._track_task(t)
 
-    async def _run_agent_loop(text: str, images: list, this_stream: int):
-        await _send_json({"type": "chat_start", "role": "assistant"})
-        await _send_json({"type": "emotion", "emotion": "neutral"})
-        await _send_json({"type": "expression", "expression": "neutral"})
+    async def _run_agent_loop(self, text: str, images: list, this_stream: int):
+        await self.send({"type": "chat_start", "role": "assistant"})
+        await self.send({"type": "emotion", "emotion": "neutral"})
+        await self.send({"type": "expression", "expression": "neutral"})
 
         tts_tasks = []
         try:
@@ -129,364 +131,363 @@ async def handle_chat(websocket: WebSocket):
             sentence_buffer = ""
             sentence_idx = 0
             current_emotion = "neutral"
-            
+
             char_id = settings().get("character.active", "default")
             rel_context = relationship().get_context_string(char_id)
-            
+
             async for item in agent().handle_user_input(text, images=images, relationship_context=rel_context):
-
-                if this_stream != current_stream_idx:
+                if this_stream != self.stream_idx:
                     break
-                    
-                if isinstance(item, tuple) and item[0] == '__emotion__':
-                    current_emotion = item[1]
-                    await _send_json({"type": "emotion", "emotion": current_emotion})
-                    continue
-                if isinstance(item, tuple) and item[0] == '__expression__':
-                    await _send_json({"type": "expression", "expression": item[1]})
-                    continue
-                if isinstance(item, tuple) and item[0] == '__thinking__':
-                    await _send_json({"type": "thinking", "text": item[1]})
-                    continue
-                if isinstance(item, tuple) and item[0] == '__animation__':
-                    anim_name = item[1]
-                    await _send_json({"type": "animation", "name": anim_name, "url": f"/characters/{char_id}/anim/{anim_name}.vrma"})
-                    continue
-                if isinstance(item, tuple) and item[0] == '__avatar__':
-                    try:
-                        av = json.loads(item[1])
-                        av_type = av.get("type") if isinstance(av, dict) else None
-                        if av_type == "emotion":
-                            current_emotion = av.get("emotion", "neutral")
-                            await _send_json({"type": "emotion", "emotion": current_emotion})
-                        elif av_type == "expression":
-                            await _send_json({"type": "expression", "expression": av.get("expression", "neutral")})
-                        elif av_type == "visibility":
-                            await _send_json({"type": "visibility", "visible": av.get("visible", True)})
-                        elif av_type == "roleplay":
-                            action = av.get("action", "")
-                            rp_text = f"*{action}* "
-                            full_response += rp_text
-                            sentence_buffer += rp_text
-                            anim_url = _resolve_animation(action, char_id)
-                            await _send_json({"type": "roleplay", "text": action, "animation_url": anim_url})
-                    except Exception:
-                        pass
-                    continue
-                if isinstance(item, tuple) and item[0] == '__tool__':
-                    await _send_json({"type": "tool_call", "text": item[1]})
-                    continue
-                if isinstance(item, tuple) and item[0] == '__error__':
-                    await _send_json({
-                        "type": "chat_append", "role": "assistant",
-                        "text": _normalize_error(str(item[1])), "finished": True, "error": True
-                    })
-                    return
-                if isinstance(item, tuple) and item[0] == '__permission__':
-                    await _send_json({"type": "permission_request", "command": item[1]})
-                    continue
-                if isinstance(item, tuple) and item[0] == '__roleplay__':
-                    rp_text = f"*{item[1]}* "
-                    full_response += rp_text
-                    sentence_buffer += rp_text
-                    anim_url = _resolve_animation(item[1], char_id)
-                    await _send_json({"type": "roleplay", "text": item[1], "animation_url": anim_url})
+
+                # Handle tuple signals
+                if isinstance(item, tuple):
+                    sig_type = item[0]
+                    sig_val = item[1]
+
+                    if sig_type == '__emotion__':
+                        current_emotion = sig_val
+                        await self.send({"type": "emotion", "emotion": current_emotion})
+                    elif sig_type == '__expression__':
+                        await self.send({"type": "expression", "expression": sig_val})
+                    elif sig_type == '__thinking__':
+                        await self.send({"type": "thinking", "text": sig_val})
+                    elif sig_type == '__animation__':
+                        await self.send({"type": "animation", "name": sig_val,
+                                        "url": f"/characters/{char_id}/anim/{sig_val}.vrma"})
+                    elif sig_type == '__avatar__':
+                        await self._handle_avatar_signal(sig_val, current_emotion, full_response, sentence_buffer, char_id)
+                        if sig_type == '__avatar__':
+                            continue
+                    elif sig_type == '__tool__':
+                        await self.send({"type": "tool_call", "text": sig_val})
+                    elif sig_type == '__error__':
+                        await self.send({"type": "chat_append", "role": "assistant",
+                                        "text": _normalize_error(str(sig_val)), "finished": True, "error": True})
+                        return
+                    elif sig_type == '__permission__':
+                        await self.send({"type": "permission_request", "command": sig_val})
+                    elif sig_type == '__roleplay__':
+                        rp_text = f"*{sig_val}* "
+                        full_response += rp_text
+                        sentence_buffer += rp_text
+                        anim_url = _resolve_animation(sig_val, char_id)
+                        await self.send({"type": "roleplay", "text": sig_val, "animation_url": anim_url})
                     continue
 
+                # Regular text token
                 token = item
                 full_response += token
                 sentence_buffer += token
-                await _send_json({"type": "chat_append", "role": "assistant", "text": token, "finished": False})
+                await self.send({"type": "chat_append", "role": "assistant", "text": token, "finished": False})
 
-                if voice_output_enabled and re.search(r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}', sentence_buffer):
+                # Sentence-level TTS
+                if self.voice_output_enabled and re.search(r'[.!?。！？]\s|[.!?。！？]$|,\s{10,}', sentence_buffer):
                     parts = re.split(r'(?<=[.!?。！？])\s', sentence_buffer)
                     if len(parts) > 1:
                         complete = parts[0].strip()
                         sentence_buffer = ' '.join(parts[1:])
                         if complete:
-                            await _send_json({"type": "voice_state", "state": "speaking"})
+                            await self.send({"type": "voice_state", "state": "speaking"})
                             t = asyncio.create_task(synthesize_sentence(
-                                complete, sentence_idx, this_stream, current_stream_idx,
-                                websocket, current_emotion))
-                            _track_task(t)
+                                complete, sentence_idx, this_stream, self.stream_idx,
+                                self.ws, current_emotion))
+                            self._track_task(t)
                             tts_tasks.append(t)
                             sentence_idx += 1
 
-            if full_response.strip() and this_stream == current_stream_idx:
+            # Post-stream: relationship tracking
+            if full_response.strip() and this_stream == self.stream_idx:
                 try:
                     relationship().analyze_message("user", text, char_id)
                     relationship().analyze_message("assistant", full_response, char_id)
                 except Exception as e:
                     logger.warning(f"Relationship tracking error: {e}")
 
-            if this_stream == current_stream_idx:
-                await _send_json({"type": "viseme", "value": 0.0})
-                if voice_output_enabled and sentence_buffer.strip():
-                    await _send_json({"type": "voice_state", "state": "speaking"})
+            # Final TTS + cleanup
+            if this_stream == self.stream_idx:
+                await self.send({"type": "viseme", "value": 0.0})
+                if self.voice_output_enabled and sentence_buffer.strip():
+                    await self.send({"type": "voice_state", "state": "speaking"})
                     t = asyncio.create_task(synthesize_sentence(
                         sentence_buffer.strip(), sentence_idx, this_stream,
-                        current_stream_idx, websocket, current_emotion))
-                    _track_task(t)
+                        self.stream_idx, self.ws, current_emotion))
+                    self._track_task(t)
                     tts_tasks.append(t)
-                    sentence_idx += 1
 
-                await _send_json({"type": "emotion", "emotion": "neutral"})
-                await _send_json({"type": "expression", "expression": "neutral"})
-                await _send_json({"type": "chat_append", "role": "assistant", "text": "", "finished": True})
-                
+                await self.send({"type": "emotion", "emotion": "neutral"})
+                await self.send({"type": "expression", "expression": "neutral"})
+                await self.send({"type": "chat_append", "role": "assistant", "text": "", "finished": True})
+
                 if tts_tasks:
                     await asyncio.gather(*tts_tasks, return_exceptions=True)
-                    if this_stream == current_stream_idx:
-                        await _send_json({"type": "voice_state", "state": "idle"})
+                    if this_stream == self.stream_idx:
+                        await self.send({"type": "voice_state", "state": "idle"})
 
         except asyncio.CancelledError:
-            logger.debug(f"Agent loop for stream {this_stream} cancelled")
             for t in tts_tasks:
-                if not t.done(): t.cancel()
+                if not t.done():
+                    t.cancel()
             raise
         except Exception as e:
             logger.error(f"Agent error in loop: {e}")
-            await _send_json({
-                "type": "chat_append", "role": "assistant",
-                "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True
-            })
+            await self.send({"type": "chat_append", "role": "assistant",
+                            "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
 
-    try:
-        while True:
-            data = await websocket.receive_json()
-            msg_type = data.get("type")
+    async def _handle_avatar_signal(self, sig_val, current_emotion, full_response, sentence_buffer, char_id):
+        """Handle __avatar__ signals for emotion/expression/roleplay."""
+        try:
+            av = json.loads(sig_val)
+            av_type = av.get("type") if isinstance(av, dict) else None
+            if av_type == "emotion":
+                await self.send({"type": "emotion", "emotion": av.get("emotion", "neutral")})
+            elif av_type == "expression":
+                await self.send({"type": "expression", "expression": av.get("expression", "neutral")})
+            elif av_type == "visibility":
+                await self.send({"type": "visibility", "visible": av.get("visible", True)})
+            elif av_type == "roleplay":
+                action = av.get("action", "")
+                anim_url = _resolve_animation(action, char_id)
+                await self.send({"type": "roleplay", "text": action, "animation_url": anim_url})
+        except Exception:
+            pass
 
-            if msg_type == "command":
-                cmd = data.get("command", "")
-                if cmd in ("voice_output_on", "voice_on"):
-                    voice_output_enabled = True
-                    logger.debug("Voice output enabled by client")
-                    await _send_json({"type": "voice_state", "state": "idle"})
-                elif cmd in ("voice_output_off", "voice_off"):
-                    voice_output_enabled = False
-                    logger.debug("Voice output disabled by client")
-                    await _send_json({"type": "voice_state", "state": "idle"})
-                elif cmd == "voice_input_on":
-                    stt_engine = settings().get("voice.stt_engine", "faster-whisper")
-                    if stt_engine == "browser":
-                        await _send_json({"type": "voice_state", "state": "recording"})
-                        logger.debug("Voice input started (browser STT)")
-                    else:
-                        if voice_pipeline is None:
-                            _main_loop = asyncio.get_running_loop()
+    async def handle_command(self, cmd: str, data: dict):
+        """Handle voice/avatar/speak commands."""
+        if cmd in ("voice_output_on", "voice_on"):
+            self.voice_output_enabled = True
+            await self.send({"type": "voice_state", "state": "idle"})
+        elif cmd in ("voice_output_off", "voice_off"):
+            self.voice_output_enabled = False
+            await self.send({"type": "voice_state", "state": "idle"})
+        elif cmd == "voice_input_on":
+            await self._voice_input_on()
+        elif cmd == "voice_input_off":
+            await self._voice_input_off()
+        elif cmd == "wake_word_on":
+            await self._wake_word_on()
+        elif cmd == "wake_word_off":
+            await self._wake_word_off()
+        elif cmd == "avatar_set_visibility":
+            await self.send({"type": "visibility", "visible": data.get("visible", True)})
+        elif cmd == "speak":
+            speak_text = data.get("text", "").strip()
+            if speak_text:
+                t = asyncio.create_task(synthesize_now(speak_text, self.ws))
+                self._track_task(t)
 
-                            def on_transcription(text):
-                                logger.info(f"Voice loop transcription: {text}")
-                                asyncio.run_coroutine_threadsafe(
-                                    _process_assistant_response(text),
-                                    _main_loop
-                                )
-                                try:
-                                    asyncio.run_coroutine_threadsafe(
-                                        _send_json({"type": "user_message_from_voice", "text": text}),
-                                        _main_loop
-                                    )
-                                except Exception as e:
-                                    logger.error(f"Voice transcription send failed: {e}")
+    async def _voice_input_on(self):
+        stt_engine = settings().get("voice.stt_engine", "faster-whisper")
+        if stt_engine == "browser":
+            await self.send({"type": "voice_state", "state": "recording"})
+            return
 
-                            def on_speech_start():
-                                logger.debug("User speech started - interrupting assistant")
-                                asyncio.run_coroutine_threadsafe(_cancel_assistant(), _main_loop)
+        if self.voice_pipeline is None:
+            _main_loop = asyncio.get_running_loop()
 
-                            voice_cfg = settings()
-                            voice_pipeline = VoicePipeline(
-                                agent_callback=on_transcription,
-                                on_speech_start=on_speech_start,
-                                stt_engine=stt_engine,
-                                settings=voice_cfg,
-                            )
-                            if stt_engine == "openai-whisper":
-                                whisper_key = voice_cfg.get("voice.openai_whisper.api_key", "")
-                                if whisper_key:
-                                    whisper_model = voice_cfg.get("voice.openai_whisper.model", "whisper-1")
-                                    voice_pipeline.configure_openai_stt(whisper_key, whisper_model)
-                            elif stt_engine == "groq-whisper":
-                                groq_key = voice_cfg.get("voice.groq_whisper.api_key", "")
-                                if groq_key:
-                                    groq_model = voice_cfg.get("voice.groq_whisper.model", "whisper-large-v3")
-                                    groq_url = voice_cfg.get("voice.groq_whisper.base_url", None)
-                                    voice_pipeline.configure_groq_stt(groq_key, groq_model, groq_url)
-                            elif stt_engine == "whispercpp":
-                                wcpp_url = voice_cfg.get("voice.whispercpp.url", None)
-                                voice_pipeline.configure_whispercpp_stt(wcpp_url)
-                            elif stt_engine == "deepgram":
-                                dg_key = voice_cfg.get("voice.deepgram.api_key", "")
-                                if dg_key:
-                                    dg_model = voice_cfg.get("voice.deepgram.model", "nova-2")
-                                    voice_pipeline.configure_deepgram_stt(dg_key, dg_model)
-                        if voice_task is None or voice_task.done():
-                            if voice_task and voice_task.exception():
-                                logger.error(f"Previous voice task failed: {voice_task.exception()}")
-                            loop = asyncio.get_running_loop()
-                            voice_task = loop.run_in_executor(None, voice_pipeline.listen_loop)
-                        await _send_json({"type": "voice_state", "state": "recording"})
-                        logger.debug("Voice input started")
-                elif cmd == "voice_input_off":
-                    stt_engine = settings().get("voice.stt_engine", "faster-whisper")
-                    if stt_engine == "browser":
-                        await _send_json({"type": "voice_state", "state": "idle"})
-                        logger.debug("Voice input stopped (browser STT)")
-                    else:
-                        if voice_pipeline:
-                            voice_pipeline.stop_listening()
-                        if voice_task and not voice_task.done():
-                            voice_task.cancel()
-                            voice_task = None
-                        voice_pipeline = None
-                        await _send_json({"type": "voice_state", "state": "idle"})
-                        logger.debug("Voice input stopped")
-                elif cmd == "wake_word_on":
-                    ww = wakeword()
-                    ww.set_callback(_wakeword_callback)
-                    ok = ww.start()
-                    if ok:
-                        wake_word_enabled = True
-                        await _send_json({"type": "wake_word_state", "enabled": True})
-                        logger.debug("Wake word detection started")
-                    else:
-                        await _send_json({
-                            "type": "wake_word_state", "enabled": False,
-                            "error": "Failed to start wake word detection. Is openwakeword installed?"
-                        })
-                elif cmd == "wake_word_off":
-                    ww = wakeword()
-                    ww.stop()
-                    wake_word_enabled = False
-                    await _send_json({"type": "wake_word_state", "enabled": False})
-                    logger.debug("Wake word detection stopped")
-                elif cmd == "avatar_set_visibility":
-                    visible = data.get("visible", True)
-                    await _send_json({"type": "visibility", "visible": visible})
-                elif cmd == "speak":
-                    speak_text = data.get("text", "").strip()
-                    if speak_text:
-                        logger.debug(f"Speak command: {speak_text[:50]}")
-                        t = asyncio.create_task(synthesize_now(speak_text, websocket))
-                        _track_task(t)
-                continue
-
-            if msg_type == "slash_command":
-                cmd = data.get("command", "").lower()
-                args = data.get("args", "")
-                if cmd == "clear":
-                    await memory().clear()
-                    sid = memory().start_session()
-                    relationship()._cache.clear()
-                    await _send_json({
-                        "type": "chat_append", "role": "system",
-                        "text": "Memory cleared.", "finished": True, "session_id": sid
-                    })
-                elif cmd == "new":
-                    sid = memory().start_session()
-                    await _send_json({
-                        "type": "chat_append", "role": "system",
-                        "text": f"New session started: {sid}", "finished": True, "session_id": sid
-                    })
-                elif cmd == "help":
-                    help_text = (
-                        "Slash commands:\n"
-                        "/clear — clear history\n"
-                        "/new — start new session\n"
-                        "/provider <name> — switch provider\n"
-                        "/model <name> — switch model\n"
-                        "/session <id> — show/load session\n"
-                        "/status — show current provider, model, session\n"
-                        "/compact — force memory compaction\n"
-                        "/help — show this"
-                    )
-                    await _send_json(
-                        {"type": "chat_append", "role": "system", "text": help_text, "finished": True})
-                elif cmd == "provider":
-                    if args:
-                        loop = asyncio.get_running_loop()
-                        s = settings()
-                        await loop.run_in_executor(None, lambda: s.set("provider.active", args))
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Switched to provider: {args}", "finished": True})
-                    else:
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Current provider: {settings().get('provider.active', 'gemini')}", "finished": True})
-                elif cmd == "model":
-                    if args:
-                        provider = settings().get("provider.active", "gemini")
-                        loop = asyncio.get_running_loop()
-                        s = settings()
-                        await loop.run_in_executor(None, lambda: s.set(f"provider.{provider}.model", args))
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Switched model to: {args}", "finished": True})
-                    else:
-                        provider = settings().get("provider.active", "gemini")
-                        model = settings().get(f"provider.{provider}.model", "not set")
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Current model ({provider}): {model}", "finished": True})
-                elif cmd == "session":
-                    if args:
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Load session by navigating to {args}", "finished": True})
-                    else:
-                        sid = memory().get_current_session()
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Current session: {sid}", "finished": True})
-                elif cmd == "compact":
-                    await _send_json(
-                        {"type": "chat_append", "role": "system", "text": "Compacting memory...", "finished": True})
-                    try:
-                        await memory().check_and_summarize()
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": "Memory compacted.", "finished": True})
-                    except Exception as e:
-                        await _send_json(
-                            {"type": "chat_append", "role": "system", "text": f"Compaction failed: {e}", "finished": True})
-                elif cmd == "status":
-                    s = settings()
-                    active = s.get("provider.active", "?")
-                    model = s.get(f"provider.{active}.model", "?")
-                    sid = memory().get_current_session()
-                    await _send_json(
-                        {"type": "chat_append", "role": "system", "text": f"Provider: {active}\nModel: {model}\nSession: {sid}", "finished": True})
-                else:
-                    await _send_json(
-                        {"type": "chat_append", "role": "system", "text": f"Unknown command: /{cmd}. Try /help", "finished": True})
-                continue
-
-            if msg_type == "idle_prompt_request":
+            def on_transcription(text):
+                asyncio.run_coroutine_threadsafe(self.process_response(text), _main_loop)
                 try:
-                    text = await agent().generate_idle_prompt()
-                    if text:
-                        await _send_json({"type": "idle_prompt", "text": text})
-
-                    asyncio.create_task(agent().subconscious_reflect())
+                    asyncio.run_coroutine_threadsafe(
+                        self.send({"type": "user_message_from_voice", "text": text}), _main_loop)
                 except Exception as e:
-                    logger.warning(f"Idle prompt request failed: {e}")
-                continue
+                    logger.error(f"Voice transcription send failed: {e}")
 
-            if msg_type == "user_message":
-                text = data.get("text", "").strip()
-                images = data.get("images", None)
-                if not text and not images:
-                    continue
-                await _process_assistant_response(text, images)
+            def on_speech_start():
+                asyncio.run_coroutine_threadsafe(self.cancel_assistant(), _main_loop)
 
+            voice_cfg = settings()
+            self.voice_pipeline = VoicePipeline(
+                agent_callback=on_transcription,
+                on_speech_start=on_speech_start,
+                stt_engine=stt_engine,
+                settings=voice_cfg,
+            )
+            # Configure STT provider
+            if stt_engine == "openai-whisper":
+                key = voice_cfg.get("voice.openai_whisper.api_key", "")
+                if key:
+                    self.voice_pipeline.configure_openai_stt(key, voice_cfg.get("voice.openai_whisper.model", "whisper-1"))
+            elif stt_engine == "groq-whisper":
+                key = voice_cfg.get("voice.groq_whisper.api_key", "")
+                if key:
+                    self.voice_pipeline.configure_groq_stt(
+                        key,
+                        voice_cfg.get("voice.groq_whisper.model", "whisper-large-v3"),
+                        voice_cfg.get("voice.groq_whisper.base_url", None))
+            elif stt_engine == "whispercpp":
+                self.voice_pipeline.configure_whispercpp_stt(voice_cfg.get("voice.whispercpp.url", None))
+            elif stt_engine == "deepgram":
+                key = voice_cfg.get("voice.deepgram.api_key", "")
+                if key:
+                    self.voice_pipeline.configure_deepgram_stt(key, voice_cfg.get("voice.deepgram.model", "nova-2"))
 
-    except WebSocketDisconnect:
-        logger.warning("Chat WebSocket disconnected")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        for t in pending_tasks:
+        if self.voice_task is None or self.voice_task.done():
+            if self.voice_task and self.voice_task.exception():
+                logger.error(f"Previous voice task failed: {self.voice_task.exception()}")
+            loop = asyncio.get_running_loop()
+            self.voice_task = loop.run_in_executor(None, self.voice_pipeline.listen_loop)
+        await self.send({"type": "voice_state", "state": "recording"})
+
+    async def _voice_input_off(self):
+        stt_engine = settings().get("voice.stt_engine", "faster-whisper")
+        if stt_engine == "browser":
+            await self.send({"type": "voice_state", "state": "idle"})
+        else:
+            if self.voice_pipeline:
+                self.voice_pipeline.stop_listening()
+            if self.voice_task and not self.voice_task.done():
+                self.voice_task.cancel()
+                self.voice_task = None
+            self.voice_pipeline = None
+            await self.send({"type": "voice_state", "state": "idle"})
+
+    async def _wake_word_on(self):
+        ww = wakeword()
+
+        def _wakeword_callback():
+            logger.info("Wake word detected!")
+            main_loop = asyncio.get_event_loop()
+            main_loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(self.process_response("Hey, I'm listening!")))
+
+        ww.set_callback(_wakeword_callback)
+        ok = ww.start()
+        if ok:
+            self.wake_word_enabled = True
+            await self.send({"type": "wake_word_state", "enabled": True})
+        else:
+            await self.send({"type": "wake_word_state", "enabled": False,
+                            "error": "Failed to start wake word detection. Is openwakeword installed?"})
+
+    async def _wake_word_off(self):
+        wakeword().stop()
+        self.wake_word_enabled = False
+        await self.send({"type": "wake_word_state", "enabled": False})
+
+    async def handle_slash_command(self, cmd: str, args: str):
+        """Handle slash commands (/clear, /new, /help, etc.)."""
+        if cmd == "clear":
+            await memory().clear()
+            sid = memory().start_session()
+            relationship()._cache.clear()
+            await self.send({"type": "chat_append", "role": "system",
+                            "text": "Memory cleared.", "finished": True, "session_id": sid})
+        elif cmd == "new":
+            sid = memory().start_session()
+            await self.send({"type": "chat_append", "role": "system",
+                            "text": f"New session started: {sid}", "finished": True, "session_id": sid})
+        elif cmd == "help":
+            help_text = (
+                "Slash commands:\n"
+                "/clear — clear history\n"
+                "/new — start new session\n"
+                "/provider <name> — switch provider\n"
+                "/model <name> — switch model\n"
+                "/session <id> — show/load session\n"
+                "/status — show current provider, model, session\n"
+                "/compact — force memory compaction\n"
+                "/help — show this"
+            )
+            await self.send({"type": "chat_append", "role": "system", "text": help_text, "finished": True})
+        elif cmd == "provider":
+            if args:
+                loop = asyncio.get_running_loop()
+                s = settings()
+                await loop.run_in_executor(None, lambda: s.set("provider.active", args))
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Switched to provider: {args}", "finished": True})
+            else:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Current provider: {settings().get('provider.active', 'gemini')}", "finished": True})
+        elif cmd == "model":
+            if args:
+                provider = settings().get("provider.active", "gemini")
+                loop = asyncio.get_running_loop()
+                s = settings()
+                await loop.run_in_executor(None, lambda: s.set(f"provider.{provider}.model", args))
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Switched model to: {args}", "finished": True})
+            else:
+                provider = settings().get("provider.active", "gemini")
+                model = settings().get(f"provider.{provider}.model", "not set")
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Current model ({provider}): {model}", "finished": True})
+        elif cmd == "session":
+            if args:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Load session by navigating to {args}", "finished": True})
+            else:
+                sid = memory().get_current_session()
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Current session: {sid}", "finished": True})
+        elif cmd == "compact":
+            await self.send({"type": "chat_append", "role": "system", "text": "Compacting memory...", "finished": True})
+            try:
+                await memory().check_and_summarize()
+                await self.send({"type": "chat_append", "role": "system", "text": "Memory compacted.", "finished": True})
+            except Exception as e:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Compaction failed: {e}", "finished": True})
+        elif cmd == "status":
+            s = settings()
+            active = s.get("provider.active", "?")
+            model = s.get(f"provider.{active}.model", "?")
+            sid = memory().get_current_session()
+            await self.send({"type": "chat_append", "role": "system",
+                            "text": f"Provider: {active}\nModel: {model}\nSession: {sid}", "finished": True})
+        else:
+            await self.send({"type": "chat_append", "role": "system",
+                            "text": f"Unknown command: /{cmd}. Try /help", "finished": True})
+
+    async def cleanup(self):
+        """Cancel all pending tasks and stop voice/wake word."""
+        for t in self.pending_tasks:
             if not t.done():
                 t.cancel()
-        if voice_pipeline:
-            voice_pipeline.stop_listening()
-        if voice_task and not voice_task.done():
-            voice_task.cancel()
-        if wake_word_enabled:
+        if self.voice_pipeline:
+            self.voice_pipeline.stop_listening()
+        if self.voice_task and not self.voice_task.done():
+            self.voice_task.cancel()
+        if self.wake_word_enabled:
             try:
                 wakeword().stop()
             except Exception:
                 pass
+
+    async def run(self):
+        """Main message loop."""
+        try:
+            while True:
+                data = await self.ws.receive_json()
+                msg_type = data.get("type")
+
+                if msg_type == "command":
+                    await self.handle_command(data.get("command", ""), data)
+                elif msg_type == "slash_command":
+                    await self.handle_slash_command(data.get("command", "").lower(), data.get("args", ""))
+                elif msg_type == "idle_prompt_request":
+                    try:
+                        text = await agent().generate_idle_prompt()
+                        if text:
+                            await self.send({"type": "idle_prompt", "text": text})
+                        asyncio.create_task(agent().subconscious_reflect())
+                    except Exception as e:
+                        logger.warning(f"Idle prompt request failed: {e}")
+                elif msg_type == "user_message":
+                    text = data.get("text", "").strip()
+                    images = data.get("images", None)
+                    if text or images:
+                        await self.process_response(text, images)
+
+        except WebSocketDisconnect:
+            logger.warning("Chat WebSocket disconnected")
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+        finally:
+            await self.cleanup()
+
+
+async def handle_chat(websocket: WebSocket):
+    await websocket.accept()
+    session = ChatSession(websocket)
+    await session.run()
