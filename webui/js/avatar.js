@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
-const BASE_URL = IS_TAURI ? 'http:
+const BASE_URL = IS_TAURI ? 'http://localhost:8000' : '';
 
 import { loadVRMAnimation } from './vrm-animation.js';
 import { AdaptiveLipsyncManager } from './adaptive-lipsync.js';
