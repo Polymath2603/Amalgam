@@ -7,6 +7,9 @@ characters/**
 *.pyc
 __pycache__/
 *.egg-info/
+.pytest_cache/
+.venv/
+venv/
 
 # Private/user data
 data/
