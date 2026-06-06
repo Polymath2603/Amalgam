@@ -1,14 +1,13 @@
-import sqlite3
 import json
 import math
 import os
 import asyncio
-import concurrent.futures
 import logging
 import re
 from datetime import datetime, timezone
 from typing import Dict
 
+import aiosqlite
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 _VADER = SentimentIntensityAnalyzer()
@@ -51,19 +50,21 @@ class Relationship :
         from backend .core .paths import RELATIONSHIP_DB 
         if db_path is None :
             db_path =RELATIONSHIP_DB 
-        os .makedirs (os .path .dirname (db_path ),exist_ok =True )
-        self .conn =sqlite3 .connect (db_path ,check_same_thread =False )
-        self .cursor =self .conn .cursor ()
-        self .cursor .execute ('''
-            CREATE TABLE IF NOT EXISTS relationships (
-                character_id TEXT PRIMARY KEY,
-                stats TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        ''')
-        self .conn .commit ()
+        self ._db_path =str (db_path)
+        os .makedirs (os .path .dirname (self._db_path ),exist_ok =True )
         self ._cache :Dict [str ,Dict ]={}
-        self ._db_executor =concurrent .futures .ThreadPoolExecutor (max_workers =1 ,thread_name_prefix ="rel_db")
+
+    async def _init_db(self):
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS relationships (
+                    character_id TEXT PRIMARY KEY,
+                    stats TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            ''')
+            await db.commit()
 
     def _default_stats (self )->Dict :
         now =datetime .now (timezone .utc ).isoformat ()
@@ -77,14 +78,15 @@ class Relationship :
         "created_at":now ,
         }
 
-    def _load (self ,character_id :str )->Dict :
+    async def _load (self ,character_id :str )->Dict :
         if character_id in self ._cache :
             return self ._cache [character_id ]
-        self .cursor .execute (
-        'SELECT stats FROM relationships WHERE character_id = ?',
-        (character_id ,)
-        )
-        row =self .cursor .fetchone ()
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                'SELECT stats FROM relationships WHERE character_id = ?',
+                (character_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
         if row :
             stats =json .loads (row [0 ])
             self ._cache [character_id ]=stats 
@@ -96,17 +98,12 @@ class Relationship :
     async def _save (self ,character_id :str ,stats :Dict ):
         stats ["updated_at"]=datetime .now (timezone .utc ).isoformat ()
         self ._cache [character_id ]=stats 
-        loop =asyncio .get_running_loop ()
-        await loop .run_in_executor (
-        self ._db_executor ,
-        lambda :[
-        self .cursor .execute (
-        'INSERT OR REPLACE INTO relationships (character_id, stats, updated_at) VALUES (?, ?, ?)',
-        (character_id ,json .dumps (stats ),stats ["updated_at"])
-        ),
-        self .conn .commit ()
-        ]
-        )
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                'INSERT OR REPLACE INTO relationships (character_id, stats, updated_at) VALUES (?, ?, ?)',
+                (character_id, json.dumps(stats), stats["updated_at"])
+            )
+            await db.commit()
 
     def _apply_time_decay (self ,stats :Dict ):
         last =datetime .fromisoformat (stats ["last_interaction"])
@@ -131,8 +128,8 @@ class Relationship :
         marker_score =min (len (markers )/3 ,1.0 )
         return length_score *0.5 +marker_score *0.5 
 
-    def analyze_message (self ,role :str ,content :str ,character_id :str ):
-        stats =self ._load (character_id )
+    async def analyze_message (self ,role :str ,content :str ,character_id :str ):
+        stats =await self ._load (character_id )
         self ._apply_time_decay (stats )
 
         stats ["interaction_count"]+=1 
@@ -149,15 +146,10 @@ class Relationship :
         elif role =="assistant":
             stats ["total_words_assistant"]+=len (content .split ())
 
-        try :
-            loop =asyncio .get_event_loop ()
-            if loop .is_running ():
-                asyncio .ensure_future (self ._save (character_id ,stats ))
-        except RuntimeError :
-            pass 
+        await self ._save (character_id ,stats )
 
-    def get_stage (self ,character_id :str )->str :
-        stats =self ._load (character_id )
+    async def get_stage (self ,character_id :str )->str :
+        stats =await self ._load (character_id )
         return self ._calculate_stage (stats )
 
     def _calculate_stage (self ,stats :Dict )->str :
@@ -169,8 +161,8 @@ class Relationship :
                 best =name 
         return best 
 
-    def get_context_string (self ,character_id :str )->str :
-        stats =self ._load (character_id )
+    async def get_context_string (self ,character_id :str )->str :
+        stats =await self ._load (character_id )
         stage =self ._calculate_stage (stats )
         lines =[
         f"Relationship stage: {stage .replace ('_',' ')}",
@@ -190,8 +182,8 @@ class Relationship :
 
         return "\n".join (lines )
 
-    def get_stats (self ,character_id :str )->Dict :
-        stats =self ._load (character_id )
+    async def get_stats (self ,character_id :str )->Dict :
+        stats =await self ._load (character_id )
         return {
         "interaction_count":stats ["interaction_count"],
         "avg_sentiment":round (stats ["avg_sentiment"],3 ),

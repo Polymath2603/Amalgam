@@ -133,7 +133,7 @@ class ChatSession:
             current_emotion = "neutral"
 
             char_id = settings().get("character.active", "default")
-            rel_context = relationship().get_context_string(char_id)
+            rel_context = await relationship().get_context_string(char_id)
 
             async for item in agent().handle_user_input(text, images=images, relationship_context=rel_context):
                 if this_stream != self.stream_idx:
@@ -198,8 +198,8 @@ class ChatSession:
             # Post-stream: relationship tracking
             if full_response.strip() and this_stream == self.stream_idx:
                 try:
-                    relationship().analyze_message("user", text, char_id)
-                    relationship().analyze_message("assistant", full_response, char_id)
+                    await relationship().analyze_message("user", text, char_id)
+                    await relationship().analyze_message("assistant", full_response, char_id)
                 except Exception as e:
                     logger.warning(f"Relationship tracking error: {e}")
 
@@ -295,6 +295,7 @@ class ChatSession:
             def on_speech_start():
                 asyncio.run_coroutine_threadsafe(self.cancel_assistant(), _main_loop)
 
+            from backend.voice.stt_configurator import configure_stt_pipeline
             voice_cfg = settings()
             self.voice_pipeline = VoicePipeline(
                 agent_callback=on_transcription,
@@ -302,24 +303,7 @@ class ChatSession:
                 stt_engine=stt_engine,
                 settings=voice_cfg,
             )
-            # Configure STT provider
-            if stt_engine == "openai-whisper":
-                key = voice_cfg.get("voice.openai_whisper.api_key", "")
-                if key:
-                    self.voice_pipeline.configure_openai_stt(key, voice_cfg.get("voice.openai_whisper.model", "whisper-1"))
-            elif stt_engine == "groq-whisper":
-                key = voice_cfg.get("voice.groq_whisper.api_key", "")
-                if key:
-                    self.voice_pipeline.configure_groq_stt(
-                        key,
-                        voice_cfg.get("voice.groq_whisper.model", "whisper-large-v3"),
-                        voice_cfg.get("voice.groq_whisper.base_url", None))
-            elif stt_engine == "whispercpp":
-                self.voice_pipeline.configure_whispercpp_stt(voice_cfg.get("voice.whispercpp.url", None))
-            elif stt_engine == "deepgram":
-                key = voice_cfg.get("voice.deepgram.api_key", "")
-                if key:
-                    self.voice_pipeline.configure_deepgram_stt(key, voice_cfg.get("voice.deepgram.model", "nova-2"))
+            configure_stt_pipeline(self.voice_pipeline, stt_engine, voice_cfg)
 
         if self.voice_task is None or self.voice_task.done():
             if self.voice_task and self.voice_task.exception():
@@ -414,8 +398,12 @@ class ChatSession:
                                 "text": f"Current model ({provider}): {model}", "finished": True})
         elif cmd == "session":
             if args:
+                sid = args.strip()
+                memory().set_current_session(sid)
+                msgs = memory().get_session_messages(sid)
                 await self.send({"type": "chat_append", "role": "system",
-                                "text": f"Load session by navigating to {args}", "finished": True})
+                                "text": f"Loaded session: {sid} ({len(msgs)} messages)",
+                                "finished": True, "session_id": sid})
             else:
                 sid = memory().get_current_session()
                 await self.send({"type": "chat_append", "role": "system",

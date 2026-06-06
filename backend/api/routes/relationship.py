@@ -12,5 +12,5 @@ router =APIRouter (tags =["relationship"])
 
 @router .get ("/api/relationship/{character_id}")
 async def get_relationship (character_id :str ):
-    stats =relationship ().get_stats (character_id )
+    stats =await relationship ().get_stats (character_id )
     return {"character_id":character_id ,**stats }

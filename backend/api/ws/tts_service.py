@@ -3,28 +3,15 @@ TTS synthesis service — per-connection stream IDs, no global mutable state.
 """
 import asyncio
 import base64
-import io
 import os
 import logging
-import wave
 
-import numpy as np  # noqa: F401 — used by _make_wav_bytes type hint
+import numpy as np
 from fastapi import WebSocket
 from backend.api.deps import tts, settings
+from backend.core.utils.wav import numpy_to_wav_bytes
 
 logger = logging.getLogger(__name__)
-
-
-def _make_wav_bytes(audio_np: np.ndarray, sr: int) -> bytes:
-    """Convert float32 numpy audio to WAV bytes using stdlib wave."""
-    pcm = (audio_np * 32767).astype("int16").tobytes()
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(pcm)
-    return buf.getvalue()
 
 
 async def synthesize_sentence (sentence_text :str ,sentence_idx :int ,expected_stream_id :int ,
@@ -59,7 +46,7 @@ current_stream_id :int ,ws :WebSocket ,emotion :str ="neutral"):
             if expected_stream_id != current_stream_id:
                 logger.debug(f"TTS sentence {sentence_idx }: skipped (stale stream before send)")
                 return
-            wav_bytes = _make_wav_bytes(audio_np, sr)
+            wav_bytes = numpy_to_wav_bytes(audio_np, sr)
             b64_audio = base64.b64encode(wav_bytes).decode()
             duration = len(audio_np) / sr
             msg = {
@@ -103,7 +90,7 @@ async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
         result =await asyncio .wait_for (tts ().synthesize (text ,ref_audio =ref_audio ,emotion =emotion ),timeout =60.0 )
         audio_np ,viseme_schedule ,sr =result 
         if len(audio_np) > 0:
-            wav_bytes = _make_wav_bytes(audio_np, sr)
+            wav_bytes = numpy_to_wav_bytes(audio_np, sr)
             b64_audio = base64.b64encode(wav_bytes).decode()
             duration = len(audio_np) / sr
             msg = {
