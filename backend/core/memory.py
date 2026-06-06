@@ -11,6 +11,7 @@ from pathlib import Path
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
+from backend.core.memory import FACTCache, HybridRetrieval, SessionIndex
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,10 @@ class Memory:
                 self._known_sessions.add(sid)
 
         self._maybe_migrate()
+
+        self._fact_cache = FACTCache()
+        self._session_index = SessionIndex(self.conv_dir)
+        self._hybrid = HybridRetrieval(self.chroma_col)
 
     def _maybe_migrate(self):
         existing = set(self.chroma_col.get()["ids"])
@@ -157,6 +162,15 @@ class Memory:
                 "summary": None,
             }
             self._write_sync(session_id, data)
+        self._session_index.upsert(session_id, {
+            "id": session_id,
+            "created": now.isoformat(),
+            "updated": now.isoformat(),
+            "title": "New Session",
+            "character": character,
+            "provider": provider,
+            "model": model,
+        })
         return session_id
 
     def session_exists(self, session_id: str) -> bool:
@@ -181,6 +195,10 @@ class Memory:
         return default
 
     async def _get_embedding(self, text: str) -> Optional[List[float]]:
+        cached = self._fact_cache.get(text)
+        if cached is not None:
+            return cached
+
         backend = self._setting("memory.embedding_backend", "provider")
 
         if backend == "disabled":
@@ -189,7 +207,9 @@ class Memory:
         if backend == "local" and _LOCAL_EMBEDDING is not None:
             try:
                 emb = _LOCAL_EMBEDDING.encode(text)
-                return emb.tolist()
+                result = emb.tolist()
+                self._fact_cache.set(text, result)
+                return result
             except Exception as e:
                 logger.debug(f"Local embedding failed: {e}")
 
@@ -197,6 +217,7 @@ class Memory:
             try:
                 emb = await self.llm.get_embedding(text)
                 if emb:
+                    self._fact_cache.set(text, emb)
                     return emb
             except Exception as e:
                 logger.debug(f"Provider embedding failed: {e}")
@@ -204,7 +225,9 @@ class Memory:
         if _LOCAL_EMBEDDING is not None:
             try:
                 emb = _LOCAL_EMBEDDING.encode(text)
-                return emb.tolist()
+                result = emb.tolist()
+                self._fact_cache.set(text, result)
+                return result
             except Exception:
                 pass
 
@@ -244,6 +267,14 @@ class Memory:
             data["updated"] = timestamp
             self._write_sync(session_id, data)
 
+        self._session_index.upsert(session_id, {
+            "id": session_id,
+            "updated": timestamp,
+            "message_count": len(data.get("messages", [])),
+            "title": data.get("title", "New Session"),
+        })
+        self._hybrid.rebuild_bm25(data.get("messages", []))
+
         if embedding:
             try:
                 self.chroma_col.add(
@@ -263,6 +294,39 @@ class Memory:
 
     def get_sessions(self) -> List[Dict]:
         sessions = []
+        index_sessions = self._session_index.list_all()
+        if index_sessions:
+            for entry in index_sessions:
+                sid = entry.get("id", "")
+                if not sid:
+                    continue
+                path = self._session_path(sid)
+                if not path.exists():
+                    self._session_index.remove(sid)
+                    continue
+                data = self._read_sync(sid)
+                if data is None:
+                    self._session_index.remove(sid)
+                    continue
+                msgs = data.get("messages", [])
+                preview = ""
+                for m in msgs:
+                    if m.get("role") == "user":
+                        preview = m["content"][:80]
+                        break
+                sessions.append({
+                    "id": data["id"],
+                    "started": data.get("created"),
+                    "last_active": data.get("updated"),
+                    "message_count": len(msgs),
+                    "preview": preview,
+                    "title": data.get("title", ""),
+                    "character": data.get("character", ""),
+                    "provider": data.get("provider", ""),
+                    "model": data.get("model", ""),
+                })
+            return sessions
+
         for path in self._iter_session_paths():
             sid = self._path_to_session_id(path)
             if not sid:
@@ -308,6 +372,7 @@ class Memory:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self._executor, path.unlink)
             self._known_sessions.discard(session_id)
+        self._session_index.remove(session_id)
             return True
         return False
 
@@ -374,18 +439,22 @@ class Memory:
 
         session_id = self.get_current_session()
         try:
-            results = self.chroma_col.query(
-                query_embeddings=[query_emb],
-                n_results=top_k,
-                where={"session_id": session_id},
-            )
-            if results and results["metadatas"] and results["metadatas"][0]:
-                return [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in results["metadatas"][0]
-                ]
+            return self._hybrid.retrieve(query, query_emb, session_id, top_k)
         except Exception as e:
-            logger.debug(f"ChromaDB query failed: {e}")
+            logger.debug(f"Hybrid retrieval failed, falling back: {e}")
+            try:
+                results = self.chroma_col.query(
+                    query_embeddings=[query_emb],
+                    n_results=top_k,
+                    where={"session_id": session_id},
+                )
+                if results and results["metadatas"] and results["metadatas"][0]:
+                    return [
+                        {"role": m["role"], "content": m["content"]}
+                        for m in results["metadatas"][0]
+                    ]
+            except Exception as e2:
+                logger.debug(f"ChromaDB query failed: {e2}")
 
         return []
 
@@ -504,3 +573,6 @@ class Memory:
         for path in list(self._iter_session_paths()):
             await loop.run_in_executor(self._executor, path.unlink)
         self._known_sessions.clear()
+        self._session_index._index.clear()
+        self._session_index._save()
+        self._hybrid = HybridRetrieval(self.chroma_col)

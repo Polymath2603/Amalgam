@@ -12,7 +12,8 @@ from backend .core .context_builder import ContextBuilder
 from backend .core .context_manager import ContextManager 
 from backend .core .vault import VaultManager 
 from backend .core .paths import EMBEDDINGS_DIR 
-from backend .core .agent import Agent 
+from backend .core .agent import Agent
+from backend .core .metacognitive .strategy_selector import StrategySelector
 from backend .core .relationship import Relationship 
 from backend .core .mcp .client import MCPClient 
 from backend .core .voice .tts import TTS 
@@ -32,6 +33,7 @@ _shared ={
 "agent":None ,
 "relationship":None ,
 "wakeword":None ,
+"strategy_selector":None ,
 }
 _init_lock =threading .Lock ()
 
@@ -82,6 +84,8 @@ def get_shared ():
         if _shared ["wakeword"]is None :
             ww_engine =_shared ["settings"].get ("wake_word.engine","openwakeword")
             _shared ["wakeword"]=WakeWordRouter (engine =ww_engine )
+        if _shared ["strategy_selector"]is None :
+            _shared ["strategy_selector"]=StrategySelector ()
         if _shared ["agent"]is None :
             _shared ["agent"]=Agent (
             mcp_client =_shared ["mcp"],
