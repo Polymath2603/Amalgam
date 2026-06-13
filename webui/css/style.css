@@ -718,7 +718,7 @@ body.companion-mode #vrm-view {
     .mobile-tab-bar button.active {
         color: var(--accent);
     }
-    .mobile-tab-bar button .material-icons {
+    .mobile-tab-bar button .material-icons-round {
         font-size: 22px;
     }
     /* Larger touch targets */

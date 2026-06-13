@@ -228,10 +228,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     function switchTab(tabId) {
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        const navItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
         const panel = document.getElementById(`tab-${tabId}`);
-        if (navItem && panel) {
-            navItem.classList.add('active');
+        if (panel) {
+            document.querySelectorAll(`.nav-item[data-tab="${tabId}"]`).forEach(n => n.classList.add('active'));
             panel.classList.add('active');
             panel.focus({ preventScroll: true });
             localStorage.setItem('activeTab', tabId);
