@@ -8,20 +8,17 @@ import logging
 import os 
 import sys 
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.styles import Style
+from prompt_toolkit.shortcuts import clear
+
 os .environ ["HF_HUB_DISABLE_SYMLINKS_WARNING"]="1"
 os .environ ["HF_TOKEN"]=""
-logging .getLogger ("huggingface_hub").setLevel (logging .ERROR )
-logging .getLogger ("huggingface_hub.utils._http").setLevel (logging .ERROR )
-logging .getLogger ("urllib3").setLevel (logging .ERROR )
-logging .getLogger ("httpx").setLevel (logging .ERROR )
-logging .getLogger ("httpcore").setLevel (logging .ERROR )
-logging .getLogger ("chromadb").setLevel (logging .ERROR )
-logging .getLogger ("asyncio").setLevel (logging .ERROR )
-logging .getLogger ("mcp.os.posix.utilities").setLevel (logging .ERROR )
 
 _COMMANDS =[
 "/exit","/clear","/new","/session","/status",
-"/compact","/provider","/model","/companion","/help",
+"/compact","/provider","/model","/companion","/help","/rename",
 ]
 
 _HISTFILE =os .path .join (os .path .expanduser ("~"),".amalgam_history")
@@ -32,38 +29,56 @@ def _make_console ():
     return Console ()
 
 
-def _show_banner (console ,session_id ,provider ,model ):
+def _show_banner (console ,session_id ,provider ,model ,title=None):
     from rich .panel import Panel 
     from rich .table import Table 
     from rich import box 
     grid =Table .grid (padding =1 )
     grid .add_column (style ="cyan")
     grid .add_column ()
-    grid .add_row ("Session",f"[bold]{session_id [:16 ]}...[/bold]")
+    grid .add_row ("Session",f"[bold]{title or session_id[:16]}...[/bold]")
     grid .add_row ("Provider",provider )
     grid .add_row ("Model",model )
     console .print (Panel (grid ,title ="[bold yellow]Amalgam[/bold yellow]",border_style ="yellow"))
     console .print ("[dim]Type /exit to quit, /new for new session, /help for commands[/dim]\n")
 
 
-def _setup_readline ():
-    import readline 
-    try :
-        readline .read_history_file (_HISTFILE )
-    except FileNotFoundError :
-        pass 
-    readline .set_history_length (1000 )
+def _suppress_logs():
+    """Silence common library logs for CLI mode."""
+    loggers = [
+        "huggingface_hub", "huggingface_hub.utils._http", "urllib3", "httpx",
+        "httpcore", "chromadb", "asyncio", "mcp.os.posix.utilities",
+        "backend.core.llm.litellm_provider", "backend.core.memory.manager",
+        "litellm", "aiosqlite", "vaderSentiment", "faster_whisper", "edge-tts"
+    ]
+    for name in loggers:
+        logging.getLogger(name).setLevel(logging.CRITICAL)
+    
+    # Also set root logger to CRITICAL to be safe
+    logging.getLogger().setLevel(logging.CRITICAL)
 
-    def complete (text ,state ):
-        opts =[c for c in _COMMANDS if c .startswith (text )]
-        return opts [state ]if state <len (opts )else None 
 
-    readline .parse_and_bind ("tab: complete")
-    readline .set_completer (complete )
+def _extract_error_message(error_str: str) -> str:
+    """Try to extract 'message' from a potential JSON error string."""
+    import json
+    try:
+        # Regex to find JSON-like content
+        import re
+        match = re.search(r'\{.*\}', error_str)
+        if match:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict) and "error" in data and isinstance(data["error"], dict):
+                return data["error"].get("message", error_str)
+            return data.get("message", error_str)
+    except:
+        pass
+    return error_str
 
 
 async def run_cli_direct ():
     """Run the agent directly in-process (no gRPC needed)."""
+    _suppress_logs()
+    
     from backend .core .startup import init_application ,shutdown_application 
     await init_application ()
 
@@ -73,22 +88,28 @@ async def run_cli_direct ():
     agent =shared ["agent"]
     memory =shared ["memory"]
     settings =shared ["settings"]
+    llm =shared ["llm"]
     _voice_active =[False ]
 
-    session_id =memory .start_session ()
-    active =settings .get ("provider.active","?")
-    model =settings .get (f"provider.{active }.model","?")
-    con =_make_console ()
-    _show_banner (con ,session_id ,active ,model )
+    con = _make_console()
 
-    _setup_readline ()
+    # Initial banner
+    sid = memory.get_current_session()
+    data = await memory._read(sid)
+    title = data.get("title") if data else None
+    active = settings.get("provider.active", "?")
+    model = settings.get(f"provider.{active}.model", "?")
+    clear()
+    _show_banner(con, sid, active, model, title=title)
+
+    completer = WordCompleter(_COMMANDS)
+    prompt_session = PromptSession(history=None, completer=completer)
 
     try :
         while True :
-            sys .stdout .write ("> ")
-            sys .stdout .flush ()
             try :
-                text =input ().strip ()
+                text = await prompt_session.prompt_async("> ")
+                text = text.strip()
             except EOFError :
                 con .print ()
                 break 
@@ -102,11 +123,13 @@ async def run_cli_direct ():
             if text =="/exit":
                 break 
             elif text =="/new":
-                con .clear ()
                 session_id =memory .start_session ()
                 active =settings .get ("provider.active","?")
                 model =settings .get (f"provider.{active }.model","?")
-                _show_banner (con ,session_id ,active ,model )
+                data = await memory._read(session_id)
+                title = data.get("title") if data else None
+                clear()
+                _show_banner (con ,session_id ,active ,model, title=title )
                 continue 
             elif text =="/help":
                 from rich .table import Table 
@@ -116,13 +139,14 @@ async def run_cli_direct ():
                 tbl .add_column ("Description")
                 for row in [
                 ("/exit","Quit the CLI"),
-                ("/clear","Clear conversation history"),
-                ("/new","Start a new session"),
+                ("/clear","Clear terminal and reprint banner"),
+                ("/new","Start a new session and clear screen"),
                 ("/session","Show current session ID"),
                  ("/status","Show provider, model, session info"),
                  ("/compact","Force memory compaction"),
                  ("/provider <name>","Switch AI provider"),
                  ("/model <name>","Switch model for current provider"),
+                 ("/rename <title>","Rename the current session"),
                  ("/companion","Toggle companion mode (voice + avatar)"),
                 ]:
                     tbl .add_row (*row )
@@ -141,9 +165,13 @@ async def run_cli_direct ():
                 continue 
 
             elif text =="/clear":
-                await memory .clear ()
-                memory .start_session ()
-                con .print ("[green]Memory cleared.[/green]")
+                clear()
+                active =settings .get ("provider.active","?")
+                model =settings .get (f"provider.{active }.model","?")
+                sid = memory.get_current_session()
+                data = await memory._read(sid)
+                title = data.get("title") if data else None
+                _show_banner (con ,sid, active ,model, title=title )
                 continue 
             elif text =="/session":
                 con .print (f"[cyan]Session:[/cyan] {memory .get_current_session ()}")
@@ -166,11 +194,41 @@ async def run_cli_direct ():
                     await memory .check_and_summarize ()
                 con .print ("[green]Memory compacted.[/green]")
                 continue 
+            elif text .startswith ("/rename"):
+                parts = text.split(maxsplit=1)
+                if len(parts) > 1:
+                    sid = memory.get_current_session()
+                    try:
+                        new_title = await memory.rename_session(sid, parts[1])
+                        con.print(f"[green]Session renamed to:[/green] {new_title}")
+                        # Refresh banner
+                        active = settings.get("provider.active", "?")
+                        model = settings.get(f"provider.{active}.model", "?")
+                        clear()
+                        _show_banner(con, sid, active, model, title=new_title)
+                    except ValueError as e:
+                        con.print(f"[red]Error:[/red] {e}")
+                continue
+
+            elif text == "/resume":
+                sid = memory.get_current_session()
+                turns = memory.get_session_turns(sid, turns=5)
+                con.print(f"[cyan]Resuming last 5 turns of {sid}:[/cyan]")
+                for turn in turns:
+                    con.print(f"[bold]{turn['role'].upper()}:[/bold] {turn['content']}")
+                continue
             elif text .startswith ("/provider"):
                 parts =text .split ()
                 if len (parts )>1 :
                     settings .set ("provider.active",parts [1 ])
-                    con .print (f"[green]Provider set to:[/green] {parts [1 ]}")
+                    llm.reload_settings()
+                    active = parts[1]
+                    model = settings.get(f"provider.{active}.model", "?")
+                    sid = memory.get_current_session()
+                    data = await memory._read(sid)
+                    title = data.get("title") if data else None
+                    clear()
+                    _show_banner (con ,sid, active ,model, title=title )
                 else :
                     con .print (f"Current provider: {settings .get ('provider.active')}")
                 continue 
@@ -179,7 +237,13 @@ async def run_cli_direct ():
                 parts =text .split (maxsplit =1 )
                 if len (parts )>1 :
                     settings .set (f"provider.{provider }.model",parts [1 ])
-                    con .print (f"[green]Model set to:[/green] {parts [1 ]}")
+                    llm.reload_settings()
+                    model = parts[1]
+                    sid = memory.get_current_session()
+                    data = await memory._read(sid)
+                    title = data.get("title") if data else None
+                    clear()
+                    _show_banner (con ,sid, provider ,model, title=title )
                 else :
                     con .print (f"Current model: {settings .get (f'provider.{provider }.model','?')}")
                 continue 
@@ -204,7 +268,9 @@ async def run_cli_direct ():
                         action =Prompt .ask ("  Options",choices =["once","prefix","exact","deny"],default ="deny")
                         con .print (f"  {action }")
                     elif tag_type =="__error__":
-                        con .print (Panel (f"[red]{tag_val }[/red]",title ="[bold red]Error[/bold red]",border_style ="red"))
+                        msg = _extract_error_message(tag_val)
+                        con .print (Panel (f"[red]{msg }[/red]",title ="[bold red]Error[/bold red]",border_style ="red"))
+
                 else :
                     con .print (chunk ,end ="")
             con .print ()

@@ -57,8 +57,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _vrmPath = BASE_URL + '/characters/default/model.vrm';
     let _mainAvatarCreated = false;
 
-    import('./avatar.js').then(async ({ AvatarRenderer }) => {
-        _avatarModule = { AvatarRenderer };
+    import('./avatar.js').then(async (mod) => {
+        const AvatarRenderer = mod.AvatarRenderer;
+        const SpriteAvatar = mod.SpriteAvatar;
+        const useSprite = window._gpuTier === 'low';
+        _avatarModule = { AvatarRenderer, SpriteAvatar, useSprite };
         const settings = await fetch(BASE_URL + '/api/settings').then(r => r.json());
         _vrmPath = settings?.avatar?.model_path
             ? BASE_URL + `/${settings.avatar.model_path}`
@@ -86,8 +89,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (_mainAvatarCreated || !_avatarModule || !avatarContainer) return;
         _mainAvatarCreated = true;
         try {
-            avatarRenderer = new _avatarModule.AvatarRenderer(avatarContainer, _vrmPath);
-            
+            if (_avatarModule.useSprite) {
+                avatarRenderer = new _avatarModule.SpriteAvatar(avatarContainer);
+            } else {
+                avatarRenderer = new _avatarModule.AvatarRenderer(avatarContainer, _vrmPath);
+            }
+
             import('./speech-bubble.js').then(({ SpeechBubble }) => {
                 speechBubble = new SpeechBubble(avatarContainer, avatarRenderer);
             }).catch(err => console.error('SpeechBubble load failed:', err));
@@ -298,13 +305,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 
     let _reconnectAttempts = 0;
-    const _reconnectDelays = [500, 1000, 2000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
+    const _reconnectDelays = [500, 1000, 2000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
     let _reconnectTimer = null;
+    let _reconnectCountdownTimer = null;
     const _pendingMessages = [];
 
-    function _showReconnecting(attempt) {
-        statusDot.className = 'status-dot';
-        statusText.textContent = `Reconnecting (${attempt})...`;
+    function _showReconnecting(attempt, delay) {
+        statusDot.className = 'status-dot connecting';
+        statusText.innerHTML = `<span class="reconnect-countdown">Reconnecting (${attempt})...</span>`;
+        if (delay && delay > 0) {
+            let remaining = Math.round(delay / 1000);
+            if (_reconnectCountdownTimer) clearInterval(_reconnectCountdownTimer);
+            _reconnectCountdownTimer = setInterval(() => {
+                remaining--;
+                if (remaining <= 0) {
+                    clearInterval(_reconnectCountdownTimer);
+                    _reconnectCountdownTimer = null;
+                    statusText.innerHTML = `<span class="reconnect-countdown">Reconnecting...</span>`;
+                } else {
+                    statusText.innerHTML = `<span class="reconnect-countdown">Reconnecting in ${remaining}s...</span>`;
+                }
+            }, 1000);
+        }
+    }
+
+    function _clearReconnecting() {
+        if (_reconnectCountdownTimer) {
+            clearInterval(_reconnectCountdownTimer);
+            _reconnectCountdownTimer = null;
+        }
     }
 
     function connectWS() {
@@ -313,8 +342,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         ws.onopen = () => {
             _reconnectAttempts = 0;
+            _clearReconnecting();
             statusDot.className = 'status-dot online';
-            statusText.textContent = 'Connected';
+            statusText.innerHTML = 'Connected';
 
             if (!_settingsLoaded) {
                 api(BASE_URL + '/api/settings').then(s => { if (s) { applySettings(s); markSettingsClean(); _settingsLoaded = true; }});
@@ -326,6 +356,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             [2000, 4000, 8000].forEach(delay => setTimeout(() => loadHistory(), delay));
 
             if (ws.readyState === WebSocket.OPEN) {
+                // Send capabilities on connect (Capacitor native shell detection)
+                ws.send(JSON.stringify({
+                    type: 'client_hello',
+                    capabilities: {
+                        push_notifications: typeof Capacitor !== 'undefined' && !!Capacitor.Plugins?.PushNotifications,
+                        native_microphone: typeof Capacitor !== 'undefined' && !!Capacitor.Plugins?.Microphone,
+                        platform: typeof Capacitor !== 'undefined' ? 'capacitor' : 'web'
+                    }
+                }));
                 if (voiceInputEnabled && isBrowserStt()) {
                     ws.send(JSON.stringify({ type: 'command', command: 'voice_input_on' }));
                 } else if (!voiceInputEnabled && isBrowserStt()) {
@@ -343,12 +382,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         ws.onclose = () => {
             if (_reconnectAttempts >= _reconnectDelays.length) {
-                statusDot.className = 'status-dot';
-                statusText.textContent = 'Disconnected';
+                _clearReconnecting();
+                statusDot.className = 'status-dot error';
+                statusText.innerHTML = 'Disconnected';
                 return;
             }
-            _showReconnecting(_reconnectAttempts + 1);
             const delay = _reconnectDelays[_reconnectAttempts];
+            _showReconnecting(_reconnectAttempts + 1, delay);
             _reconnectAttempts++;
             _reconnectTimer = setTimeout(connectWS, delay);
         };
@@ -357,7 +397,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         ws.onmessage = e => {
             try {
-                handleWSMessage(JSON.parse(e.data));
+                const data = JSON.parse(e.data);
+                if (data.type === 'error' && data.message) {
+                    showToast(data.message, 'danger');
+                }
+                handleWSMessage(data);
             } catch (err) {
                 console.warn('WebSocket message parse error:', err);
             }
@@ -541,21 +585,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function getMessageHtml(role, text) {
-        return `<div class="msg-body">${escHtml(text)}</div>` +
+        const escaped = escHtml(text);
+        // Wrap code blocks with copy button
+        const withCopy = escaped.replace(
+            /<pre><code>([\s\S]*?)<\/code><\/pre>/g,
+            '<pre><code>$1</code><button class="copy-code-btn" onclick="' +
+                'var t=this;var c=t.previousElementSibling;' +
+                'navigator.clipboard.writeText(c.textContent||c.innerText).then(function(){' +
+                    't.classList.add(\'copied\');t.textContent=\'Copied\';' +
+                    'setTimeout(function(){t.classList.remove(\'copied\');t.textContent=\'\';},2000);' +
+                '});" aria-label="Copy code"></button></pre>'
+        );
+        return `<div class="msg-body">${withCopy}</div>` +
             `<div class="msg-actions">` +
-                `<button class="msg-action" data-action="copy" title="Copy">` +
+                `<button class="msg-action" data-action="copy" title="Copy" aria-label="Copy message">` +
                     `<span class="material-icons-round">content_copy</span>` +
                 `</button>` +
                 `${role === 'user' ? `
-                    <button class="msg-action" data-action="edit" title="Edit">
+                    <button class="msg-action" data-action="edit" title="Edit" aria-label="Edit message">
                         <span class="material-icons-round">edit</span>
                     </button>
                 ` : ''}` +
                 `${role === 'assistant' ? `
-                    <button class="msg-action" data-action="regenerate" title="Regenerate">
+                    <button class="msg-action" data-action="regenerate" title="Regenerate" aria-label="Regenerate response">
                         <span class="material-icons-round">refresh</span>
                     </button>
-                    <button class="msg-action" data-action="speak" title="Speak">
+                    <button class="msg-action" data-action="speak" title="Speak" aria-label="Speak message aloud">
                         <span class="material-icons-round">volume_up</span>
                     </button>
                 ` : ''}` +
@@ -573,7 +628,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function addMessage(role, text) {
-        
+
         const welcome = chatMessages.querySelector('.welcome-message');
         if (welcome) welcome.remove();
 
@@ -586,10 +641,60 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!_sessionHasMessages) {
             _sessionHasMessages = true;
             updateSessionButtons();
-            
+
             setTimeout(loadHistory, 1000);
         }
+
+        // Collapsible long messages (>500px body)
+        const body = div.querySelector('.msg-body');
+        if (body && body.scrollHeight > 500) {
+            div.classList.add('collapsible');
+            const expandBtn = document.createElement('button');
+            expandBtn.className = 'msg-expand-btn';
+            expandBtn.textContent = 'Show more...';
+            expandBtn.addEventListener('click', () => {
+                const expanded = body.classList.toggle('expanded');
+                expandBtn.textContent = expanded ? 'Show less' : 'Show more...';
+            });
+            div.appendChild(expandBtn);
+        }
+
         return div;
+    }
+
+    function showWelcomeMessage() {
+        const chatMessages = document.getElementById('chat-messages');
+        if (!chatMessages) return;
+        // Remove any existing content
+        chatMessages.innerHTML = '';
+        const welcome = document.createElement('div');
+        welcome.className = 'welcome-message';
+        welcome.innerHTML = `
+            <div class="welcome-icon" aria-hidden="true">
+                <span class="material-icons-round" style="font-size:3rem">forum</span>
+            </div>
+            <h2>Welcome to Amalgam</h2>
+            <p>Your AI companion is ready. Start a conversation or try one of these prompts:</p>
+            <div class="welcome-hints">
+                <button class="welcome-hint" data-prompt="Tell me about yourself">Tell me about yourself</button>
+                <button class="welcome-hint" data-prompt="What can you do?">What can you do?</button>
+                <button class="welcome-hint" data-prompt="Help me brainstorm ideas">Brainstorm ideas</button>
+            </div>
+        `;
+        chatMessages.appendChild(welcome);
+
+        // Handle welcome hint clicks
+        welcome.querySelectorAll('.welcome-hint').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const prompt = btn.dataset.prompt;
+                if (prompt && ws?.readyState === WebSocket.OPEN) {
+                    addMessage('user', prompt);
+                    ws.send(JSON.stringify({ type: 'user_message', text: prompt }));
+                    chatInput.value = '';
+                    setStatus('thinking');
+                }
+            });
+        });
     }
 
     chatMessages.addEventListener('click', async (e) => {
@@ -799,8 +904,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!matches.length || partial.includes(' ')) { cmdSuggestions.classList.remove('show'); return; }
         cmdSuggestions.innerHTML = matches.map((c, i) =>
             `<div class="cmd-item${i === _cmdSelectedIndex ? ' selected' : ''}" data-index="${i}">
-                <span class="cmd-name">/${c.name}</span>
-                <span class="cmd-desc">${c.desc}</span>
+                <span class="cmd-name">/${escHtml(c.name)}</span>
+                <span class="cmd-desc">${escHtml(c.desc)}</span>
             </div>`
         ).join('');
         cmdSuggestions.classList.add('show');
@@ -1144,8 +1249,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         const t = document.createElement('div');
         t.className = `toast toast-${type}`;
         t.textContent = msg;
+        t.setAttribute('role', 'alert');
         c.appendChild(t);
-        setTimeout(() => t.remove(), 3000);
+        const hide = () => {
+            if (t.classList.contains('toast-hiding')) return;
+            t.classList.add('toast-hiding');
+            setTimeout(() => { if (t.parentNode) t.remove(); }, 300);
+        };
+        setTimeout(hide, 3000);
+        t.addEventListener('click', hide);
     }
 
     
@@ -1196,6 +1308,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     chatMessages.appendChild(div);
                 });
                 chatMessages.scrollTop = chatMessages.scrollHeight;
+            } else {
+                // Show welcome / empty state
+                _sessionHasMessages = false;
+                updateSessionButtons();
+                showWelcomeMessage();
             }
             _currentSessionId = session?.session_id || sessionId;
             if (_currentSessionId) _setHash(_currentSessionId);
@@ -1216,21 +1333,68 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    function setupKeyboardShortcuts() {
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+Enter or Cmd+Enter to send
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                const sendBtn = document.getElementById('send-btn');
+                if (sendBtn && !sendBtn.disabled) {
+                    e.preventDefault();
+                    sendBtn.click();
+                }
+                return;
+            }
+            // Escape to close modals
+            if (e.key === 'Escape') {
+                const historyPanel = document.getElementById('history-panel');
+                if (historyPanel?.classList.contains('visible')) {
+                    historyPanel.classList.remove('visible');
+                    return;
+                }
+                const kbdHint = document.getElementById('kbd-hint');
+                if (kbdHint?.classList.contains('visible')) {
+                    kbdHint.classList.remove('visible');
+                    return;
+                }
+                return;
+            }
+            // / to focus chat input
+            if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const chatInput = document.getElementById('chat-input');
+                if (chatInput && document.activeElement !== chatInput) {
+                    const activeTag = document.activeElement?.tagName?.toLowerCase();
+                    if (activeTag !== 'input' && activeTag !== 'textarea' && activeTag !== 'select') {
+                        e.preventDefault();
+                        chatInput.focus();
+                    }
+                }
+            }
+            // ? to show keyboard shortcuts hint
+            if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey) {
+                const kbdHint = document.getElementById('kbd-hint');
+                if (kbdHint) {
+                    kbdHint.classList.toggle('visible');
+                }
+            }
+        });
+    }
+
     async function init() {
         const settings = await api(BASE_URL + '/api/settings');
         if (settings) { await applySettings(settings); markSettingsClean(); _settingsLoaded = true; }
         await loadCharacters();
-                await fetchCommands();
+        await fetchCommands();
+        setupKeyboardShortcuts();
 
-        
+
         const parts = location.hash.replace('#', '').split('/');
         const sessionId = parts[0] === 'chat' && parts[1] ? parts[1] : null;
         await loadSession(sessionId || 'current');
-        
+
         loadHistory();
-        
+
         [2000, 4000, 8000].forEach(delay => setTimeout(() => loadHistory(), delay));
-        
+
         _initComplete = true;
     }
 
@@ -1545,12 +1709,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <div class="mcp-item-info">
                         <span class="material-icons-round mcp-status-icon ${iconClass}">${icon}</span>
                         <div>
-                            <strong><span class="conn-dot ${connClass}"></span> ${s.name}</strong>
-                            <span class="muted">${(() => { const c = s.command + ' ' + (s.args || []).join(' '); return c.length > 40 ? c.slice(0, 40) + '...' : c; })()}</span>
+                            <strong><span class="conn-dot ${connClass}"></span> ${escHtml(s.name)}</strong>
+                            <span class="muted">${escHtml((() => { const c = s.command + ' ' + (s.args || []).join(' '); return c.length > 40 ? c.slice(0, 40) + '...' : c; })())}</span>
                         </div>
                     </div>
                     <label class="toggle">
-                        <input type="checkbox" class="mcp-enabled" data-name="${s.name}" ${s.enabled !== false ? 'checked' : ''}>
+                        <input type="checkbox" class="mcp-enabled" data-name="${escHtml(s.name)}" ${s.enabled !== false ? 'checked' : ''}>
                         <span class="toggle-slider"></span>
                     </label>
                 `;
@@ -1587,7 +1751,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const card = document.createElement('div');
                 card.className = 'tool-card';
                 const desc = (t.description || '').length > 40 ? (t.description || '').slice(0, 40) + '...' : (t.description || '');
-                card.innerHTML = `<strong>${t.name}</strong><p>${desc}</p>`;
+                card.innerHTML = `<strong>${escHtml(t.name)}</strong><p>${escHtml(desc)}</p>`;
                 grid.appendChild(card);
             });
         }
@@ -1849,7 +2013,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         container.innerHTML = sessions.map(s => `
             <div class="data-session-item">
-                <span>${escHtml(s.preview || s.id)}</span>
+                <strong>${escHtml(s.title || s.id)}</strong>
                 <span class="muted">${s.message_count || '?'} msgs</span>
                 <span class="data-session-delete" data-id="${s.id}">delete</span>
             </div>
@@ -1865,125 +2029,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    async function loadVaultFiles() {
-        const data = await api(BASE_URL + '/api/vault/files');
-        const container = document.getElementById('vault-files-list');
-        const count = document.getElementById('vault-count');
-        if (!container) return;
-        const files = data?.files || [];
-        if (count) count.textContent = `(${files.length})`;
-        if (files.length === 0) {
-            container.innerHTML = '<p class="muted">No vault files.</p>';
-            return;
-        }
-        container.innerHTML = files.map(f => `
-            <div class="data-session-item" style="cursor:pointer" data-file="${escHtml(f.name)}">
-                <span>${escHtml(f.name)}</span>
-                <span class="muted">${f.size} bytes</span>
-            </div>
-        `).join('');
-        container.querySelectorAll('[data-file]').forEach(el => {
-            el.addEventListener('click', () => loadVaultFileEdit(el.dataset.file));
-        });
-    }
-
-    let _vaultCurrentFile = '';
-
-    async function loadVaultFileEdit(filename) {
-        _vaultCurrentFile = filename;
-        const editor = document.getElementById('vault-editor');
-        const saveBtn = document.getElementById('vault-save-btn');
-        const delBtn = document.getElementById('vault-delete-btn');
-        if (!editor) return;
-        const data = await api(BASE_URL + `/api/vault/files/${encodeURIComponent(filename)}`);
-        editor.value = data?.content || '';
-        if (saveBtn) saveBtn.disabled = false;
-        if (delBtn) delBtn.disabled = false;
-        document.getElementById('vault-filename-input').value = filename;
-    }
-
-    
-    const vaultNewBtn = document.getElementById('vault-new-btn');
-    if (vaultNewBtn) {
-        vaultNewBtn.addEventListener('click', () => {
-            _vaultCurrentFile = '';
-            document.getElementById('vault-editor').value = '';
-            document.getElementById('vault-filename-input').value = '';
-            document.getElementById('vault-save-btn').disabled = false;
-            document.getElementById('vault-delete-btn').disabled = true;
-        });
-    }
-
-    
-    const vaultSaveBtn = document.getElementById('vault-save-btn');
-    if (vaultSaveBtn) {
-        vaultSaveBtn.addEventListener('click', async () => {
-            const nameInput = document.getElementById('vault-filename-input');
-            const editor = document.getElementById('vault-editor');
-            if (!nameInput || !nameInput.value.trim()) return showToast('Enter a filename', 'danger');
-            const filename = nameInput.value.trim();
-            if (!filename.endsWith('.md')) return showToast('Filename must end in .md', 'danger');
-            const ok = await api(BASE_URL + `/api/vault/files/${encodeURIComponent(filename)}`, {
-                method: 'POST',
-                body: JSON.stringify({ content: editor?.value || '' })
-            });
-            _vaultCurrentFile = filename;
-            loadVaultFiles();
-            showToast('File saved');
-        });
-    }
-
-    
-    const vaultDeleteBtn = document.getElementById('vault-delete-btn');
-    if (vaultDeleteBtn) {
-        vaultDeleteBtn.addEventListener('click', async () => {
-            if (!_vaultCurrentFile || !confirm(`Delete ${_vaultCurrentFile}?`)) return;
-            await api(BASE_URL + `/api/vault/files/${encodeURIComponent(_vaultCurrentFile)}`, { method: 'DELETE' });
-            _vaultCurrentFile = '';
-            document.getElementById('vault-editor').value = '';
-            document.getElementById('vault-filename-input').value = '';
-            vaultDeleteBtn.disabled = true;
-            vaultSaveBtn.disabled = true;
-            loadVaultFiles();
-            showToast('File deleted');
-        });
-    }
-
-    async function loadRules() {
-        const editor = document.getElementById('rules-editor');
-        if (!editor) return;
-        try {
-            const r = await fetch(BASE_URL + '/api/rules');
-            const data = await r.json();
-            editor.value = data?.content || '';
-        } catch {
-            editor.value = 'Failed to load rules.';
-        }
-    }
-
-    const saveRulesBtn = document.getElementById('save-rules-btn');
-    if (saveRulesBtn) {
-        saveRulesBtn.addEventListener('click', async () => {
-            const editor = document.getElementById('rules-editor');
-            if (!editor) return;
-            await fetch(BASE_URL + '/api/rules', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: editor.value })
-            });
-            showToast('Rules saved');
-        });
-    }
-
-    
     const settingsTab = document.getElementById('tab-settings');
     if (settingsTab) {
         const observer = new MutationObserver(() => {
             if (settingsTab.classList.contains('active')) {
                 loadRelationship();
                 loadSessions();
-                loadVaultFiles();
-                loadRules();
                 loadHistory(); 
             }
         });
@@ -1992,8 +2043,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (settingsTab.classList.contains('active')) {
             loadRelationship();
             loadSessions();
-            loadVaultFiles();
-            loadRules();
             loadHistory(); 
         }
     }
@@ -2144,59 +2193,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 historyPanel.classList.remove('open');
             });
             historyList.appendChild(item);
-        });
-    }
-
-    
-    const vaultSearchInput = document.getElementById('vault-search-input');
-    const vaultSemanticToggle = document.getElementById('vault-semantic-toggle');
-    const vaultSearchResults = document.getElementById('vault-search-results');
-    let _vaultSearchTimer = null;
-
-    if (vaultSearchInput) {
-        vaultSearchInput.addEventListener('input', () => {
-            clearTimeout(_vaultSearchTimer);
-            const q = vaultSearchInput.value.trim();
-            if (!q) {
-                vaultSearchResults.innerHTML = '';
-                return;
-            }
-            _vaultSearchTimer = setTimeout(() => performVaultSearch(q), 300);
-        });
-    }
-
-    async function performVaultSearch(query) {
-        const mode = vaultSemanticToggle?.checked ? 'semantic' : 'keyword';
-        try {
-            const res = await api(
-                `${BASE_URL}/api/vault/search?q=${encodeURIComponent(query)}&mode=${mode}&max_results=8`
-            );
-            renderVaultSearchResults(res?.results || [], mode);
-        } catch (e) {
-            console.warn('Vault search failed:', e);
-        }
-    }
-
-    function renderVaultSearchResults(results, mode) {
-        if (!vaultSearchResults) return;
-        if (results.length === 0) {
-            vaultSearchResults.innerHTML = '<p class="muted" style="font-size:0.8rem">No results found</p>';
-            return;
-        }
-        vaultSearchResults.innerHTML = results.map(r => {
-            const snippet = (r.snippet || r.content || '').substring(0, 150);
-            const dist = r.distance != null ? ` (${(1 - r.distance).toFixed(2)})` : '';
-            return `<div class="vault-search-result" data-filename="${escHtml(r.filename || '')}">
-                <div class="result-filename">${escHtml(r.filename || '')}${dist}</div>
-                <div class="result-snippet">${escHtml(snippet)}</div>
-            </div>`;
-        }).join('');
-
-        vaultSearchResults.querySelectorAll('.vault-search-result').forEach(el => {
-            el.addEventListener('click', () => {
-                const fn = el.dataset.filename;
-                if (fn) loadVaultFileEdit(fn);
-            });
         });
     }
 
@@ -2363,4 +2359,57 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('Failed to connect to server', 'danger');
         _initComplete = true;
     });
+
+    // 6A.4 — Keyboard avoidance via visualViewport API
+    if (window.visualViewport) {
+        const adjustForKeyboard = () => {
+            const chatInput = document.querySelector('.chat-input-area');
+            if (!chatInput) return;
+            const diff = window.innerHeight - window.visualViewport.height;
+            if (diff > 100) {
+                // Keyboard is open — shift input above keyboard
+                chatInput.style.position = 'fixed';
+                chatInput.style.bottom = (window.innerHeight - window.visualViewport.height) + 'px';
+                chatInput.style.left = '0';
+                chatInput.style.right = '0';
+                chatInput.style.zIndex = '1001';
+            } else {
+                chatInput.style.position = '';
+                chatInput.style.bottom = '';
+                chatInput.style.left = '';
+                chatInput.style.right = '';
+                chatInput.style.zIndex = '';
+            }
+        };
+        window.visualViewport.addEventListener('resize', adjustForKeyboard);
+        window.visualViewport.addEventListener('scroll', adjustForKeyboard);
+    }
 });
+
+// 6A.5 — GPU capability detection
+function detectGPUCapability() {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return { tier: 'software', reason: 'no-webgl' };
+
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : '';
+    const vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : '';
+    const maxTexSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+
+    const isLowEnd = /(adreno 5|adreno 4|mali-?4|mali-?3|powervr|intel hd graphics|swiftshader|llvmpipe)/i.test(renderer);
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent);
+    const isVeryLowTex = maxTexSize < 4096;
+
+    if (isLowEnd || isVeryLowTex) {
+        return { tier: 'low', reason: renderer, renderer, vendor };
+    }
+    if (isMobile) {
+        return { tier: 'medium', reason: renderer, renderer, vendor };
+    }
+    return { tier: 'high', reason: renderer, renderer, vendor };
+}
+
+const gpuInfo = detectGPUCapability();
+window._gpuTier = gpuInfo.tier;
+console.log(`GPU tier: ${gpuInfo.tier} (${gpuInfo.reason})`);

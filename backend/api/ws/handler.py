@@ -94,10 +94,20 @@ class ChatSession:
         self.voice_task = None
         self.wake_word_enabled: bool = False
         self.pending_tasks: list[asyncio.Task] = []
+        self.client_caps: dict = {}
+        self.client_platform: str = "web"
 
     def _track_task(self, t: asyncio.Task):
+        """Track a task and register safe cleanup on completion."""
         self.pending_tasks.append(t)
-        t.add_done_callback(self.pending_tasks.remove)
+        t.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, t: asyncio.Task):
+        """Safely remove completed tasks, handling race conditions."""
+        try:
+            self.pending_tasks.remove(t)
+        except ValueError:
+            pass  # Already removed or never added
 
     async def send(self, payload: dict):
         try:
@@ -107,6 +117,12 @@ class ChatSession:
 
     async def cancel_assistant(self):
         if self.current_task and not self.current_task.done():
+            # Cancel all pending TTS tasks for this stream
+            for t in list(self.pending_tasks):
+                if not t.done():
+                    t.cancel()
+            # Compact completed tasks
+            self.pending_tasks = [t for t in self.pending_tasks if not t.done()]
             self.current_task.cancel()
             self.current_task = None
             self.stream_idx += 1
@@ -135,7 +151,13 @@ class ChatSession:
             char_id = settings().get("character.active", "default")
             rel_context = await relationship().get_context_string(char_id)
 
-            async for item in agent().handle_user_input(text, images=images, relationship_context=rel_context):
+            it = agent().handle_user_input(text, images=images, relationship_context=rel_context)
+            if asyncio.iscoroutine(it):
+                logger.error(f"CRITICAL: agent().handle_user_input returned a coroutine instead of an async generator! it={it}")
+                # Try to await it if it's a coroutine (this shouldn't happen with async def + yield)
+                it = await it
+
+            async for item in it:
                 if this_stream != self.stream_idx:
                     break
 
@@ -232,6 +254,14 @@ class ChatSession:
             logger.error(f"Agent error in loop: {e}")
             await self.send({"type": "chat_append", "role": "assistant",
                             "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
+        finally:
+            # Compact completed tasks to prevent unbounded growth
+            done_tasks = [t for t in self.pending_tasks if t.done()]
+            for t in done_tasks:
+                try:
+                    self.pending_tasks.remove(t)
+                except ValueError:
+                    pass
 
     async def _handle_avatar_signal(self, sig_val, current_emotion, full_response, sentence_buffer, char_id):
         """Handle __avatar__ signals for emotion/expression/roleplay."""
@@ -349,7 +379,7 @@ class ChatSession:
         await self.send({"type": "wake_word_state", "enabled": False})
 
     async def handle_slash_command(self, cmd: str, args: str):
-        """Handle slash commands (/clear, /new, /help, etc.)."""
+        """Handle slash commands (/clear, /new, /help, /settings, etc.)."""
         if cmd == "clear":
             await memory().clear()
             sid = memory().start_session()
@@ -370,6 +400,13 @@ class ChatSession:
                 "/session <id> — show/load session\n"
                 "/status — show current provider, model, session\n"
                 "/compact — force memory compaction\n"
+                "/settings — show all settings (use /settings <key> <val> to set)\n"
+                "/memory — show memory stats\n"
+                "/stats — show tool usage statistics\n"
+                "/theme <dark|midnight|light|nord> — switch theme\n"
+                "/character <name> — load a character\n"
+                "/approve <tool> — approve a dangerous tool for one use\n"
+                "/permission <readonly|confirm|full> — set permission level\n"
                 "/help — show this"
             )
             await self.send({"type": "chat_append", "role": "system", "text": help_text, "finished": True})
@@ -423,6 +460,117 @@ class ChatSession:
             sid = memory().get_current_session()
             await self.send({"type": "chat_append", "role": "system",
                             "text": f"Provider: {active}\nModel: {model}\nSession: {sid}", "finished": True})
+        elif cmd == "settings":
+            if args:
+                parts = args.strip().split(" ", 1)
+                key = parts[0]
+                val = parts[1] if len(parts) > 1 else None
+                if val:
+                    loop = asyncio.get_running_loop()
+                    s_obj = settings()
+                    await loop.run_in_executor(None, lambda: s_obj.set(key, val))
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Setting {key} = {val}", "finished": True})
+                else:
+                    val = settings().get(key, "not set")
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"{key} = {val}", "finished": True})
+            else:
+                s_obj = settings()
+                keys = ["provider.active", "ui.theme", "voice.tts_provider", "ui.language"]
+                lines = []
+                for k in keys:
+                    lines.append(f"{k} = {s_obj.get(k, 'not set')}")
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": "\n".join(lines), "finished": True})
+        elif cmd == "memory":
+            stats = await memory().get_stats()
+            text = (
+                f"Memory stats:\n"
+                f"Sessions: {stats.get('sessions', '?')}\n"
+                f"Messages: {stats.get('messages', '?')}\n"
+                f"Current session: {memory().get_current_session()}"
+            )
+            await self.send({"type": "chat_append", "role": "system", "text": text, "finished": True})
+        elif cmd == "stats":
+            mcp_client = getattr(self, '_mcp_client', None)
+            if mcp_client and hasattr(mcp_client, 'analytics'):
+                stats = mcp_client.analytics.get_stats()
+                lines = [f"Tool stats ({stats['total_calls']} calls, {stats['total_failures']} failures):"]
+                for tname, tinfo in stats.get("tools", {}).items():
+                    rate = tinfo["success_rate"]
+                    avg = tinfo["avg_latency_ms"]
+                    lines.append(f"  {tname}: {tinfo['calls']} calls, {rate}% success, {avg}ms avg")
+                text = "\n".join(lines)
+            else:
+                text = "Tool analytics not available"
+            await self.send({"type": "chat_append", "role": "system", "text": text, "finished": True})
+        elif cmd == "theme":
+            valid_themes = {"dark", "midnight", "light", "nord"}
+            if args and args.strip().lower() in valid_themes:
+                theme = args.strip().lower()
+                loop = asyncio.get_running_loop()
+                s_obj = settings()
+                await loop.run_in_executor(None, lambda: s_obj.set("ui.theme", theme))
+                await self.send({"type": "theme_change", "theme": theme})
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Theme switched to: {theme}", "finished": True})
+            else:
+                current = settings().get("ui.theme", "dark")
+                valid = ", ".join(sorted(valid_themes))
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Current theme: {current}\nValid themes: {valid}", "finished": True})
+        elif cmd == "character":
+            if args:
+                name = args.strip()
+                char_dir = f"/home/leonardo/Workplace/k/characters/{name}"
+                import os as _os
+                if _os.path.isdir(char_dir):
+                    settings().set("character.active", name)
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Loaded character: {name}", "finished": True})
+                else:
+                    chars = [d for d in _os.listdir("/home/leonardo/Workplace/k/characters/")
+                             if _os.path.isdir(_os.path.join("/home/leonardo/Workplace/k/characters/", d))]
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Character '{name}' not found. Available: {', '.join(chars)}",
+                                    "finished": True})
+            else:
+                current = settings().get("character.active", "none")
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Current character: {current}", "finished": True})
+        elif cmd == "approve":
+            if args:
+                tool_name = args.strip()
+                mcp_client = getattr(self, '_mcp_client', None)
+                if mcp_client and hasattr(mcp_client, 'approve_tool'):
+                    mcp_client.approve_tool(tool_name)
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Approved tool: {tool_name}", "finished": True})
+                else:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": "MCP client not available for approval", "finished": True})
+            else:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": "Usage: /approve <tool_name>", "finished": True})
+        elif cmd == "permission":
+            valid_levels = {"readonly", "confirm", "full"}
+            if args and args.strip().lower() in valid_levels:
+                level = args.strip().lower()
+                mcp_client = getattr(self, '_mcp_client', None)
+                if mcp_client and hasattr(mcp_client, 'set_permission_level'):
+                    mcp_client.set_permission_level(level)
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Permission level set to: {level}", "finished": True})
+                else:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Permission level changed to {level} (local only)", "finished": True})
+            else:
+                current = getattr(getattr(self, '_mcp_client', None), 'permissions', None)
+                level = current.level.value if current else "full"
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Current permission level: {level}\nValid: readonly, confirm, full",
+                                "finished": True})
         else:
             await self.send({"type": "chat_append", "role": "system",
                             "text": f"Unknown command: /{cmd}. Try /help", "finished": True})
@@ -442,6 +590,24 @@ class ChatSession:
             except Exception:
                 pass
 
+    async def handle_client_hello(self, data: dict):
+        """Handle client_hello — acknowledge capabilities from native shell."""
+        caps = data.get("capabilities", {})
+        platform = data.get("platform", "web")
+        logger.info("Client hello: platform=%s capabilities=%s", platform, caps)
+        # Store capabilities for use during this session
+        self.client_caps = caps
+        self.client_platform = platform
+        await self.send({
+            "type": "server_hello",
+            "platform": platform,
+            "capabilities": {
+                "push_enabled": True,
+                "tts_enabled": bool(settings().get("voice.tts_provider")),
+                "version": 1,
+            },
+        })
+
     async def run(self):
         """Main message loop."""
         try:
@@ -449,7 +615,9 @@ class ChatSession:
                 data = await self.ws.receive_json()
                 msg_type = data.get("type")
 
-                if msg_type == "command":
+                if msg_type == "client_hello":
+                    await self.handle_client_hello(data)
+                elif msg_type == "command":
                     await self.handle_command(data.get("command", ""), data)
                 elif msg_type == "slash_command":
                     await self.handle_slash_command(data.get("command", "").lower(), data.get("args", ""))

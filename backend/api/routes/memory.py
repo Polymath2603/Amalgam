@@ -3,7 +3,7 @@ Memory / session / facts API routes.
 """
 import logging 
 
-from fastapi import APIRouter 
+from fastapi import APIRouter, HTTPException 
 from backend .api .deps import memory 
 
 logger =logging .getLogger (__name__ )
@@ -25,6 +25,20 @@ async def get_session_messages (session_id :str ):
     messages =memory ().get_session_messages (session_id )
     exists =memory ().session_exists (session_id )or len (messages )>0 
     return {"messages":messages ,"session_id":session_id ,"exists":exists }
+
+
+@router .post ("/api/memory/session/{session_id}/rename")
+async def rename_session (session_id :str ,new_title :str ):
+    try:
+        title = await memory().rename_session(session_id, new_title)
+        return {"status": "ok", "title": title}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router .get ("/api/memory/session/{session_id}/resume")
+async def resume_session (session_id :str ,turns :int =5 ):
+    messages = memory().get_session_turns(session_id, turns)
+    return {"messages": messages}
 
 
 @router .post ("/api/memory/session/{session_id}/activate")

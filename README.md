@@ -2,6 +2,12 @@
 
 A voice-first AI companion with 3D VRM avatar, MCP tool integration, multi-provider LLM support, extensible skills, and persistent memory.
 
+## What is Amalgam?
+
+Amalgam is a voice-first AI companion with a 3D avatar, persistent memory,
+multi-provider LLM support, and MCP tool integration. It runs locally, remembers
+you across sessions, and can be extended with custom skills.
+
 ## Quick Start
 
 ```bash
@@ -9,7 +15,31 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Open `http://localhost:8000` in your browser.
+Then open `http://localhost:8000` in your browser.
+
+## Features
+
+| Feature | Status |
+|---|---|
+| 3D VRM Avatar (lip-sync, emotions, idle) | ✅ Stable |
+| Voice Chat (TTS / STT) | ✅ Stable |
+| Multi-Provider LLM | ✅ Stable |
+| Native Function Calling | ✅ Stable |
+| MCP Tool Servers | ✅ Stable |
+| Skill System (auto-discovered) | ✅ Stable |
+| Persistent Memory (SQLite + Embeddings) | ✅ Stable |
+| FTS5 Full-Text Search | ✅ New |
+| User Profile (auto-learning across sessions) | ✅ New |
+| Reflective Agent | ✅ New |
+| Planning Agent (task decomposition) | ✅ New |
+| Parallel Tool Calls | ✅ New |
+| Metrics & Cost Tracking | ✅ New |
+| Layout / Position Persistence | ✅ Done |
+| URL Tab Persistence | ✅ Done |
+| Theme System | ✅ Done |
+| Character System | ✅ Stable |
+| Vault (markdown notes) | ✅ Stable |
+| Session History | ✅ Stable |
 
 ## Features
 
@@ -94,30 +124,35 @@ backend/
 ├── __main__.py              # Entry point
 ├── app.py                   # FastAPI app factory
 ├── paths.py                 # Central path definitions
+├── cli_stats.py             # `python -m backend stats` — cost/metrics report
 ├── api/
 │   ├── deps.py              # Dependency injection
 │   ├── ws/                  # WebSocket handler + TTS service
-│   └── routes/              # API route modules (settings, characters, mcp, vault, etc.)
+│   └── routes/              # API route modules
 ├── config/
 │   └── settings.py          # Settings manager with dot-path access
 ├── core/
-│   ├── agent.py             # AI agent loop (streaming, tool calling, tag parsing)
-│   ├── context_builder.py   # Prompt template + vault injection
+│   ├── agent/               # Agent module (base, basic, planning, reflective)
+│   ├── memory/              # Memory module (manager, hybrid, fts, cache)
+│   ├── context_builder.py   # Prompt template + vault + profile injection
 │   ├── context_manager.py   # Token-budget-aware context selection
-│   ├── memory.py            # SQLite memory with async writes, embeddings, summarization, facts
+│   ├── metrics.py           # MetricsCollector — per-turn cost/token tracking
 │   ├── relationship.py      # Per-character relationship tracking
+│   ├── user_profile.py      # Persistent user profile (auto-learned)
 │   ├── vault.py             # Standalone markdown vault manager
-│   └── llm/                 # Multi-provider LLM abstraction with native tool calling
+│   └── llm/                 # Multi-provider LLM abstraction
 ├── mcp/
 │   ├── client.py            # MCP stdio client with reconnect
 │   └── servers/             # Tool servers (shell, filesystem, screenshot, system)
 ├── skills/                  # Auto-discovered skill modules
+├── tests/                   # Test suite (pytest)
 ├── utils/
-│   ├── tokens.py            # Token estimation (tiktoken / char-4 heuristic)
-│   └── icon_generator.py    # Character icon generation
+│   ├── tokens.py            # Token estimation
+│   └── wav.py               # WAV audio utilities
 └── voice/
     ├── pipeline.py          # Microphone + VAD + STT pipeline
-    ├── vad.py               # Voice activity detection (Silero VAD)
+    ├── vad.py               # Voice activity detection
     ├── stt/                 # Speech-to-text providers
-    └── tts/                 # Text-to-speech providers (edge-tts, openvoice, elevenlabs, etc.)
+    └── tts/                 # Text-to-speech providers
+webui/                       # Browser-based UI (JS, HTML, CSS)
 ```

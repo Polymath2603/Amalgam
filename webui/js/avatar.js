@@ -17,25 +17,39 @@ import { loadVRMAnimation } from './vrm-animation.js';
 import { AdaptiveLipsyncManager } from './adaptive-lipsync.js';
 import { IdleManager } from './idle-manager.js';
 
-const EMOTION_TO_EXPRESSION = {
-    neutral:    null,
-    happy:      'happy',
-    angry:      'angry',
-    sad:        'sad',
-    relaxed:    'relaxed',
-    surprised:  'surprised',
-    thinking:   'relaxed',
-    speaking:   'happy',
-    listening:  null,
-    confused:   'surprised',
-    shy:        'relaxed',
-    jealous:    'angry',
-    bored:      'relaxed',
-    suspicious: 'angry',
-    victory:    'happy',
-    sleep:      'relaxed',
-    love:       'happy',
-    excited:    'surprised',
+/**
+ * Emotion → candidate VRM expression names (in priority order).
+ * Using arrays lets us handle VRM models with non-standard naming.
+ * The first expression name that exists in the loaded VRM is used.
+ */
+const EMOTION_CANDIDATES = {
+    neutral:       [null],
+    happy:         ['happy', 'joy', 'smile', 'pleasant'],
+    angry:         ['angry', 'anger', 'frustrated'],
+    sad:           ['sad', 'sorrow', 'cry'],
+    relaxed:       ['relaxed', 'neutral'],
+    surprised:     ['surprised', 'surprise', 'wow'],
+    thinking:      ['relaxed', 'neutral'],
+    speaking:      ['happy', 'joy', 'a'],
+    listening:     [null],
+    confused:      ['surprised', 'surprise', 'angry'],
+    // Extended emotions
+    shy:           ['relaxed', 'happy', 'neutral'],
+    embarrassed:   ['relaxed', 'surprised'],
+    jealous:       ['angry', 'sad'],
+    bored:         ['relaxed', 'neutral'],
+    suspicious:    ['angry', 'relaxed'],
+    worried:       ['sad', 'relaxed'],
+    victory:       ['happy', 'joy'],
+    sleep:         ['relaxed', 'neutral'],
+    love:          ['happy', 'joy'],
+    excited:       ['surprised', 'happy'],
+    flirty:        ['happy', 'joy'],
+    smug:          ['happy', 'relaxed'],
+    concerned:     ['sad', 'relaxed'],
+    disgusted:     ['angry', 'sad'],
+    curious:       ['surprised', 'happy'],
+    amused:        ['happy', 'joy'],
 };
 
 const EXPRESSION_NAMES = ['happy', 'angry', 'sad', 'relaxed', 'surprised'];
@@ -48,6 +62,100 @@ const SACCADE_RADIUS = 5.0 * (Math.PI / 180);
 
 const BLINK_CLOSE_MAX = 0.12;
 const BLINK_OPEN_MAX = 5;
+
+/* ---------- GPU capability detection ---------- */
+function _detectGPU() {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+    if (!gl) return 'software';
+    const di = gl.getExtension('WEBGL_debug_renderer_info');
+    const r = di ? gl.getParameter(di.UNMASKED_RENDERER_WEBGL) : '';
+    if (/(adreno [54]|mali-?[34]|powervr|intel hd graphics|swiftshader|llvmpipe)/i.test(r)) return 'low';
+    return 'high';
+}
+const _GPU_TIER = _detectGPU();
+
+/* ---------- 2D sprite fallback for low-end GPUs ---------- */
+class SpriteAvatar {
+    constructor(container) {
+        this.container = container;
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 256;
+        this.canvas.height = 256;
+        this.canvas.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
+        this.ctx = this.canvas.getContext('2d');
+        container.innerHTML = '';
+        container.appendChild(this.canvas);
+        this._emotion = 'neutral';
+        this._mouthOpen = 0;
+        this.ready = true;
+        this._blinkState = 'open';
+        this._blinkTimer = Math.random() * 4000;
+        this._animId = null;
+        this._draw();
+        this._startLoop();
+    }
+
+    _startLoop() {
+        const loop = () => {
+            this._animId = requestAnimationFrame(loop);
+            this._blinkTimer += 16;
+            if (this._blinkTimer > 3000 + Math.random() * 3000) {
+                this._blinkState = this._blinkState === 'open' ? 'closing' : 'open';
+                this._blinkTimer = 0;
+            }
+            this._draw();
+        };
+        this._animId = requestAnimationFrame(loop);
+    }
+
+    _draw() {
+        const ctx = this.ctx, w = 256, h = 256;
+        ctx.clearRect(0, 0, w, h);
+        // Background
+        ctx.fillStyle = '#1a1a2e'; ctx.beginPath();
+        ctx.arc(w/2, h/2, 110, 0, Math.PI*2); ctx.fill();
+        // Face
+        ctx.fillStyle = '#ffe0bd'; ctx.beginPath();
+        ctx.arc(w/2, h/2, 100, 0, Math.PI*2); ctx.fill();
+        // Eyes
+        const eyeY = h/2 - 10, blink = this._blinkState === 'open' ? 8 : 2;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.ellipse(w/2-30, eyeY, 18, 20, 0, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(w/2+30, eyeY, 18, 20, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#2c2c3e';
+        ctx.beginPath(); ctx.arc(w/2-30, eyeY, blink, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(w/2+30, eyeY, blink, 0, Math.PI*2); ctx.fill();
+        // Mouth
+        const mo = Math.min(this._mouthOpen, 1);
+        ctx.strokeStyle = '#c06'; ctx.lineWidth = 3;
+        if (mo > 0.1) {
+            ctx.beginPath(); ctx.ellipse(w/2, h/2+40, 15, 5+mo*15, 0, 0, Math.PI*2);
+            ctx.fillStyle = '#400'; ctx.fill();
+        } else {
+            ctx.beginPath(); ctx.arc(w/2, h/2+40, 15, 0.1, Math.PI-0.1); ctx.stroke();
+        }
+        // Brows
+        ctx.strokeStyle = '#333'; ctx.lineWidth = 3;
+        const e = this._emotion, by = eyeY - 28;
+        if (/happy|surprised/i.test(e)) {
+            ctx.beginPath(); ctx.arc(w/2-37, by-5, 12, -Math.PI, 0); ctx.stroke();
+            ctx.beginPath(); ctx.arc(w/2+15, by-5, 12, -Math.PI, 0); ctx.stroke();
+        } else if (/angry|confused/i.test(e)) {
+            ctx.beginPath(); ctx.moveTo(w/2-45, by-2); ctx.lineTo(w/2-23, by+4); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(w/2+8, by-2); ctx.lineTo(w/2-14, by+4); ctx.stroke();
+        } else {
+            ctx.beginPath(); ctx.moveTo(w/2-45, by); ctx.lineTo(w/2-23, by); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(w/2+8, by); ctx.lineTo(w/2-14, by); ctx.stroke();
+        }
+    }
+    setEmotion(em) { this._emotion = em; }
+    setMouthOpen(v) { this._mouthOpen = v; }
+    setExpression() {}
+    applyPhoneme() {}
+    setHalfBodyMode() {}
+    destroy() { if (this._animId) cancelAnimationFrame(this._animId); this.container.innerHTML = ''; }
+}
 
 export class AvatarRenderer {
     constructor(container, vrmPath, options = {}) {
@@ -72,6 +180,14 @@ export class AvatarRenderer {
         this._blinkTimer = BLINK_OPEN_MAX;
         this._blinkIsOpen = true;
         this._blinkEnabled = true;
+        
+        // Pending emotion queue — setEmotion calls before VRM is ready
+        // are deferred and applied once the VRM model finishes loading.
+        this._pendingEmotion = null;
+
+        // Auto-neutral timer: emotions auto-reset after duration to prevent sticking
+        this._emotionDuration = 5000;  // 5 seconds default
+        this._emotionTimer = null;
 
         this._saccadeYaw = 0;
         this._saccadePitch = 0;
@@ -104,9 +220,26 @@ export class AvatarRenderer {
         const initW = this.container.clientWidth || 800;
         const initH = this.container.clientHeight || 600;
         this.renderer.setSize(initW, initH);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio * 2, 3));
+        // Limit pixelRatio to 1.0 on mobile for better performance
+        this._isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        this.renderer.setPixelRatio(this._isMobile ? 1.0 : Math.min(window.devicePixelRatio, 2));
         this.renderer.setClearColor(0x000000, 0);
         this.container.appendChild(this.renderer.domElement);
+
+        // WebGL context loss handlers for tab switch recovery
+        this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
+            e.preventDefault();
+            console.warn('[Avatar] WebGL context lost — pausing render loop');
+            if (this._rafId) {
+                cancelAnimationFrame(this._rafId);
+                this._rafId = null;
+            }
+        }, false);
+
+        this.renderer.domElement.addEventListener('webglcontextrestored', () => {
+            console.log('[Avatar] WebGL context restored — resuming');
+            this._animate();
+        }, false);
 
         
         const aspect = this.container.clientWidth / this.container.clientHeight || 1;
@@ -147,6 +280,19 @@ export class AvatarRenderer {
         };
         this._resizeObserver = new ResizeObserver(() => this._onResize());
         this._resizeObserver.observe(this.container);
+
+        // Visibility change handler to pause/resume render loop and save battery on mobile
+        this._visibilityHandler = () => {
+            if (document.hidden) {
+                if (this._rafId) {
+                    cancelAnimationFrame(this._rafId);
+                    this._rafId = null;
+                }
+            } else if (!this._rafId) {
+                this._animate();
+            }
+        };
+        document.addEventListener('visibilitychange', this._visibilityHandler);
 
         this._loadVRM();
         this._animate();
@@ -280,6 +426,13 @@ export class AvatarRenderer {
 
                 if (this._hitAreaEnabled) {
                     this._startIdleBehaviorLoop();
+                }
+
+                // Apply any emotion that was queued before VRM was ready
+                if (this._pendingEmotion) {
+                    const pending = this._pendingEmotion;
+                    this._pendingEmotion = null;
+                    this.setEmotion(pending);
                 }
 
             },
@@ -560,6 +713,9 @@ export class AvatarRenderer {
     _updateBlink(delta) {
         if (!this._blinkEnabled || !this.vrm?.expressionManager) return;
 
+        // Halve blink check frequency on mobile for perf
+        if (this._isMobile) delta *= 0.5;
+
         this._blinkTimer -= delta;
         if (this._blinkTimer > 0) return;
 
@@ -587,6 +743,7 @@ export class AvatarRenderer {
 
     _updateSaccade(delta) {
         if (this.preview) return;
+        if (this._isMobile) return; // Skip saccade on mobile for perf
         this._saccadeTimer += delta;
 
         
@@ -623,39 +780,69 @@ export class AvatarRenderer {
         
         const animatedQuat = head.quaternion.clone();
 
-        
+        // Use touch look target if active, otherwise use saccade
+        const lookSource = this._touchLookTarget || this._saccadeTarget;
         const targetPos = new THREE.Vector3();
-        this._saccadeTarget.getWorldPosition(targetPos);
+        lookSource.getWorldPosition(targetPos);
 
-        
+
         head.lookAt(targetPos);
         const lookAtQuat = head.quaternion.clone();
 
-        
-        head.quaternion.copy(animatedQuat).slerp(lookAtQuat, 0.25);
+        // Reduce gaze follow strength when touch-look is active (smoother)
+        const gazeStrength = this._touchLookTarget ? 0.4 : 0.25;
+        head.quaternion.copy(animatedQuat).slerp(lookAtQuat, gazeStrength);
     }
 
     setEmotion(emotion) {
-        this.currentEmotion = emotion;
-        const em = this.vrm?.expressionManager;
-
-        
-        const lipSyncExprs = ['aa', 'ih', 'ou', 'ee', 'oh'];
-        for (const expr of EXPRESSION_NAMES) {
-            if (this._frequencyAnalyzerActive && lipSyncExprs.includes(expr)) continue;
-            this._targetExpressions[expr] = 0;
-        }
-
-        if (emotion === 'neutral') {
-            this._setBlinkEnabled(true);
+        // If VRM is not loaded yet, queue the emotion for later application
+        if (!this.vrm || !this.vrm.expressionManager) {
+            this._pendingEmotion = emotion;
             return;
         }
 
-        const target = EMOTION_TO_EXPRESSION[emotion];
-        if (target && em) {
-            const value = emotion === 'surprised' ? 0.5 : 1.0;
-            if (this.currentEmotion !== emotion) return;
-            this._targetExpressions[target] = value;
+        const manager = this.vrm.expressionManager;
+
+        // Step 1: Reset ALL known emotion expressions to 0 in both the
+        // render-target table and the live VRM manager.
+        for (const expr of (this._allExpressionNames || EXPRESSION_NAMES)) {
+            this._targetExpressions[expr] = 0;
+            try { manager.setValue(expr, 0); } catch (e) { /* not in this VRM */ }
+        }
+
+        // Step 2: Apply the target emotion using the first working candidate
+        const candidates = EMOTION_CANDIDATES[emotion] || [emotion];
+        let applied = false;
+        if (emotion !== 'neutral') {
+            for (const name of candidates) {
+                if (name === null) continue;
+                try {
+                    manager.getValue(name); // throws if expression doesn't exist
+                    this._targetExpressions[name] = 1.0;
+                    manager.setValue(name, 1.0);
+                    applied = true;
+                    break;
+                } catch (e) {
+                    continue; // try next candidate
+                }
+            }
+            if (!applied) {
+                console.debug(`[Avatar] Expression '${emotion}' not found in this VRM model`);
+            }
+        }
+
+        this.currentEmotion = emotion;
+
+        // Step 3: Auto-reset to neutral after a delay
+        if (this._emotionTimer) {
+            clearTimeout(this._emotionTimer);
+            this._emotionTimer = null;
+        }
+        if (this._emotionDuration > 0 && emotion !== 'neutral') {
+            this._emotionTimer = setTimeout(() => {
+                this.setEmotion('neutral');
+                this._emotionTimer = null;
+            }, this._emotionDuration);
         }
     }
 
@@ -668,6 +855,86 @@ export class AvatarRenderer {
         if (name === 'neutral' || !name) return;
         if (EXPRESSION_NAMES.includes(name)) {
             this._targetExpressions[name] = 1.0;
+        }
+    }
+
+    /**
+     * Apply a mouth shape based on an ARPAbet phoneme code.
+     * Called repeatedly during TTS playback to animate the avatar's mouth.
+     *
+     * Vowels → corresponding VRM viseme shape.
+     * Consonants/silence → return mouth to near-closed (null).
+     *
+     * @param {string} arpabetCode - ARPAbet phoneme code (e.g. 'AA', 'IH', 'B')
+     * @param {number} [intensity=0.7] - Mouth openness (0.0 to 1.0)
+     */
+    applyPhoneme(arpabetCode, intensity = 0.7) {
+        // Maps ARPAbet phoneme codes to VRM mouth shape names.
+        // VRM standard mouth shapes: aa, ih, ou, ee, oh
+        // Consonants return null → mouth returns to near-closed
+        const PHONEME_TO_VRM = {
+            // Open vowels → 'aa' (wide open, as in "father")
+            'AA': 'aa', 'AE': 'aa', 'AH': 'aa',
+            // Front vowels → 'ih' (slightly open, as in "bit")
+            'IH': 'ih', 'IY': 'ih', 'IX': 'ih',
+            // Back/round vowels → 'ou' (rounded, as in "book")
+            'OW': 'ou', 'OO': 'ou', 'UH': 'ou', 'UW': 'ou',
+            // Mid vowels → 'ee' (spread lips, as in "say")
+            'EH': 'ee', 'EY': 'ee', 'ER': 'ee',
+            // Open-mid vowels → 'oh' (open-round, as in "thought")
+            'AO': 'oh', 'AW': 'oh', 'OY': 'oh',
+            // Consonants and silence → null (mouth nearly closed)
+            'B': null, 'CH': null, 'D': null, 'DH': null, 'F': null,
+            'G': null, 'HH': null, 'JH': null, 'K': null, 'L': null,
+            'M': null, 'N': null, 'NG': null, 'P': null, 'R': null,
+            'S': null, 'SH': null, 'T': null, 'TH': null, 'V': null,
+            'W': null, 'WH': null, 'Y': null, 'Z': null, 'ZH': null,
+        };
+
+        const vrmShape = PHONEME_TO_VRM[arpabetCode.toUpperCase()];
+
+        if (!vrmShape) {
+            // Consonant or silence — close the mouth
+            this._neutralizeMouth();
+            return;
+        }
+
+        if (!this.vrm || !this.vrm.expressionManager) return;
+        const manager = this.vrm.expressionManager;
+        const ALL_MOUTH_SHAPES = ['aa', 'ih', 'ou', 'ee', 'oh'];
+
+        // Apply the vowel shape, zero all other mouth shapes
+        for (const shape of ALL_MOUTH_SHAPES) {
+            const value = shape === vrmShape ? intensity : 0;
+            try { manager.setValue(shape, value); } catch (e) { /* shape not in this VRM */ }
+        }
+    }
+
+    /**
+     * Reset all mouth expressions to zero (mouth closed).
+     */
+    _neutralizeMouth() {
+        if (!this.vrm || !this.vrm.expressionManager) return;
+        const manager = this.vrm.expressionManager;
+        const ALL_MOUTH_SHAPES = ['aa', 'ih', 'ou', 'ee', 'oh'];
+        for (const shape of ALL_MOUTH_SHAPES) {
+            try { manager.setValue(shape, 0); } catch (e) { /* shape not in this VRM */ }
+        }
+    }
+
+    setHalfBodyMode(enabled) {
+        this._halfBody = !!enabled;
+        if (this.camera && this.vrm) {
+            const head = this.vrm.humanoid?.getRawBoneNode('head');
+            if (!head) return;
+            if (this._halfBody) {
+                // Bust-shot: camera closer, aimed at chest/neck
+                this.camera.position.set(0, head.position.y - 0.25, 0.8);
+            } else {
+                // Full body: pull back
+                this.camera.position.set(0, head.position.y + 0.15, 1.8);
+            }
+            this.camera.lookAt(0, head.position.y - (this._halfBody ? 0.05 : 0.3), 0);
         }
     }
 
@@ -720,7 +987,14 @@ export class AvatarRenderer {
         const canvas = this.renderer.domElement;
         canvas.style.cursor = 'pointer';
         this._boundClickHandler = (event) => this._onCanvasClick(event);
-        canvas.addEventListener('click', this._boundClickHandler);
+        canvas.addEventListener('pointerdown', this._boundClickHandler);
+        // Touch-to-look: drive gaze from touch position
+        this._boundTouchHandler = (event) => this._onCanvasTouch(event);
+        canvas.addEventListener('touchstart', this._boundTouchHandler, { passive: true });
+        canvas.addEventListener('touchmove', this._boundTouchHandler, { passive: true });
+        canvas.addEventListener('touchend', () => {
+            this._touchLookTarget = null;
+        }, { passive: true });
     }
 
     _onCanvasClick(event) {
@@ -769,6 +1043,27 @@ export class AvatarRenderer {
         this._playHitAreaAnimation(hitPoint);
     }
 
+    /** Touch-to-look: derive a 3D gaze target from touch position */
+    _onCanvasTouch(event) {
+        if (!this.vrm?.humanoid || !this.ready) return;
+        const touch = event.touches?.[0];
+        if (!touch) { this._touchLookTarget = null; return; }
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+
+        // Project onto a plane at head height so the avatar "looks at" the finger
+        const dir = new THREE.Vector3(x, y, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
+        const head = this.vrm.humanoid.getNormalizedBoneNode('head');
+        if (!head) return;
+        const headPos = new THREE.Vector3();
+        head.getWorldPosition(headPos);
+        const t = (headPos.y - this.camera.position.y) / dir.y;
+        if (t > 0) {
+            this._touchLookTarget = this.camera.position.clone().add(dir.multiplyScalar(t));
+        }
+    }
+
     _playHitAreaAnimation(point) {
         const head = this.vrm.humanoid.getNormalizedBoneNode('head');
         const hips = this.vrm.humanoid.getNormalizedBoneNode('hips');
@@ -798,10 +1093,10 @@ export class AvatarRenderer {
     }
 
     _startIdleBehaviorLoop() {
-        
-        
-        
+
         if (this._idleManager) return;
+        // If a loaded idle animation is playing, skip micro-anims to prevent conflict
+        if (this._idleAction) return;
 
         if (this._idleBehaviorTimer) clearTimeout(this._idleBehaviorTimer);
         const microAnims = ['curiosity', 'amusement', 'admiration', 'optimism', 'relief', 'realization', 'confusion'];
@@ -823,14 +1118,81 @@ export class AvatarRenderer {
     }
 
     destroy() {
-        if (this._rafId) cancelAnimationFrame(this._rafId);
-        if (this._resizeObserver) this._resizeObserver.disconnect();
-        if (this.renderer) this.renderer.dispose();
-        if (this.container) this.container.innerHTML = '';
-        if (this._idleManager) { this._idleManager.destroy(); this._idleManager = null; }
-        if (this._idleBehaviorTimer) clearTimeout(this._idleBehaviorTimer);
+        // Cancel animation frame
+        if (this._rafId) {
+            cancelAnimationFrame(this._rafId);
+            this._rafId = null;
+        }
+        // Clean up ResizeObserver
+        if (this._resizeObserver) {
+            this._resizeObserver.disconnect();
+            this._resizeObserver = null;
+        }
+        // Remove visibility change listener
+        if (this._visibilityHandler) {
+            document.removeEventListener('visibilitychange', this._visibilityHandler);
+            this._visibilityHandler = null;
+        }
+        // Remove pointer/touch handlers from renderer
         if (this._boundClickHandler && this.renderer) {
-            this.renderer.domElement.removeEventListener('click', this._boundClickHandler);
+            this.renderer.domElement.removeEventListener('pointerdown', this._boundClickHandler);
+            this._boundClickHandler = null;
+        }
+        if (this._boundTouchHandler && this.renderer) {
+            this.renderer.domElement.removeEventListener('touchstart', this._boundTouchHandler);
+            this.renderer.domElement.removeEventListener('touchmove', this._boundTouchHandler);
+            this._boundTouchHandler = null;
+        }
+        this._touchLookTarget = null;
+        // Clear emotion timer
+        if (this._emotionTimer) {
+            clearTimeout(this._emotionTimer);
+            this._emotionTimer = null;
+        }
+        // Dispose VRM and scene objects
+        if (this.vrm) {
+            this.scene.remove(this.vrm.scene);
+            VRMUtils.deepDispose(this.vrm.scene);
+            this.vrm = null;
+        }
+        // Stop all animations
+        if (this._mixer) {
+            this._mixer.stopAllAction();
+            this._mixer = null;
+        }
+        // Destroy idle manager
+        if (this._idleManager) {
+            this._idleManager.destroy();
+            this._idleManager = null;
+        }
+        // Clear idle behavior timer
+        if (this._idleBehaviorTimer) {
+            clearTimeout(this._idleBehaviorTimer);
+            this._idleBehaviorTimer = null;
+        }
+        // Clean up lip-sync manager
+        if (this._lipsyncManager) {
+            this._lipsyncManager.destroy?.();
+            this._lipsyncManager = null;
+        }
+        // Close audio context
+        if (this._audioContext) {
+            this._audioContext.close();
+            this._audioContext = null;
+        }
+        // Remove saccade target from camera
+        if (this._saccadeTarget && this.camera) {
+            this.camera.remove(this._saccadeTarget);
+            this._saccadeTarget = null;
+        }
+        // Dispose renderer
+        if (this.renderer) {
+            this.renderer.dispose();
+            this.renderer = null;
+        }
+        // Clear container
+        if (this.container) {
+            this.container.innerHTML = '';
         }
     }
 }

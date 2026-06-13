@@ -179,7 +179,8 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
 
         async def _fire ():
             await asyncio .sleep (delay )
-            print (f"REMINDER: {text }")
+            logger = logging.getLogger(__name__)
+            logger.warning(f"REMINDER: {text}")
 
         asyncio .create_task (_fire ())
         return [TextContent (type ="text",text =f"Reminder set: \"{text }\" in {delay }s")]

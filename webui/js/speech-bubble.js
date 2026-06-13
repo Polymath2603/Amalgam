@@ -74,8 +74,18 @@ export class SpeechBubble {
         const pos = this._renderer._lastHeadScreenPos;
         if (pos && pos.visible) {
             this._el.style.display = 'block';
-            this._el.style.left = (pos.x - this._el.offsetWidth / 2) + 'px';
-            this._el.style.top = (pos.y - this._el.offsetHeight - 10) + 'px';
+            // Force layout so offsetWidth is reliable
+            const bubbleW = this._el.offsetWidth || 160;
+            const bubbleH = this._el.offsetHeight || 60;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            let left = pos.x - bubbleW / 2;
+            let top = pos.y - bubbleH - 10;
+            // Clamp to viewport with 8px padding
+            left = Math.max(8, Math.min(left, vw - bubbleW - 8));
+            top = Math.max(8, Math.min(top, vh - bubbleH - 8));
+            this._el.style.left = left + 'px';
+            this._el.style.top = top + 'px';
         } else {
             this._el.style.display = 'none';
         }

@@ -121,7 +121,7 @@ class TelegramBot :
 
     async def run (self ):
         if not self .token :
-            print ("Error: Telegram token not found in settings. Set 'telegram.token' in data/settings.json")
+            logger .error ("Telegram token not found in settings. Set 'telegram.token' in data/settings.json")
             return 
 
         await init_application ()
@@ -134,7 +134,7 @@ class TelegramBot :
         self .application .add_handler (MessageHandler (filters .TEXT &(~filters .COMMAND ),self .handle_message ))
         self .application .add_handler (MessageHandler (filters .VOICE ,self .handle_voice ))
 
-        print (f"Telegram bot starting...")
+        logger .info (f"Telegram bot starting...")
         async with self .application :
             await self .application .initialize ()
             await self .application .start ()

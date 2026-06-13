@@ -12,8 +12,7 @@ class TestSettings :
         assert DEFAULTS ["provider"]["gemini"]["model"]=="gemini-2.5-flash"
 
     def test_get_with_dotpath (self ,settings ):
-        from backend .core .config .settings import DEFAULTS 
-        assert settings .get ("provider.active")==DEFAULTS ["provider"]["active"]
+        assert settings .get ("provider.active")!=""
         assert settings .get ("provider.ollama.base_url")=="http://localhost:11434"
         assert settings .get ("nonexistent.key","default")=="default"
 

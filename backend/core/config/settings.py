@@ -7,6 +7,8 @@ import os
 import yaml 
 import logging 
 import threading 
+import fcntl
+import tempfile
 from typing import Any ,Dict ,List 
 from pathlib import Path 
 from backend .core .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
@@ -173,7 +175,7 @@ DEFAULTS ={
 "access_token":"",
 "cluster":"volcano_tts"
 },
-"deepgram":{
+"deepgram_tts":{
 "api_key":"",
 "model":"aura-2"
 },
@@ -190,7 +192,7 @@ DEFAULTS ={
 "whispercpp":{
 "url":"http://127.0.0.1:8080"
 },
-"deepgram":{
+"deepgram_stt":{
 "api_key":"",
 "model":"nova-2"
 },
@@ -457,24 +459,63 @@ class Settings :
                     logger .info ("Settings file changed, hot-reloading")
                     self ._fire_callbacks ()
 
-    def load (self ):
-        if os .path .exists (self .path ):
-            try :
-                with open (self .path ,"r")as f :
-                    self .data =json .load (f )
-                logger .debug (f"Settings loaded from {self .path }")
-            except Exception as e :
-                logger .error (f"Failed to load settings: {e }")
-                self .data ={}
-        else :
-            self .data ={}
+    def load(self):
+        loaded_data = {}
+        if os.path.exists(self.path):
+            try:
+                with open(self.path, "r") as f:
+                    loaded_data = json.load(f)
+                logger.debug(f"Settings loaded from {self.path}")
+            except Exception as e:
+                logger.error(f"Failed to load settings from {self.path}: {e}")
+                # Don't overwrite self.data with empty if load fails
+                if not self.data:
+                    self.data = {}
+                return
 
-        self ._run_migrations ()
-        self .data .setdefault ("config_version",CONFIG_VERSION )
+        self.data = loaded_data
+        self._run_migrations()
+        self.data.setdefault("config_version", CONFIG_VERSION)
 
-        self .data =self ._deep_merge (DEFAULTS ,self .data )
+        # Merge defaults BUT preserve what we loaded
+        self.data = self._deep_merge(DEFAULTS, self.data)
 
-        self ._merge_mcp_servers ()
+        # Integrate with SecretsManager and Environment Variables
+        try:
+            from backend.core.secrets import get_secrets
+            secrets = get_secrets()
+            providers = self.data.get("provider", {})
+            
+            for provider_name, provider_cfg in providers.items():
+                if not isinstance(provider_cfg, dict):
+                    continue
+                    
+                # 1. Try SecretsManager
+                if not provider_cfg.get("api_key"):
+                    secret_key = secrets.get("api_key", profile=provider_name)
+                    if secret_key:
+                        provider_cfg["api_key"] = secret_key
+                        
+                # 2. Try Environment Variables
+                env_keys = [f"{provider_name.upper()}_API_KEY"]
+                if provider_name == "gemini":
+                    env_keys.append("GOOGLE_API_KEY")
+                elif provider_name == "chatgpt":
+                    env_keys.append("OPENAI_API_KEY")
+                elif provider_name == "claude":
+                    env_keys.append("ANTHROPIC_API_KEY")
+                elif provider_name == "zai":
+                    env_keys.append("ZAI_API_KEY")
+                
+                for ek in env_keys:
+                    if not provider_cfg.get("api_key") and ek in os.environ:
+                        provider_cfg["api_key"] = os.environ[ek]
+                        break
+
+        except Exception as e:
+            logger.debug(f"Failed to load keys from secrets/env: {e}")
+
+        self._merge_mcp_servers()
 
     def _run_migrations (self ):
         """Run version-to-version migrations."""
@@ -494,9 +535,22 @@ class Settings :
         self .save ()
 
     def save (self ):
+        """Atomically save settings to disk with proper locking."""
         os .makedirs (os .path .dirname (self .path ),exist_ok =True )
-        with open (self .path ,"w")as f :
-            json .dump (self .data ,f ,indent =2 )
+        dir_name = os.path.dirname(self.path)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".json.tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(self.data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get (self ,dotpath :str ,default =None )->Any :
         """Get a nested value using dot notation: 'provider.active'"""

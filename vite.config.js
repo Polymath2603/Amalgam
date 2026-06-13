@@ -5,6 +5,6 @@ export default defineConfig({
   root: 'webui',
   test: {
     environment: 'happy-dom',
-    include: ['tests*.test.js'],
+    include: ['tests/**/*.test.js'],
   },
 });

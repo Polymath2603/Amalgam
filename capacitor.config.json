@@ -1,0 +1,18 @@
+{
+  "appId": "com.amalgam.chat",
+  "appName": "Amalgam",
+  "webDir": "webui",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "http://localhost:8000",
+    "cleartext": true
+  },
+  "plugins": {
+    "Microphone": {
+      "permission": true
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

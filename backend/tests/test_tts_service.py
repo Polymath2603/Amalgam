@@ -2,7 +2,7 @@
 import io
 import wave
 import numpy as np
-from backend.api.ws.tts_service import _make_wav_bytes
+from backend.core.utils.wav import numpy_to_wav_bytes as _make_wav_bytes
 
 
 class TestMakeWavBytes:

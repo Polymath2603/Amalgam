@@ -2,13 +2,20 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Amalgam">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
     <title>Amalgam</title>
     <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon.png">
     <link rel="icon" type="image/svg+xml" href="./icons/logo.svg" sizes="any">
     <link rel="stylesheet" href="./icons/inter.css">
     <link rel="stylesheet" href="./icons/material-icons.css">
     <link rel="stylesheet" href="./css/style.css">
+    <script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(() => {}); }</script>
     <script type="importmap">
     {
         "imports": {
@@ -20,24 +27,25 @@
     </script>
 </head>
 <body>
+    <a href="#main-content" class="skip-to-content" role="button">Skip to content</a>
     <div class="app">
         <!-- Sidebar -->
-        <nav class="sidebar">
+        <nav class="sidebar" role="navigation" aria-label="Main navigation">
             <div class="sidebar-brand">
                 <img src="./icons/logo.svg" alt="Amalgam" class="brand-logo">
                 <span class="brand-text">Amalgam</span>
             </div>
             <div class="sidebar-nav">
-                <button class="nav-item active" data-tab="chat">
+                <button class="nav-item active" data-tab="chat" aria-label="Chat" aria-current="page">
                     <span class="material-icons-round">chat</span><span data-i18n="nav.chat">Chat</span>
                 </button>
-                <button class="nav-item" data-tab="avatar">
+                <button class="nav-item" data-tab="avatar" aria-label="Avatar">
                     <span class="material-icons-round">view_in_ar</span><span data-i18n="nav.avatar">Avatar</span>
                 </button>
-                <button class="nav-item" data-tab="characters">
+                <button class="nav-item" data-tab="characters" aria-label="Characters">
                     <span class="material-icons-round">people</span><span data-i18n="nav.characters">Characters</span>
                 </button>
-                <button class="nav-item" data-tab="settings">
+                <button class="nav-item" data-tab="settings" aria-label="Settings">
                     <span class="material-icons-round">tune</span><span data-i18n="nav.settings">Settings</span>
                 </button>
             </div>
@@ -50,7 +58,7 @@
         </nav>
 
         <!-- Main Content -->
-        <main class="content">
+        <main class="content" id="main-content">
 
             <!-- Shared Header — visible on all tabs -->
             <div class="chat-header" id="global-header">
@@ -65,16 +73,16 @@
                     </div>
                 </div>
                 <div class="chat-controls">
-                    <button class="icon-toggle" id="voice-input-toggle" data-i18n-title="title.voice_input" title="Toggle voice input (mic)">
+                    <button class="icon-toggle" id="voice-input-toggle" data-i18n-title="title.voice_input" title="Toggle voice input (mic)" aria-label="Toggle voice input">
                         <span class="material-icons-round">mic_off</span>
                     </button>
-                    <button class="icon-toggle" id="voice-output-toggle" data-i18n-title="title.voice_output" title="Toggle voice output (speaker)">
+                    <button class="icon-toggle" id="voice-output-toggle" data-i18n-title="title.voice_output" title="Toggle voice output (speaker)" aria-label="Toggle voice output">
                         <span class="material-icons-round">volume_off</span>
                     </button>
-                    <button class="icon-toggle" id="new-chat-btn" data-i18n-title="title.new_conversation" title="New conversation">
+                    <button class="icon-toggle" id="new-chat-btn" data-i18n-title="title.new_conversation" title="New conversation" aria-label="New conversation">
                         <span class="material-icons-round">add</span>
                     </button>
-                    <button class="icon-toggle" id="history-toggle" data-i18n-title="title.conversation_history" title="Conversation history">
+                    <button class="icon-toggle" id="history-toggle" data-i18n-title="title.conversation_history" title="Conversation history" aria-label="Conversation history">
                         <span class="material-icons-round">history</span>
                     </button>
                 </div>
@@ -101,7 +109,7 @@
                     </div>
 
                     <!-- Messages -->
-                    <div class="chat-messages" id="chat-messages"></div>
+                    <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
 
                     <!-- Input -->
                     <div class="chat-input-area" style="position: relative;">
@@ -110,10 +118,10 @@
                         </button>
                         <input type="file" id="img-input" accept="image/*" hidden>
                         <div style="flex:1; position: relative;">
-                            <textarea id="chat-input" data-i18n-placeholder="chat.input_placeholder" placeholder="Type a message..." rows="1" style="width:100%;"></textarea>
+                            <textarea id="chat-input" data-i18n-placeholder="chat.input_placeholder" placeholder="Type a message..." rows="1" style="width:100%;" aria-label="Message input"></textarea>
                             <div id="cmd-suggestions" class="cmd-suggestions"></div>
                         </div>
-                        <button type="button" class="send-btn" id="send-btn">
+                        <button type="button" class="send-btn" id="send-btn" aria-label="Send message">
                             <span class="material-icons-round">arrow_upward</span>
                         </button>
                     </div>
@@ -795,49 +803,6 @@
                                 <div id="sessions-list">
                                     <p class="muted">Loading...</p>
                                 </div>
-                            </details>
-
-                            <!-- Vault Search -->
-                            <details class="data-details">
-                                <summary>Vault Search</summary>
-                                <div style="padding:0.5rem 0.75rem;display:flex;gap:0.4rem;align-items:center">
-                                    <input type="text" id="vault-search-input" placeholder="Search vault files..." style="flex:1;padding:0.3rem 0.5rem;font-size:0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)">
-                                    <label class="toggle" title="Semantic search" style="flex-shrink:0">
-                                        <input type="checkbox" id="vault-semantic-toggle">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                    <span class="muted" style="font-size:0.7rem;white-space:nowrap">Semantic</span>
-                                </div>
-                                <div id="vault-search-results" style="padding:0 0.75rem 0.5rem"></div>
-                            </details>
-
-                            <!-- Vault Files -->
-                            <details class="data-details">
-                                <summary>Vault Files <span class="muted" id="vault-count"></span></summary>
-                                <div id="vault-files-list">
-                                    <p class="muted">Loading...</p>
-                                </div>
-                            </details>
-
-                            <!-- Vault File Editor -->
-                            <details class="data-details">
-                                <summary>Vault File Editor</summary>
-                                <div style="padding:0.5rem 0.75rem;display:flex;gap:0.4rem;flex-wrap:wrap">
-                                    <input id="vault-filename-input" type="text" placeholder="filename.md" style="flex:1;min-width:100px;padding:0.3rem 0.5rem;font-size:0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text)">
-                                    <button class="btn-sm" id="vault-new-btn">New</button>
-                                </div>
-                                <textarea id="vault-editor" rows="6" placeholder="Select or create a file..." style="width:100%;padding:0.5rem;border:none;background:var(--bg);color:var(--text);font-size:0.8rem;font-family:var(--font);resize:vertical"></textarea>
-                                <div style="padding:0.5rem 0.75rem;display:flex;gap:0.4rem">
-                                    <button class="btn-sm" id="vault-save-btn" disabled>Save</button>
-                                    <button class="btn-sm btn-danger" id="vault-delete-btn" disabled>Delete</button>
-                                </div>
-                            </details>
-
-                            <!-- Rules -->
-                            <details class="data-details">
-                                <summary>Persistent Rules</summary>
-                                <textarea id="rules-editor" rows="4" placeholder="Loading..."></textarea>
-                                <button class="btn btn-sm" id="save-rules-btn" style="margin-top:0.5rem">Save Rules</button>
                             </details>
                         </div>
 

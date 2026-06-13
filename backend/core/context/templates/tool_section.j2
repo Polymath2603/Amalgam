@@ -1,0 +1,31 @@
+{# Tool Definitions Template - Jinja2 #}
+{# Renders available tools for the assistant #}
+
+## Available Tools
+
+You have access to the following tools to help accomplish tasks:
+
+{% for tool in tools -%}
+
+### {{ tool.name }}
+
+{{ tool.description }}
+
+{% if tool.parameters -%}
+**Parameters:**
+{% if tool.parameters.properties -%}
+{% for param_name, param_info in tool.parameters.properties.items() -%}
+- **{{ param_name }}** ({{ param_info.type | default('string') }}){% if param_info.description %}: {{ param_info.description }}{% endif %}
+{% endfor -%}
+{% endif -%}
+{% endif -%}
+
+{% endfor -%}
+
+## Tool Usage Guidelines
+
+- Use tools when they are the most appropriate way to accomplish a task
+- Always provide clear context about what you're doing and why
+- If a tool fails, try alternative approaches or explain the limitation
+- For file operations, always specify complete paths and verify permissions
+- Never execute tools without considering potential side effects

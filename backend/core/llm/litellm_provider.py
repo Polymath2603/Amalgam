@@ -8,6 +8,7 @@ with a single class that delegates to litellm.acompletion().
 import asyncio 
 import json 
 import logging 
+import os
 from typing import AsyncIterator ,List ,Dict ,Any ,Optional 
 
 import litellm 
@@ -152,6 +153,13 @@ class LiteLLMProvider :
         kwargs ={}
         if api_key :
             kwargs ["api_key"]=api_key 
+            if provider =="gemini":
+                kwargs ["gemini_api_key"]=api_key 
+                os .environ ["GEMINI_API_KEY"]=api_key 
+            elif provider =="chatgpt":
+                kwargs ["openai_api_key"]=api_key 
+                os .environ ["OPENAI_API_KEY"]=api_key 
+
         if base_url :
             kwargs ["api_base"]=base_url .rstrip ("/")
 
@@ -377,6 +385,14 @@ class LiteLLMProvider :
 
         if not embed_model :
             return []
+
+        # If embedding model is different from current provider, we might need different keys
+        if "gemini" in embed_model and provider != "gemini":
+            gemini_cfg = self._settings.get("provider.gemini", {}) if self._settings else {}
+            g_key = gemini_cfg.get("api_key")
+            if g_key:
+                kwargs["api_key"] = g_key
+                kwargs["gemini_api_key"] = g_key
 
         try :
             response =await aembedding (model =embed_model ,input =[text ],**kwargs )

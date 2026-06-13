@@ -5,7 +5,11 @@ from typing import List, Dict
 import jinja2
 from backend.core.paths import PROJECT_ROOT, VAULT_DIR, CHARACTERS_DIR
 from backend.core.vault import VaultManager
+from backend.core.user_profile import UserProfile
 from backend.core.utils.tokens import estimate_tokens, truncate_to_token_limit
+
+# Module-level singleton — loaded once at startup, persists across sessions
+_user_profile = UserProfile(data_dir="data")
 
 logger = logging.getLogger(__name__)
 
@@ -40,155 +44,14 @@ Your responses are displayed as chat messages in a web UI.
 - **Consult your Vault for persistent rules (`rules.md`).** The vault contains your core instructions for formatting, tool usage, safety, and edge cases. You must strictly adhere to them.
 - Use tools for actions; use text output only for communication.
 
-Your vault is a directory of markdown files you manage yourself via the **obsidian** MCP server tools (`read-note`, `search-vault`, `create-note`, `edit-note`, `delete-note`). This is your permanent memory. Use it deliberately.
+Your vault is a directory of markdown files you manage yourself via the **obsidian** MCP server tools (`read-note`, `search-vault`, `create-note`, `edit-note`, `delete-note`). This is your permanent memory. Use it deliberately. Refer to `vault_structure.md` in your vault for folder conventions.
 
-- User's name, preferences, habits, recurring requests
-- Project conventions, file paths, architecture decisions
-- Things the user explicitly asks you to remember across sessions
-- Important user data (e.g., "works on Project X, uses Python 3.12")
-- Any knowledge that would be useful weeks from now
-
-- Running conversation context, observations about the current task
-- "The user tried command X" — this is session history, not a permanent fact
-- Tool execution results, error messages from a single interaction
-- Single-use trivia like "the user's current shell is zsh"
-
-All notes live under one of these folders. Nest sub-notes under a person or project when a topic has multiple facets (e.g. `people/alice/health.md`, `people/alice/goals.md`, `projects/k-backend/todo.md`).
-
-```
-people/               — info about people the user knows (name, preferences, relationships)
-  {name}/             one subfolder per person when there are multiple facets
-    .md               general bio
-    contact.md        phone, email, address, social
-    preferences.md    tastes, likes, dislikes
-    problems.md       recurring issues, complaints
-    goals.md          their ambitions, things they want
-    health.md         conditions, allergies, medications
-    accounts.md       shared accounts, logins
-
-places/               — locations the user visits or references
-  {name}.md           hours, menu favorites, directions, notes
-
-projects/             — active work, side projects, code repos
-  {name}/
-    .md               overview, stack, status
-    architecture.md   design decisions, file layout
-    todo.md           tasks, roadmap
-    bugs.md           known issues, debugging notes
-    meeting-notes/    per-meeting notes
-
-work/                 — career, job, professional life
-  current-role.md     title, responsibilities, manager
-  skills.md           skills to develop, strengths, gaps
-  colleagues.md       coworkers, their roles
-  career-goals.md     next role, timeline, growth areas
-  meetings/           meeting notes by date
-
-devices/              — computers, phones, peripherals
-  workstation.md      specs, OS, quirks
-  phone.md            model, configs
-  peripherals.md      keyboard, mouse, monitor, audio
-  network.md          router, NAS, IPs, WiFi
-  software.md         licenses, configs, installed tools
-
-health/               — physical and mental health
-  conditions.md       diagnoses, history
-  medications.md      name, dosage, schedule
-  allergies.md        substances, severity
-  doctors.md          providers, appointments, notes
-  fitness.md          workouts, routines, progress
-  sleep.md            patterns, issues, goals
-  mental.md           mood, stress, therapy notes
-
-finance/              — money and financial accounts
-  budget.md           income, expenses, categories
-  accounts.md         bank accounts, routing info
-  subscriptions.md    monthly/yearly services, renewal dates
-  investments.md      stocks, crypto, retirement
-  bills.md            recurring payments, due dates
-  insurance.md        health, auto, home policies
-  tax.md              filings, deductions, documents
-
-accounts/             — online accounts (separate from finance)
-  {service}.md        username, signup email, recovery info, 2FA
-
-learning/             — education, skills, knowledge
-  courses.md          in-progress, completed, planned
-  books.md            reading list, notes, recommendations
-  tutorials.md        saved guides, walkthroughs
-  certifications.md   earned, pursuing
-
-media/                — entertainment and culture
-  movies.md           watched, to-watch, ratings
-  tv-shows.md         current, completed, recommendations
-  music.md            genres, artists, playlists
-  games.md            playing, backlog, preferences
-  podcasts.md         subscribed, episodes
-  reading-list.md     articles, posts to read
-
-references/           — technical and general reference
-  apis/               per-service API notes
-  cheatsheets/        command cheatsheets, shortcuts
-  snippets.md         reusable code/config blocks
-  how-tos.md          step-by-step guides
-
-recipes/              — food and cooking
-  {dish}.md           ingredients, instructions, notes
-
-routines/             — habits, schedules, rituals
-  morning.md          wake-up routine
-  evening.md          wind-down routine
-  weekly.md           regular schedule
-  workout.md          exercise plan
-
-travel/               — trips and destinations
-  past/               past trip notes, itineraries
-  planned/            upcoming trips, bookings
-  wishlist.md         places to visit
-  packing.md          packing checklists
-
-social/               — social life, community
-  events.md           upcoming, attended
-  communities.md      groups, forums, servers
-  gifts.md            gift ideas, given, received
-
-home/                 — living space, possessions
-  maintenance.md      repairs, cleaning schedule, contacts
-  vehicle.md          car info, service records
-  pets.md             pet info, vet, care
-  shopping.md         grocery lists, things to buy
-  documents.md        passport, IDs, contracts, warranties
-
-goals/                — life goals and progress
-  yearly/{year}.md    annual goals
-  long-term.md        big-picture ambitions
-  habits.md           habit tracking, streaks
-
-problems/             — recurring issues and solutions
-  {topic}.md          symptoms, root cause, fix, workaround
-
-ideas/                — brainstorming, inspiration
-  {topic}.md          rough notes, sketches, pros/cons
-
-meetings/             — call and meeting notes
-  {date}-{topic}.md   attendees, decisions, action items
-
-workflows/            — multi-step processes
-  {name}.md           steps, prerequisites, troubleshooting
-
-conventions/          — coding style, naming, project rules
-  {project}.md        language/style-specific conventions
-
-journal/              — personal diary entries
-  {date}.md           daily thoughts, reflections
-```
-- **Use clear headings**: `
 - **Keep notes concise**: bullet points, short paragraphs — not full conversation dumps
-- **Update, don't duplicate**: `search-vault` before `create-note` to find existing notes, then `edit-note` to append or modify
+- **Update, don't duplicate**: `search-vault` before `create-note`
 - **Review periodically**: at the start of a session, `search-vault` for notes relevant to the user's context
 
-
 {{ relationship_section }}\
+{{ user_profile_section }}\
 {{ vault_rules }}\
 {{ tool_section }}\
 {{ summary_section }}\
@@ -286,6 +149,8 @@ class ContextBuilder:
         relevant_section = self._build_relevant_section(relevant)
         relationship_section = self._build_relationship_section(relationship_context)
 
+        user_profile_section = self._build_user_profile_section()
+
         template = _jinja_env.from_string(_PROMPT_TEMPLATE)
         sys_prompt = template.render(
             **char_ctx,
@@ -293,6 +158,7 @@ class ContextBuilder:
             summary_section=summary_section,
             relevant_section=relevant_section,
             relationship_section=relationship_section,
+            user_profile_section=user_profile_section,
         )
 
         max_sys_tokens = 1500
@@ -371,6 +237,13 @@ class ContextBuilder:
         for r in relevant:
             lines.append(f"- {r['role']}: {r['content']}")
         return "\n".join(lines)
+
+    def _build_user_profile_section(self) -> str:
+        """Build the user profile section for the system prompt."""
+        profile_str = _user_profile.to_context_string()
+        if not profile_str:
+            return ""
+        return f"\n\n### About the User\n{profile_str}"
 
     def _build_relationship_section(self, relationship_context: str) -> str:
         if not relationship_context:

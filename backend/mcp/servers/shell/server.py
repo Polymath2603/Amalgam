@@ -106,10 +106,20 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         if not allowed :
             return [TextContent (type ="text",text =reason )]
 
-        process =await asyncio .create_subprocess_shell (
-        cmd ,
-        stdout =asyncio .subprocess .PIPE ,
-        stderr =asyncio .subprocess .PIPE 
+        # SECURITY: Parse with shlex and use exec instead of shell
+        # This prevents command injection via ;, &&, ||, etc.
+        try:
+            args = shlex.split(cmd)
+        except ValueError as e:
+            return [TextContent(type="text", text=f"Invalid command syntax: {e}")]
+
+        if not args:
+            return [TextContent(type="text", text="Empty command")]
+
+        process = await asyncio.create_subprocess_exec(
+            args[0], *args[1:],
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
         try :
             stdout ,stderr =await asyncio .wait_for (process .communicate (),timeout =SHELL_TIMEOUT )

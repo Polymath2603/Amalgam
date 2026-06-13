@@ -1,17 +1,22 @@
 """
 MCP Client — connects to MCP servers via stdio or SSE transport, discovers tools, and calls them.
 Supports both local (stdio) and remote (SSE/HTTP) MCP servers.
+Integrates hook system, permission system, and tool analytics.
 """
-import json 
-import time 
-import asyncio 
-import logging 
-from typing import Dict ,Any ,List ,Optional 
-from mcp .client .stdio import stdio_client ,StdioServerParameters 
-from mcp .client .sse import sse_client 
-from mcp .client .session import ClientSession 
-from contextlib import AsyncExitStack 
-import os 
+import json
+import time
+import asyncio
+import logging
+from typing import Dict ,Any ,List ,Optional
+from mcp .client .stdio import stdio_client ,StdioServerParameters
+from mcp .client .sse import sse_client
+from mcp .client .session import ClientSession
+from contextlib import AsyncExitStack
+import os
+
+from backend .core .agent .permissions import ToolPermissions ,PermissionLevel
+from backend .core .agent .hooks import ToolHooks
+from backend .core .agent .analytics import ToolAnalytics
 
 logger =logging .getLogger (__name__ )
 
@@ -25,11 +30,33 @@ class MCPClient :
         self ._reconnect_tasks :Dict [str ,asyncio .Task ]={}
         self ._server_configs :Dict [str ,dict ]={}
         self ._server_stacks :Dict [str ,AsyncExitStack ]={}
-        self ._agent =None 
-        self ._closed =False 
+        self ._agent =None
+        self ._closed =False
+        # New subsystems
+        self .permissions =ToolPermissions ()
+        self .hooks =ToolHooks ()
+        self .analytics =ToolAnalytics ()
 
     def register_agent (self ,agent ):
-        self ._agent =agent 
+        self ._agent =agent
+
+    def set_permission_level (self ,level :str ):
+        """Set the permission level for this session."""
+        try :
+            self .permissions .set_level (PermissionLevel (level ))
+            logger .info (f"Permission level set to {level }")
+        except ValueError :
+            logger .warning (f"Invalid permission level: {level }")
+
+    def approve_tool (self ,tool_name :str ):
+        """Approve a tool for one-time use."""
+        self .permissions .approve_tool_once (tool_name )
+
+    def get_hook_context (self )->dict :
+        return {
+            "level":self .permissions .level .value ,
+            "approved_once":list (self .permissions ._approved_once ),
+        }
 
     async def _close_server (self ,name :str ):
         """Close an individual server's session and transport."""
@@ -48,13 +75,13 @@ class MCPClient :
                 config =json .load (f )
         except Exception as e :
             logger .error (f"Failed to load MCP config: {e }")
-            return 
+            return
 
         for server_name ,server_config in config .items ():
             if isinstance (server_config ,dict ):
                 enabled =server_config .get ("enabled",True )
                 if not enabled :
-                    continue 
+                    continue
                 await self ._connect_from_config (server_name ,server_config )
 
     async def connect_from_settings (self ,servers :List [Dict ]):
@@ -63,7 +90,7 @@ class MCPClient :
         names =[]
         for server_config in servers :
             if not server_config .get ("enabled",True ):
-                continue 
+                continue
             name =server_config .get ("name")
             if name :
                 coros .append (self ._connect_from_config (name ,server_config ))
@@ -76,7 +103,7 @@ class MCPClient :
 
     async def _connect_from_config (self ,name :str ,config :dict ):
         """Connect a server from a config dict. Supports stdio and SSE."""
-        self ._server_configs [name ]=config 
+        self ._server_configs [name ]=config
         if "url"in config :
             ok =await self ._connect_sse (name ,config ["url"],config .get ("headers",{}))
         else :
@@ -86,14 +113,14 @@ class MCPClient :
             ok =await self ._connect_server (name ,cmd ,args ,env )
         if not ok :
             task =asyncio .create_task (self ._reconnect_loop (name ))
-            self ._reconnect_tasks [name ]=task 
+            self ._reconnect_tasks [name ]=task
 
     async def _connect_server (self ,name :str ,cmd :str ,args :List [str ],
     env :Optional [Dict [str ,str ]]=None ,timeout :float =15.0 ):
         """Connect to a stdio-based MCP server."""
         logger .debug (f"Connecting to stdio MCP server: {name }")
         if self ._closed :
-            return False 
+            return False
 
         await self ._close_server (name )
         server_env =os .environ .copy ()
@@ -110,36 +137,36 @@ class MCPClient :
         try :
             stdio_transport =await asyncio .wait_for (
             stack .enter_async_context (stdio_client (server_params )),
-            timeout =timeout 
+            timeout =timeout
             )
-            read_stream ,write_stream =stdio_transport 
+            read_stream ,write_stream =stdio_transport
             session =await asyncio .wait_for (
             stack .enter_async_context (ClientSession (read_stream ,write_stream )),
-            timeout =timeout 
+            timeout =timeout
             )
             await asyncio .wait_for (session .initialize (),timeout =timeout )
-            self ._server_stacks [name ]=stack 
-            self .sessions [name ]=session 
+            self ._server_stacks [name ]=stack
+            self .sessions [name ]=session
             await self ._discover_tools (name ,session )
             logger .debug (f"Connected to stdio server {name }")
-            return True 
+            return True
         except asyncio .TimeoutError :
             logger .error (f"Timeout connecting to stdio server {name } ({timeout }s)")
             await stack .aclose ()
-            return False 
+            return False
         except BaseException as e :
             logger .error (f"Failed to connect to stdio server {name }: [{type (e ).__name__ }] {e }")
             await stack .aclose ()
             if isinstance (e ,(asyncio .CancelledError ,KeyboardInterrupt )):
-                raise 
-            return False 
+                raise
+            return False
 
     async def _connect_sse (self ,name :str ,url :str ,headers :dict =None ,
     timeout :float =15.0 ):
         """Connect to a remote SSE/HTTP MCP server."""
         logger .debug (f"Connecting to SSE MCP server: {name } at {url }")
         if self ._closed :
-            return False 
+            return False
 
         await self ._close_server (name )
         stack =AsyncExitStack ()
@@ -147,29 +174,29 @@ class MCPClient :
         try :
             transport =await asyncio .wait_for (
             stack .enter_async_context (sse_client (url ,headers =headers or {})),
-            timeout =timeout 
+            timeout =timeout
             )
-            read_stream ,write_stream =transport 
+            read_stream ,write_stream =transport
             session =await asyncio .wait_for (
             stack .enter_async_context (ClientSession (read_stream ,write_stream )),
-            timeout =timeout 
+            timeout =timeout
             )
             await asyncio .wait_for (session .initialize (),timeout =timeout )
-            self ._server_stacks [name ]=stack 
-            self .sessions [name ]=session 
+            self ._server_stacks [name ]=stack
+            self .sessions [name ]=session
             await self ._discover_tools (name ,session )
             logger .debug (f"Connected to SSE server {name }")
-            return True 
+            return True
         except asyncio .TimeoutError :
             logger .error (f"Timeout connecting to SSE server {name } ({timeout }s)")
             await stack .aclose ()
-            return False 
+            return False
         except BaseException as e :
             logger .error (f"Failed to connect to SSE server {name }: {e }")
             await stack .aclose ()
             if isinstance (e ,(asyncio .CancelledError ,KeyboardInterrupt )):
-                raise 
-            return False 
+                raise
+            return False
 
     async def _discover_tools (self ,name :str ,session :ClientSession ):
         """Discover tools from a connected session."""
@@ -182,8 +209,8 @@ class MCPClient :
 
             tools_response =await session .list_tools ()
             for tool in tools_response .tools :
-                self .tools_cache [tool .name ]=tool 
-                self .server_tool_map [tool .name ]=name 
+                self .tools_cache [tool .name ]=tool
+                self .server_tool_map [tool .name ]=name
             logger .debug (f"Discovered {len (tools_response .tools )} tools from {name }")
         except Exception as e :
             logger .error (f"Failed to discover tools from {name }: {e }")
@@ -201,7 +228,7 @@ class MCPClient :
                 config .get ("args",[]),config .get ("env")
                 )
             if ok :
-                return 
+                return
             delay =min (delay *2 ,16 )
         if not self ._closed :
             logger .error (f"Max reconnect delay reached for {name }")
@@ -215,9 +242,9 @@ class MCPClient :
         t0 =time .monotonic ()
         while time .monotonic ()-t0 <timeout :
             if len (self .tools_cache )>=min_tools :
-                return True 
+                return True
             await asyncio .sleep (0.1 )
-        return False 
+        return False
 
     def get_tool_schema (self )->List [Dict [str ,Any ]]:
         schema =[]
@@ -227,10 +254,10 @@ class MCPClient :
             "function":{
             "name":tool .name ,
             "description":tool .description ,
-            "parameters":tool .inputSchema 
+            "parameters":tool .inputSchema
             }
             })
-        if self ._agent is not None and self .sessions :
+        if self ._agent is not None :
             schema .append ({
             "type":"function",
             "function":{
@@ -248,38 +275,70 @@ class MCPClient :
             }
             }
             })
-        return schema 
+        return schema
 
     async def call_tool (self ,name :str ,arguments :dict )->str :
-        if name =="task"and self ._agent is not None :
-            prompt =arguments .get ("prompt","")
-            return await self ._agent .spawn_subagent (prompt )
-        if name not in self .server_tool_map :
-            return f"Error: Tool {name } not found"
-
-        server_name =self .server_tool_map [name ]
-        session =self .sessions .get (server_name )
-
-        if not session :
-            return f"Error: Session for {server_name } not available"
+        """Call a tool with permission checks, hooks, and analytics."""
+        t0 =time .monotonic ()
+        success =False
+        error =None
 
         try :
-            result =await session .call_tool (name ,arguments )
-            if not result .content :
-                return ""
-            parts =[]
-            for c in result .content :
-                if c .type =="text":
-                    parts .append (c .text )
-                elif c .type =="image":
-                    parts .append (f"[Image: {c .mimeType } data={len (c .data )} bytes]")
-                    parts .append (f"data:{c .mimeType };base64,{c .data }")
-            return "\n".join (parts )
+            # Permission check
+            allowed ,reason =self .permissions .check_tool_allowed (name )
+            if not allowed :
+                error =reason or f"Tool {name } not allowed"
+                return f"Error: {error }"
+
+            # Pre-hooks
+            hook_ctx ={"tool":name ,"args":arguments ,"level":self .permissions .level .value }
+            hook_result =await self .hooks .run_pre (name ,arguments ,hook_ctx )
+            if hook_result and "error"in hook_result :
+                error =hook_result ["error"]
+                return f"Error: {error }"
+
+            # Execute
+            if name =="task"and self ._agent is not None :
+                prompt =arguments .get ("prompt","")
+                result =await self ._agent .spawn_subagent (prompt )
+            elif name not in self .server_tool_map :
+                error =f"Tool {name } not found"
+                return f"Error: {error }"
+            else :
+                server_name =self .server_tool_map [name ]
+                session =self .sessions .get (server_name )
+                if not session :
+                    error =f"Session for {name } not available"
+                    return f"Error: {error }"
+                result_obj =await session .call_tool (name ,arguments )
+                if not result_obj .content :
+                    result =""
+                else :
+                    parts =[]
+                    for c in result_obj .content :
+                        if c .type =="text":
+                            parts .append (c .text )
+                        elif c .type =="image":
+                            parts .append (f"[Image: {c .mimeType } data={len (c .data )} bytes]")
+                            parts .append (f"data:{c .mimeType };base64,{c .data }")
+                    result ="\n".join (parts )
+
+            success =True
+            return result
+
         except Exception as e :
-            return f"Error calling tool {name }: {e }"
+            error =str (e )
+            return f"Error calling tool {name }: {error }"
+
+        finally :
+            latency_ms =(time .monotonic ()-t0 )*1000
+            self .analytics .record_call (name ,arguments ,latency_ms ,success ,error )
+            post_ctx ={"tool":name ,"args":arguments ,"result":error if error else "ok" }
+            await self .hooks .run_post (name ,arguments ,post_ctx )
 
     async def close (self ):
-        self ._closed =True 
+        self ._closed =True
+        self .analytics .persist ()
         tasks =[t for t in self ._reconnect_tasks .values ()if not t .done ()]
         for t in tasks :
             t .cancel ()
@@ -292,5 +351,4 @@ class MCPClient :
         self .sessions .clear ()
         self .tools_cache .clear ()
         self .server_tool_map .clear ()
-        self ._server_configs .clear ()
-        self ._agent =None 
+        self ._agent =None

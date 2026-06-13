@@ -1,0 +1,1 @@
+"""Emotion analyzer plugin package."""

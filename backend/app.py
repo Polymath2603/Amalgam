@@ -12,6 +12,11 @@ from fastapi import FastAPI ,WebSocket
 from fastapi .responses import FileResponse ,Response 
 from fastapi .staticfiles import StaticFiles 
 from fastapi .middleware .cors import CORSMiddleware 
+import mimetypes
+
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 from backend .api .ws .handler import handle_chat 
 from backend .api .routes import (
@@ -20,6 +25,7 @@ characters ,
 commands as commands_route ,
 mcp as mcp_route ,
 memory as memory_route ,
+push as push_route ,
 vault ,
 relationship ,
 tts as tts_route ,
@@ -29,6 +35,17 @@ from backend .core .startup import init_application
 from backend .core .utils .icon_generator import generate_missing_icons 
 from pathlib import Path 
 
+_origins_env = os.environ.get("AMALGAM_CORS_ORIGINS", "")
+if _origins_env:
+    CORS_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+else:
+    CORS_ORIGINS = [
+        "http://localhost:8000",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "tauri://localhost",
+    ]
+
 WEBUI_DIR =PROJECT_ROOT /"webui"
 
 logger =logging .getLogger (__name__ )
@@ -37,13 +54,21 @@ logger =logging .getLogger (__name__ )
 def create_app ():
     """Create and return the configured FastAPI application."""
     app =FastAPI (title ="Amalgam")
-    app .add_middleware (CORSMiddleware ,allow_origins =["*"],allow_methods =["*"],allow_headers =["*"])
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+        allow_credentials=True,
+        max_age=600,
+    )
 
     app .include_router (settings_route .router )
     app .include_router (characters .router )
     app .include_router (commands_route .router )
     app .include_router (mcp_route .router )
     app .include_router (memory_route .router )
+    app .include_router (push_route .router )
     app .include_router (vault .router )
     app .include_router (relationship .router )
     app .include_router (tts_route .router )
@@ -69,7 +94,7 @@ def create_app ():
         await init_application ()
         port =os .environ .get ("AMALGAM_PORT","8000")
         host =os .environ .get ("AMALGAM_HOST","0.0.0.0")
-        print (f"\n  Server ready on http://localhost:{port }\n")
+        logger .warning (f"\n  Server ready on http://localhost:{port }\n")
         asyncio .create_task (_delayed_startup_tasks ())
 
     @app .on_event ("shutdown")

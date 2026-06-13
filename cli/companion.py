@@ -1,178 +1,321 @@
-import asyncio 
-import json 
-import os 
-import sys 
-import time 
-import threading 
-import logging 
-import re 
-from typing import Optional 
+import asyncio
+import json
+import os
+import sys
+import time
+import threading
+import logging
+import re
+from typing import Optional
 
-import websockets 
-from rich .console import Console 
-from rich .panel import Panel 
-from rich .live import Live 
-from rich .text import Text 
-from rich .markdown import Markdown 
+import websockets
+from rich.console import Console
+from rich.panel import Panel
+from rich.live import Live
+from rich.text import Text
+from rich.markdown import Markdown
+from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from cli import _make_console ,_show_banner 
+from cli import _make_console, _show_banner
 
-logger =logging .getLogger (__name__ )
+logger = logging.getLogger(__name__)
 
-class CompanionState :
-    SLEEPING ="sleeping"
-    ACTIVE ="active"
 
-class CompanionMode :
-    def __init__ (self ):
-        self .console =_make_console ()
-        self .state =CompanionState .SLEEPING 
-        self .ws :Optional [websockets .WebSocketClientProtocol ]=None 
-        self .last_interaction_time =time .time ()
-        self .timeout_duration =46.0 
-        self .session_id =None 
-        self .base_url ="ws://localhost:8000/ws/chat"
-        self ._stop_event =asyncio .Event ()
-        self .current_response =""
-        self .is_thinking =False 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
-    async def connect (self ):
-        while not self ._stop_event .is_set ():
-            try :
-                self .ws =await websockets .connect (self .base_url )
-                logger .info ("Connected to backend WebSocket")
-                break 
-            except Exception as e :
-                logger .debug (f"Waiting for backend... ({e })")
-                await asyncio .sleep (1 )
+SLASH_COMMANDS = {
+    "/exit": "Quit the companion (use twice to force quit)",
+    "/help": "Show this help message",
+    "/status": "Show connection and session status",
+    "/wake": "Wake the companion from sleep mode",
+    "/sleep": "Put the companion to sleep",
+    "/clear": "Clear the screen",
+    "/version": "Show companion version info",
+}
 
-    async def _send (self ,data :dict ):
-        if self .ws :
-            await self .ws .send (json .dumps (data ))
 
-    async def wake_up (self ,reason ="wake_word"):
-        if self .state ==CompanionState .SLEEPING :
-            self .state =CompanionState .ACTIVE 
-            self .console .print (f"[bold yellow]\[System][/bold yellow] Waking up... ({reason })")
-            await self ._send ({"type":"command","command":"voice_input_on"})
-            await self ._send ({"type":"command","command":"voice_output_on"})
-            await self ._send ({"type":"command","command":"avatar_set_visibility","visible":True })
-        self .last_interaction_time =time .time ()
+class CompanionState:
+    SLEEPING = "sleeping"
+    ACTIVE = "active"
 
-    async def sleep (self ):
-        if self .state ==CompanionState .ACTIVE :
-            self .state =CompanionState .SLEEPING 
-            self .console .print ("[bold blue]\[System][/bold blue] Going to sleep...")
-            await self ._send ({"type":"command","command":"voice_input_off"})
-            await self ._send ({"type":"command","command":"avatar_set_visibility","visible":False })
 
-    async def handle_backend_messages (self ):
-        try :
-            async for message in self .ws :
-                data =json .loads (message )
-                msg_type =data .get ("type")
+class CompanionMode:
+    def __init__(self):
+        self.console = _make_console()
+        self.state = CompanionState.SLEEPING
+        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        self.last_interaction_time = time.time()
+        self.timeout_duration = 46.0
+        self.session_id = None
+        self.base_url = "ws://localhost:8000/ws/chat"
+        self._stop_event = asyncio.Event()
+        self.current_response = ""
+        self.is_thinking = False
+        self._connected = False
 
-                if msg_type =="session":
-                    self .session_id =data .get ("id")
-                    await self ._send ({"type":"command","command":"avatar_set_visibility","visible":False })
-                    await self ._send ({"type":"command","command":"wake_word_on"})
+    async def connect(self):
+        """Connect with retry and a spinner showing progress."""
+        self.console.print("[dim]Connecting to backend WebSocket...[/dim]")
+        retry_count = 0
 
-                elif msg_type =="wake_word_detected":
-                    await self .wake_up (reason =f"wake word: {data .get ('word')}")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=self.console,
+        ) as progress:
+            task = progress.add_task(
+                description="[cyan]Connecting to backend...[/cyan]", total=None
+            )
 
-                elif msg_type =="user_message_from_voice":
-                    self .console .print (f"[bold cyan]You (voice):[/bold cyan] {data .get ('text')}")
-                    self .last_interaction_time =time .time ()
+            while not self._stop_event.is_set():
+                try:
+                    self.ws = await websockets.connect(self.base_url)
+                    self._connected = True
+                    progress.update(
+                        task,
+                        description="[green]Connected to backend WebSocket[/green]",
+                    )
+                    logger.info("Connected to backend WebSocket")
+                    break
+                except Exception as e:
+                    retry_count += 1
+                    progress.update(
+                        task,
+                        description=f"[yellow]Retrying... ({retry_count}) {e}[/yellow]",
+                    )
+                    await asyncio.sleep(1)
 
-                elif msg_type =="chat_start":
-                    self .current_response =""
-                    self .is_thinking =False 
-                    self .last_interaction_time =time .time ()
-                    self ._live =Live (Text (""),console =self .console ,refresh_per_second =10 )
-                    self ._live .start ()
+        if self._connected:
+            self.console.print("[green]Ready. Speak or type messages.[/green]")
 
-                elif msg_type =="chat_append":
-                    text =data .get ("text","")
-                    self .current_response +=text 
-                    if hasattr (self ,'_live')and self ._live :
-                        self ._live .update (Panel (Markdown (self .current_response ),title ="Assistant",border_style ="green"))
+    async def _send(self, data: dict):
+        if self.ws:
+            await self.ws.send(json.dumps(data))
 
-                    if data .get ("finished"):
-                        if hasattr (self ,'_live')and self ._live :
-                            self ._live .stop ()
-                            self ._live =None 
-                        self .console .print (Panel (Markdown (self .current_response ),title ="Assistant",border_style ="green"))
-                        self .last_interaction_time =time .time ()
+    async def wake_up(self, reason="wake_word"):
+        if self.state == CompanionState.SLEEPING:
+            self.state = CompanionState.ACTIVE
+            self.console.print(f"[bold yellow][System][/bold yellow] Waking up... ({reason})")
+            await self._send({"type": "command", "command": "voice_input_on"})
+            await self._send({"type": "command", "command": "avatar_wake"})
 
-                elif msg_type =="thinking":
-                    if not self .is_thinking :
-                        self .console .print ("[dim]thinking...[/dim]")
-                        self .is_thinking =True 
+    async def sleep(self, reason="timeout"):
+        if self.state == CompanionState.ACTIVE:
+            self.state = CompanionState.SLEEPING
+            self.console.print(f"[bold yellow][System][/bold yellow] Going to sleep... ({reason})")
+            await self._send({"type": "command", "command": "avatar_sleep"})
+            await self._send({"type": "command", "command": "voice_input_off"})
 
-                elif msg_type =="visibility":
-                    visible =data .get ("visible")
-                    if visible :
-                        await self .wake_up (reason ="AI request")
-                    else :
-                        await self ._send ({"type":"command","command":"avatar_set_visibility","visible":False })
+    def _show_slash_help(self):
+        """Print available slash commands in a formatted table."""
+        from rich.table import Table
+        from rich import box
 
-        except Exception as e :
-            logger .error (f"Error in backend message handler: {e }")
+        tbl = Table(
+            title="Companion Slash Commands",
+            box=box.ROUNDED,
+            header_style="bold cyan",
+            title_style="bold yellow",
+        )
+        tbl.add_column("Command", style="cyan")
+        tbl.add_column("Description")
 
-    async def input_loop (self ):
-        loop =asyncio .get_running_loop ()
-        while not self ._stop_event .is_set ():
-            try :
-                text =await loop .run_in_executor (None ,lambda :sys .stdin .readline ().strip ())
-                if not text :
-                    continue 
+        for cmd, desc in sorted(SLASH_COMMANDS.items()):
+            tbl.add_row(cmd, desc)
 
-                if text .startswith ("/"):
-                    if text =="/exit":
-                        self ._stop_event .set ()
-                        break 
-                    elif text =="/sleep":
-                        await self .sleep ()
-                    elif text =="/wake":
-                        await self .wake_up (reason ="manual command")
-                    elif text =="/overlay":
+        self.console.print(tbl)
 
-                        if self .state ==CompanionState .ACTIVE :
-                            await self ._send ({"type":"command","command":"avatar_set_visibility","visible":True })
-                        else :
-                            await self .wake_up (reason ="overlay toggle")
-                    continue 
+    def _show_status(self):
+        """Print current companion status."""
+        from rich.table import Table
+        from rich import box
 
-                await self .wake_up (reason ="terminal input")
-                await self ._send ({"type":"user_message","text":text })
+        tbl = Table(box=box.SIMPLE, show_header=False)
+        tbl.add_column("Key", style="cyan")
+        tbl.add_column("Value")
+        tbl.add_row("State", self.state)
+        tbl.add_row("Connected", str(self._connected))
+        tbl.add_row("Endpoint", self.base_url)
+        self.console.print(tbl)
 
-            except Exception as e :
-                logger .error (f"Input loop error: {e }")
+    async def _show_typing_indicator(self):
+        """Show a typing indicator while waiting for a response."""
+        dots = 0
+        while self.is_thinking:
+            indicator = "." * (dots % 4)
+            self.console.print(
+                f"\r[dim]Companion is thinking{indicator:<4}[/dim]",
+                end="",
+            )
+            dots += 1
+            await asyncio.sleep(0.5)
+        # Clear the indicator
+        self.console.print("\r" + " " * 30 + "\r", end="")
 
-    async def timeout_monitor (self ):
-        while not self ._stop_event .is_set ():
-            await asyncio .sleep (1 )
-            if self .state ==CompanionState .ACTIVE :
-                elapsed =time .time ()-self .last_interaction_time 
-                if elapsed >=self .timeout_duration :
-                    await self .sleep ()
+    async def _handle_user_input(self, text: str):
+        """Handle a user text input in companion mode."""
+        # Check for slash commands first
+        if text.startswith("/"):
+            cmd = text.strip().lower()
+            if cmd == "/help":
+                self._show_slash_help()
+                return
+            elif cmd == "/status":
+                self._show_status()
+                return
+            elif cmd == "/wake":
+                await self.wake_up("manual")
+                return
+            elif cmd == "/sleep":
+                await self.sleep("manual")
+                return
+            elif cmd == "/clear":
+                self.console.clear()
+                return
+            elif cmd == "/version":
+                self.console.print("[cyan]Amalgam Companion v1.0[/cyan]")
+                return
+            elif cmd == "/exit":
+                self.console.print("[yellow]Use /exit again or press Ctrl+C to quit.[/yellow]")
+                return
+            else:
+                self.console.print(f"[red]Unknown command:[/red] {text}")
+                self.console.print("Type [cyan]/help[/cyan] for available commands.")
+                return
 
-    async def run (self ):
-        self .console .print ("[bold yellow]Amalgam Companion Mode[/bold yellow]")
-        self .console .print ("[dim]Terminal-based chat with background voice loop and avatar overlay.[/dim]")
-        self .console .print ("[dim]Wait for 46s of silence to sleep, or use /exit to quit.[/dim]\n")
-
-        await self .connect ()
-
-        await asyncio .gather (
-        self .handle_backend_messages (),
-        self .input_loop (),
-        self .timeout_monitor ()
+        # Send the message
+        await self._send(
+            {"type": "message", "text": text, "session_id": self.session_id}
         )
 
-async def run_companion ():
-    companion =CompanionMode ()
-    await companion .run ()
+        # Show typing indicator in background
+        self.is_thinking = True
+        indicator_task = asyncio.create_task(self._show_typing_indicator())
 
-if __name__ =="__main__":
-    asyncio .run (run_companion ())
+        # Wait for response
+        response = ""
+        while not self._stop_event.is_set():
+            try:
+                msg = await asyncio.wait_for(self.ws.recv(), timeout=0.5)
+                data = json.loads(msg)
+                msg_type = data.get("type", "")
+
+                if msg_type == "text" or msg_type == "response":
+                    chunk = data.get("text", data.get("content", ""))
+                    if chunk:
+                        response += chunk
+
+                elif msg_type == "thinking":
+                    self.console.print(f"[dim][thinking] {data.get('text', '')}[/dim]")
+
+                elif msg_type == "tool_call":
+                    tool = data.get("tool", data.get("name", "?"))
+                    args = data.get("args", data.get("arguments", ""))
+                    self.console.print(
+                        Panel(
+                            f"[cyan]{tool}({json.dumps(args) if isinstance(args, dict) else args})[/cyan]",
+                            title="[bold cyan]Tool[/bold cyan]",
+                            border_style="cyan",
+                        )
+                    )
+
+                elif msg_type == "error":
+                    self.console.print(
+                        Panel(
+                            f"[red]{data.get('text', data.get('message', 'Unknown error'))}[/red]",
+                            title="[bold red]Error[/bold red]",
+                            border_style="red",
+                        )
+                    )
+
+                elif msg_type == "done" or data.get("done"):
+                    break
+
+            except asyncio.TimeoutError:
+                if not self.is_thinking:
+                    break
+                continue
+            except websockets.exceptions.ConnectionClosed:
+                self._connected = False
+                self.console.print("[red]Connection lost.[/red]")
+                break
+
+        self.is_thinking = False
+        indicator_task.cancel()
+
+        if response:
+            self.console.print(f"\n[bold green]Companion:[/bold green] {response}\n")
+
+    async def listen_loop(self):
+        """Main loop: wait for user input in companion mode."""
+        while not self._stop_event.is_set():
+            try:
+                text = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: input("You: ").strip()
+                )
+            except (EOFError, KeyboardInterrupt):
+                self.console.print("\n[yellow]Use /exit to quit, or Ctrl+C again to force quit.[/yellow]")
+                try:
+                    text = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: input("Confirm quit? (y/N): ").strip()
+                    )
+                    if text.lower() in ("y", "yes", "/exit"):
+                        break
+                    continue
+                except (EOFError, KeyboardInterrupt):
+                    break
+
+            if not text:
+                continue
+
+            await self._handle_user_input(text)
+
+    async def run(self):
+        """Run the companion mode."""
+        self.console.clear()
+        self.console.rule("[bold yellow]Amalgam Companion Mode[/bold yellow]")
+        self.console.print("[dim]Type /help for commands[/dim]\n")
+        await self.connect()
+
+        if not self._connected:
+            self.console.print("[red]Could not connect to backend. Exiting.[/red]")
+            return
+
+        try:
+            await self.listen_loop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            await self.cleanup()
+
+    async def cleanup(self):
+        """Clean shutdown."""
+        self._stop_event.set()
+        self.state = CompanionState.SLEEPING
+        if self.ws:
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
+        self.console.print("\n[green]Companion mode ended.[/green]")
+
+
+def run_companion():
+    """Entry point to launch companion mode."""
+    con = _make_console()
+
+    try:
+        companion = CompanionMode()
+        asyncio.run(companion.run())
+    except KeyboardInterrupt:
+        con.print("\n[yellow]Interrupted[/yellow]")
+        sys.exit(0)
+    except Exception as e:
+        con.print(f"[red]Companion error:[/red] {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    run_companion()

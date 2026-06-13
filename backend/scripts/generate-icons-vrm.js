@@ -7,7 +7,7 @@ const path = require('path');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const CHARACTERS_DIR = path.join(PROJECT_ROOT, 'backend', 'characters');
-const RENDERER_URL = 'file:
+const RENDERER_URL = 'file://localhost:8000/vrm-renderer.html';
 const DEFAULT_VRM = '/characters/default/model.vrm';
 const ICON_SIZE = 96;
 const regenerateAll = process.argv.includes('--all');
@@ -24,7 +24,7 @@ async function main() {
 
     
     try {
-        await fetch('http:
+        await fetch('http://localhost:8000/api/settings');
     } catch {
         console.error('Backend not running on localhost:8000. Start it first with: python -m backend');
         process.exit(1);

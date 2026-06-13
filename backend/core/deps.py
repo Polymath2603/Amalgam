@@ -92,7 +92,8 @@ def get_shared ():
             llm =_shared ["llm"],
             memory =_shared ["memory"],
             context_builder =_shared ["context_builder"],
-            settings =_shared ["settings"]
+            settings =_shared ["settings"],
+            strategy_selector =_shared ["strategy_selector"]
             )
             _shared ["mcp"].register_agent (_shared ["agent"])
     return _shared
@@ -109,3 +110,4 @@ def tts ():return get_shared ()["tts"]
 def agent ():return get_shared ()["agent"]
 def relationship ():return get_shared ()["relationship"]
 def wakeword ():return get_shared ()["wakeword"]
+def strategy_selector ():return get_shared ()["strategy_selector"]

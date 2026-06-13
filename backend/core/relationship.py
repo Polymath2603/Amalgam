@@ -53,6 +53,17 @@ class Relationship :
         self ._db_path =str (db_path)
         os .makedirs (os .path .dirname (self._db_path ),exist_ok =True )
         self ._cache :Dict [str ,Dict ]={}
+        self ._initialized =False 
+        self ._init_lock =asyncio .Lock ()
+
+    async def _ensure_db (self ):
+        if self ._initialized :
+            return 
+        async with self ._init_lock :
+            if self ._initialized :
+                return 
+            await self ._init_db ()
+            self ._initialized =True 
 
     async def _init_db(self):
         async with aiosqlite.connect(self._db_path) as db:
@@ -81,6 +92,9 @@ class Relationship :
     async def _load (self ,character_id :str )->Dict :
         if character_id in self ._cache :
             return self ._cache [character_id ]
+        
+        await self ._ensure_db ()
+        
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
                 'SELECT stats FROM relationships WHERE character_id = ?',
@@ -98,6 +112,9 @@ class Relationship :
     async def _save (self ,character_id :str ,stats :Dict ):
         stats ["updated_at"]=datetime .now (timezone .utc ).isoformat ()
         self ._cache [character_id ]=stats 
+        
+        await self ._ensure_db ()
+        
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 'INSERT OR REPLACE INTO relationships (character_id, stats, updated_at) VALUES (?, ?, ?)',
