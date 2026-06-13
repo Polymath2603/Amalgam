@@ -5,14 +5,15 @@ Not part of the `api` package to avoid cross-boundary imports.
 import logging
 import threading
 
-from backend .core .config .settings import Settings 
-from backend .core .llm import LLMRouter 
-from backend .core .memory import Memory 
-from backend .core .context_builder import ContextBuilder 
-from backend .core .context_manager import ContextManager 
-from backend .core .vault import VaultManager 
-from backend .core .paths import EMBEDDINGS_DIR 
+from backend .core .config .settings import Settings
+from backend .core .llm import LLMRouter
+from backend .core .memory import Memory
+from backend .core .context_builder import ContextBuilder
+from backend .core .context_manager import ContextManager
+from backend .core .vault import VaultManager
+from backend .core .paths import EMBEDDINGS_DIR
 from backend .core .agent import Agent
+from backend .core .agent .factory import AgentFactory
 from backend .core .metacognitive .strategy_selector import StrategySelector
 from backend .core .relationship import Relationship 
 from backend .core .mcp .client import MCPClient 
@@ -87,14 +88,24 @@ def get_shared ():
         if _shared ["strategy_selector"]is None :
             _shared ["strategy_selector"]=StrategySelector ()
         if _shared ["agent"]is None :
-            _shared ["agent"]=Agent (
-            mcp_client =_shared ["mcp"],
-            llm =_shared ["llm"],
-            memory =_shared ["memory"],
-            context_builder =_shared ["context_builder"],
-            settings =_shared ["settings"],
-            strategy_selector =_shared ["strategy_selector"]
-            )
+            agent_type =_shared ["settings"].get ("agent.type","legacy")
+            if agent_type =="legacy":
+                _shared ["agent"]=Agent (
+                mcp_client =_shared ["mcp"],
+                llm =_shared ["llm"],
+                memory =_shared ["memory"],
+                context_builder =_shared ["context_builder"],
+                settings =_shared ["settings"],
+                strategy_selector =_shared ["strategy_selector"]
+                )
+            else :
+                _shared ["agent"]=AgentFactory .create (
+                agent_type ,
+                llm_router =_shared ["llm"],
+                memory =_shared ["memory"],
+                mcp_client =_shared ["mcp"],
+                settings =_shared ["settings"],
+                )
             _shared ["mcp"].register_agent (_shared ["agent"])
     return _shared
 

@@ -68,6 +68,7 @@ def _print_help():
     table.add_row("webui", "Launch web UI [dim](default)[/dim]")
     table.add_row("cli", "Launch interactive CLI")
     table.add_row("desktop", "Build and launch Tauri desktop app")
+    table.add_row("stats", "Show metrics report [dim](--stats-days N)[/dim]")
     table.add_row("help", "Show this help message")
     con.print(table)
     con.print()
@@ -183,7 +184,7 @@ def main():
     parser.add_argument(
         "frontend",
         nargs="?",
-        choices=["help", "webui", "cli", "desktop", "telegram"],
+        choices=["help", "webui", "cli", "desktop", "telegram", "stats"],
         help="Frontend to launch (webui is default)",
     )
     parser.add_argument("--grpc", action="store_true", help="Run gRPC server (or connect via CLI)")
@@ -203,9 +204,11 @@ def main():
     )
     parser.add_argument("--port", type=int, default=None, help="Web UI port (default: 8000)")
     parser.add_argument("--host", default=None, help="Web UI bind host (default: 0.0.0.0)")
-    parser.add_argument(
-        "--no-browser", action="store_true",
+    parser.add_argument("--no-browser", action="store_true",
         help="Don't auto-open browser on webui start",
+    )
+    parser.add_argument("--stats-days", type=int, default=7,
+        help="Number of days for stats report (default: 7)",
     )
     parser.add_argument("--help", action="store_true", help="Show this help message")
 
@@ -251,6 +254,12 @@ def main():
             asyncio.run(run_telegram())
         except KeyboardInterrupt:
             _info("Telegram bot stopped")
+    elif args.frontend == "stats":
+        import asyncio
+        from backend import cli_stats
+
+        days = getattr(args, 'stats_days', 7)
+        asyncio.run(cli_stats.main(days=days))
     elif args.frontend == "cli":
         from cli import main as cli_main
 

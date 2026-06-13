@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from typing import AsyncIterator, Union, Tuple, List, Dict
 
 from backend.core.memory import Memory
@@ -15,10 +16,13 @@ from backend.core.context_builder import ContextBuilder
 from backend.core.llm import LLMRouter
 from backend.core.plugin import get_registry as get_plugin_registry
 from backend.core.utils.tokens import estimate_message_list_tokens, estimate_tokens, truncate_to_token_limit
+from backend.core.metrics import MetricsCollector, TurnMetrics
 
 logger = logging.getLogger(__name__)
 
 THINK_RE = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+
+_metrics = MetricsCollector("data/metrics.db")
 
 
 async def execute_tool_safe(mcp_client, tool_name: str, tool_args: dict,
@@ -222,6 +226,10 @@ class Agent:
 
     async def handle_user_input(self, text: str, images: list = None, relationship_context: str = "") -> AsyncIterator[Union[str, Tuple[str, str]]]:
         await self.memory.add_turn("user", text)
+        _metrics_start = time.monotonic()
+        _metrics_session = self.memory.get_current_session() if hasattr(self.memory, 'get_current_session') else None
+        _metrics_tool_calls = 0
+        _metrics_memory_hits = 0
 
         if self.mcp_client is not None and self.mcp_client.has_servers():
             await self.mcp_client.wait_for_tools(timeout=8.0, min_tools=1)
@@ -249,6 +257,7 @@ class Agent:
             history = self.memory.get_recent()
             summary = self.memory.get_summary()
             relevant = await self.memory.get_relevant(current_input)
+            _metrics_memory_hits = len(relevant)
 
             character_id = None
             additional_prompt = ""
@@ -341,6 +350,7 @@ class Agent:
                     # Phase 3: Execute all collected tool calls in parallel
                     if collected_tool_calls:
                         tool_called = True
+                        _metrics_tool_calls += len(collected_tool_calls)
                         results = await asyncio.gather(*[
                             execute_tool_safe(
                                 self.mcp_client,
@@ -415,6 +425,7 @@ class Agent:
                                             current_input = msg
                                             await self.memory.add_turn("system", current_input)
                                             tool_called = True
+                                            _metrics_tool_calls += 1
                                             break
                                         last_tool_call = tool_sig
                                         _pending_tool_announce.append(f"Calling tool: {name}")
@@ -431,12 +442,14 @@ class Agent:
                                         current_input = f"Tool result for {name}: {result}"
                                         await self.memory.add_turn("system", current_input)
                                         tool_called = True
+                                        _metrics_tool_calls += 1
                                         break
                                 except Exception as e:
                                     yield f"\n[Error parsing tool call: {e}]\n"
                                     current_input = f"Tool parse error: {e}"
                                     await self.memory.add_turn("system", current_input)
                                     tool_called = True
+                                    _metrics_tool_calls += 1
                                     break
                         else:
                             accumulated += token
@@ -474,6 +487,27 @@ class Agent:
         for msg in _pending_tool_announce:
             yield ("__tool__", msg)
         _pending_tool_announce = []
+
+        # Record metrics
+        try:
+            latency_ms = (time.monotonic() - _metrics_start) * 1000
+            model_name = self.llm.get_model_name() if hasattr(self.llm, 'get_model_name') else None
+            provider = getattr(self.llm, '_provider', None) or ""
+            asyncio.create_task(_metrics.record(TurnMetrics(
+                session_id=str(_metrics_session or ""),
+                model=str(model_name or "unknown"),
+                provider=str(provider),
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=latency_ms,
+                tool_calls=_metrics_tool_calls,
+                memory_hits=_metrics_memory_hits,
+                skill_used=None,
+                skill_created=False,
+                correction_applied=False,
+            )))
+        except Exception:
+            logger.debug("Metrics recording failed (non-fatal)")
 
         if iterations >= 5:
             yield "\n[Max tool iterations reached.]\n"

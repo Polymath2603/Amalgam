@@ -156,3 +156,60 @@ backend/
     └── tts/                 # Text-to-speech providers
 webui/                       # Browser-based UI (JS, HTML, CSS)
 ```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    Frontend                          │
+│  WebUI (JS/HTML) ─── WebSocket ─── CLI ─── Telegram │
+└──────────────────────┬──────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────┐
+│              FastAPI Backend (app.py)                │
+│  ┌───────────┐ ┌──────────┐ ┌──────────────────┐    │
+│  │ WS Handler│ │ REST API │ │ Dependency Inject │    │
+│  └─────┬─────┘ └──────────┘ └──────────────────┘    │
+└────────┼────────────────────────────────────────────┘
+         │
+┌────────▼────────────────────────────────────────────┐
+│  Agent Layer                                         │
+│  ┌──────────┐ ┌──────────────┐ ┌─────────────────┐  │
+│  │ Basic    │ │ Reflective   │ │ Planning         │  │
+│  │ Agent    │ │ Agent (refl. │ │ Agent (decomp.)  │  │
+│  │ (single  │ │  every 5t)   │ │                  │  │
+│  │  turn)   │ └──────┬───────┘ └────────┬────────┘  │
+│  └────┬─────┘        │                  │            │
+│       └──────────────┴──────────────────┘            │
+│                        │                              │
+│  ┌─────────────────────▼──────────────────────────┐   │
+│  │          LLM Router (litellm)                   │   │
+│  │  Claude · Gemini · Groq · Ollama · OpenAI · ·· │   │
+│  └──────┬─────────────────────────────────────────┘   │
+└─────────┼─────────────────────────────────────────────┘
+          │
+┌─────────▼─────────────────────────────────────────────┐
+│  Services & Memory                                     │
+│  ┌────────┐ ┌──────────┐ ┌───────┐ ┌───────────────┐  │
+│  │ Memory │ │ User     │ │ Vault │ │ Relationship  │  │
+│  │Manager │ │ Profile  │ │(md   │ │ (per-char      │  │
+│  │(Hybrid │ │(auto-    │ │notes)│ │  sentiment)    │  │
+│  │ RRF)   │ │ learned) │ │       │ │               │  │
+│  └────────┘ └──────────┘ └───────┘ └───────────────┘  │
+│  ┌────────┐ ┌──────────────────┐ ┌────────────────┐   │
+│  │ MCP    │ │ Context Manager  │ │ TTS / STT /    │   │
+│  │ Client │ │ (token-budget)   │ │ VAD Pipeline   │   │
+│  └────────┘ └──────────────────┘ └────────────────┘   │
+└────────────────────────────────────────────────────────┘
+```
+
+**Data flow:** User message → WebSocket → WS Handler → Agent → LLM Router → Provider.
+Agent injects context (memory, profile, vault, relationship) into each turn.
+Tool calls route through the MCP client. Responses stream back through the
+same path to the frontend.
+
+## Demo
+
+![Demo](docs/demo.gif)
+
+*A walkthrough of Amalgam's chat, voice, and 3D avatar features.*
