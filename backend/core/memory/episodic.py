@@ -18,6 +18,9 @@ class EpisodicMemory:
     def add_episode(self, turn: Dict) -> str:
         """Store a single turn as an episode. Returns the episode ID."""
         eid = str(uuid.uuid4())
+        if self._collection is None:
+            logger.debug(f"EpisodicMemory: chromadb unavailable, skipping episode {eid}")
+            return eid
         metadata = {
             "session_id": self._session_id,
             "role": turn.get("role", "user"),
@@ -33,6 +36,8 @@ class EpisodicMemory:
 
     def search(self, query: str, k: int = 5) -> List[Dict]:
         """Query episodes by semantic similarity."""
+        if self._collection is None:
+            return []
         results = self._collection.query(query_texts=[query], n_results=k)
         episodes = []
         for i, doc in enumerate(results.get("documents", [[]])[0]):
@@ -44,4 +49,6 @@ class EpisodicMemory:
         return episodes
 
     def count(self) -> int:
+        if self._collection is None:
+            return 0
         return self._collection.count()

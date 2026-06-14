@@ -9,8 +9,12 @@ from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from pathlib import Path
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+try:
+    import chromadb
+    from chromadb.config import Settings as ChromaSettings
+    _HAS_CHROMADB = True
+except ImportError:
+    _HAS_CHROMADB = False
 from backend.core.memory.cache import FACTCache
 from backend.core.memory.hybrid import HybridRetrieval
 from backend.core.memory.session_index import SessionIndex
@@ -44,21 +48,25 @@ class Memory:
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="mem_io")
 
         EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
-        self.chroma = chromadb.PersistentClient(
-            path=str(EMBEDDINGS_DIR),
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
-        self.chroma_col = self.chroma.get_or_create_collection(
-            name="conversations",
-            metadata={"hnsw:space": "cosine"},
-        )
+        if _HAS_CHROMADB:
+            self.chroma = chromadb.PersistentClient(
+                path=str(EMBEDDINGS_DIR),
+                settings=ChromaSettings(anonymized_telemetry=False),
+            )
+            self.chroma_col = self.chroma.get_or_create_collection(
+                name="conversations",
+                metadata={"hnsw:space": "cosine"},
+            )
 
-        for p in self._iter_session_paths():
-            sid = self._path_to_session_id(p)
-            if sid:
-                self._known_sessions.add(sid)
+            for p in self._iter_session_paths():
+                sid = self._path_to_session_id(p)
+                if sid:
+                    self._known_sessions.add(sid)
 
-        self._maybe_migrate()
+            self._maybe_migrate()
+        else:
+            self.chroma = None
+            self.chroma_col = None
 
         self._fact_cache = FACTCache()
         self._session_index = SessionIndex(self.conv_dir)
@@ -251,10 +259,13 @@ class Memory:
     def _get_episodic(self, session_id: str) -> EpisodicMemory:
         """Get or create EpisodicMemory for the given session."""
         if session_id not in self._episodic_memories:
-            ep_collection = self.chroma.get_or_create_collection(
-                name="episodic",
-                metadata={"hnsw:space": "cosine"},
-            )
+            if self.chroma is not None:
+                ep_collection = self.chroma.get_or_create_collection(
+                    name="episodic",
+                    metadata={"hnsw:space": "cosine"},
+                )
+            else:
+                ep_collection = None
             self._episodic_memories[session_id] = EpisodicMemory(ep_collection, session_id)
         return self._episodic_memories[session_id]
 

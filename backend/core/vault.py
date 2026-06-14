@@ -9,8 +9,12 @@ import hashlib
 from pathlib import Path
 from typing import List, Dict, Optional
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
+try:
+    import chromadb
+    from chromadb.config import Settings as ChromaSettings
+    _HAS_CHROMADB = True
+except ImportError:
+    _HAS_CHROMADB = False
 from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
@@ -27,7 +31,7 @@ class VaultManager:
         self._bm25 = None
         self._bm25_docs = []
         self._bm25_mtimes = {}
-        if embeddings_path:
+        if embeddings_path and _HAS_CHROMADB:
             ep = Path(embeddings_path)
             ep.mkdir(parents=True, exist_ok=True)
             self._chroma = chromadb.PersistentClient(

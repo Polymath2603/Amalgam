@@ -1,9 +1,11 @@
-import os 
-import sys 
-import pytest 
+import os
+import sys
 
-os .environ ["K_HEADLESS"]="1"
-os .environ ["K_TESTING"]="1"
+import pytest
+
+
+os.environ["K_HEADLESS"] = "1"
+os.environ["K_TESTING"] = "1"
 
 @pytest .fixture 
 def settings ():
