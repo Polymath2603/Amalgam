@@ -15,6 +15,10 @@ from backend.core.memory.cache import FACTCache
 from backend.core.memory.hybrid import HybridRetrieval
 from backend.core.memory.session_index import SessionIndex
 from backend.core.memory.fts import FTSSearch
+from backend.core.memory.working import WorkingMemory
+from backend.core.memory.episodic import EpisodicMemory
+from backend.core.memory.semantic import SemanticMemory
+from backend.core.memory.consolidator import Consolidator
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,13 @@ class Memory:
         self._session_index = SessionIndex(self.conv_dir)
         self._hybrid = HybridRetrieval(self.chroma_col)
         self._fts = FTSSearch(self.conv_dir)
-        # Build FTS index from existing sessions on first use (lazy in search)
+
+        # Memory tiers
+        self._working = WorkingMemory(capacity=20)
+        self._semantic = SemanticMemory(str(EMBEDDINGS_DIR / "semantic_facts.json"))
+        self._consolidator = Consolidator(importance_threshold=0.3)
+        # EpisodicMemory is created per-session lazily (needs session_id)
+        self._episodic_memories: Dict[str, EpisodicMemory] = {}
 
     def _maybe_migrate(self):
         existing = set(self.chroma_col.get()["ids"])
@@ -238,6 +248,16 @@ class Memory:
 
         return None
 
+    def _get_episodic(self, session_id: str) -> EpisodicMemory:
+        """Get or create EpisodicMemory for the given session."""
+        if session_id not in self._episodic_memories:
+            ep_collection = self.chroma.get_or_create_collection(
+                name="episodic",
+                metadata={"hnsw:space": "cosine"},
+            )
+            self._episodic_memories[session_id] = EpisodicMemory(ep_collection, session_id)
+        return self._episodic_memories[session_id]
+
     def _generate_title(self, messages: List[Dict]) -> str:
         for msg in messages:
             if msg.get("role") == "user":
@@ -282,6 +302,9 @@ class Memory:
     async def add_turn(self, role: str, content: str):
         session_id = self.get_current_session()
         embedding = await self._get_embedding(content)
+
+        # Add to working memory (in-memory ring buffer)
+        self._working.add(role, content)
 
         with self._lock:
             data = self._read_sync(session_id)
@@ -341,6 +364,10 @@ class Memory:
         msg_index = len(data["messages"]) - 1
         msg_id = f"{session_id}_{msg_index}"
         self._fts.index_message(session_id, msg_id, role, content, timestamp)
+
+        # Store in episodic memory for per-session recall
+        ep = self._get_episodic(session_id)
+        ep.add_episode({"role": role, "content": content, "timestamp": timestamp})
 
     async def _safe_summarize(self):
         """Wrapper that catches and logs summarization errors."""
@@ -436,16 +463,31 @@ class Memory:
     def get_recent(self, n: int = None) -> List[Dict[str, str]]:
         if n is None:
             n = self._setting("memory.context_window", 50)
+
+        # Prefer working memory (always in memory, most recent turns)
+        working_turns = self._working.recent(n)
+        if len(working_turns) >= n:
+            return working_turns
+
+        # Fall back to disk for older messages
         session_id = self.get_current_session()
         with self._lock:
             data = self._read_sync(session_id)
         if data is None:
-            return []
+            return working_turns or []
         msgs = data.get("messages", [])
         return msgs[-n:]
 
     def get_all_recent(self, n: int = None) -> List[Dict[str, str]]:
         return self.get_recent(n)
+
+    def store_semantic_fact(self, content: str, metadata: Optional[Dict] = None) -> str:
+        """Store a cross-session fact in semantic memory. Returns fact ID."""
+        return self._semantic.add_fact(content, metadata)
+
+    def search_semantic(self, query: str, k: int = 5) -> List[Dict]:
+        """Search semantic memory for relevant facts (BM25)."""
+        return self._semantic.search(query, k)
 
     async def delete_message(self, msg_id: int) -> bool:
         session_id = self.get_current_session()
@@ -646,3 +688,7 @@ class Memory:
         self._session_index._index.clear()
         self._session_index._save()
         self._hybrid = HybridRetrieval(self.chroma_col)
+        # Reset all memory tiers
+        self._working.clear()
+        self._semantic.clear()
+        self._episodic_memories.clear()
