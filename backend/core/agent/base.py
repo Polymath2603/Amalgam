@@ -132,3 +132,52 @@ class BaseAgent(ABC):
         except Exception as e:
             logger.error(f"Tool '{tool_name}' failed: {e}")
             return f"Tool error: {str(e)}"
+
+    async def generate_idle_prompt(self) -> str:
+        """Generate a brief, natural conversation starter.
+
+        Used by the WebSocket handler for idle/ping prompts.
+        Override in subclasses that have richer context (characters, etc.).
+        """
+        char_id = self.config.get("character.active", "default") if self.config else "default"
+        name = "assistant"
+
+        prompt = (
+            f"You are {name}."
+            " Generate a brief, natural conversation starter or idle observation."
+            " Keep it under 20 words. Be in-character. Just the text, no quotes."
+        )
+        try:
+            result = await self.llm.generate([{"role": "user", "content": prompt}], temperature=0.9)
+            return (result or "").strip().strip('"').strip("'")
+        except Exception as e:
+            logger.warning(f"Idle prompt generation failed: {e}")
+            return ""
+
+    async def subconscious_reflect(self) -> str:
+        """Reflect on recent conversation and store a summary.
+
+        Used by the WebSocket handler for background reflection.
+        Override in subclasses that need richer reflection logic.
+        """
+        recent = self.memory.get_recent(10)
+        if not recent:
+            return ""
+
+        chat_log = "\n".join(f"{m['role']}: {m['content']}" for m in recent)
+        char_id = self.config.get("character.active", "default") if self.config else "default"
+        name = "assistant"
+
+        prompt = (
+            f"You are {name}. Summarize the key facts and emotional undertones "
+            f"from this recent conversation in one sentence. Focus on what you learned "
+            f"about the user and how they feel.\n\nConversation:\n{chat_log}"
+        )
+        try:
+            summary = await self.llm.generate([{"role": "user", "content": prompt}], temperature=0.5)
+            if summary:
+                await self.memory.add_turn("system", f"[reflection] {summary.strip()}")
+            return summary.strip() if summary else ""
+        except Exception as e:
+            logger.warning(f"Subconscious reflection failed: {e}")
+            return ""

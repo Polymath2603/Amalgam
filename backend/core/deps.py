@@ -88,7 +88,7 @@ def get_shared ():
         if _shared ["strategy_selector"]is None :
             _shared ["strategy_selector"]=StrategySelector ()
         if _shared ["agent"]is None :
-            agent_type =_shared ["settings"].get ("agent.type","legacy")
+            agent_type =_shared ["settings"].get ("agent.type","reflective")
             if agent_type =="legacy":
                 _shared ["agent"]=Agent (
                 mcp_client =_shared ["mcp"],
