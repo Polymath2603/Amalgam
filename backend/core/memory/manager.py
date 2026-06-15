@@ -115,7 +115,8 @@ class Memory:
                 date_part, time_part = parts[0], parts[1]
                 y, m, d = date_part.split('-')
                 return self.conv_dir / y / m / d / f"{time_part}.json"
-        return self.conv_dir / f"{session_id.replace('/', '_').replace('\\', '_')}.json"
+        safe = session_id.replace('/', '_').replace('\\', '_')
+        return self.conv_dir / f"{safe}.json"
 
     def _iter_session_paths(self):
         seen = set()

@@ -7,6 +7,7 @@ from backend.core.paths import PROJECT_ROOT, VAULT_DIR, CHARACTERS_DIR
 from backend.core.vault import VaultManager
 from backend.core.user_profile import UserProfile
 from backend.core.utils.tokens import estimate_tokens, truncate_to_token_limit
+from backend.skills.md_skill import skill_section as _build_skills_section
 
 # Module-level singleton — loaded once at startup, persists across sessions
 _user_profile = UserProfile(data_dir="data")
@@ -54,6 +55,7 @@ Your vault is a directory of markdown files you manage yourself via the **obsidi
 {{ user_profile_section }}\
 {{ vault_rules }}\
 {{ tool_section }}\
+{{ skill_section }}\
 {{ summary_section }}\
 {{ relevant_section }}\
 {{ reasoning_note }}\
@@ -145,6 +147,7 @@ class ContextBuilder:
         )
 
         tool_section = self._build_tool_section(tools, native_tools_available=native_tools_available)
+        skill_section = _build_skills_section()
         summary_section = self._build_summary_section(summary)
         relevant_section = self._build_relevant_section(relevant)
         relationship_section = self._build_relationship_section(relationship_context)
@@ -155,6 +158,7 @@ class ContextBuilder:
         sys_prompt = template.render(
             **char_ctx,
             tool_section=tool_section,
+            skill_section=skill_section,
             summary_section=summary_section,
             relevant_section=relevant_section,
             relationship_section=relationship_section,
@@ -272,7 +276,8 @@ class ContextBuilder:
         if interaction_style:
             style_parts.append(f"Style: {interaction_style}")
         if vocabulary:
-            style_parts.append(f"Signature phrases: {' '.join(f'\"{p}\"' for p in vocabulary)}")
+            quoted = ' '.join(f'"{p}"' for p in vocabulary)
+            style_parts.append(f"Signature phrases: {quoted}")
         if quirks:
             style_parts.append(f"Quirks: {'; '.join(quirks)}")
         if memory_bias:
