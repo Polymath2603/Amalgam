@@ -342,9 +342,9 @@ DEFAULTS ={
 "summarize_threshold":40,
 "summarize_keep":15,
 "embedding_backend":"provider",
-"fact_extraction":true,
+"fact_extraction":True,
 "compaction":{
-"enabled":true,
+"enabled":True,
 "importance_threshold":0.3,
 "aggressiveness":0.5,
 "frequency_turns":10,

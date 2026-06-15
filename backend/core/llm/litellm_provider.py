@@ -12,7 +12,15 @@ import os
 from typing import AsyncIterator ,List ,Dict ,Any ,Optional 
 
 import litellm 
-from litellm import acompletion ,aembedding 
+try:
+    from litellm import acompletion, aembedding
+except ImportError:
+    # Older litellm versions (pre-2024) lack async wrappers — define them inline
+    import asyncio
+    async def acompletion(*args, **kwargs):
+        return await asyncio.to_thread(litellm.completion, *args, **kwargs)
+    async def aembedding(*args, **kwargs):
+        return await asyncio.to_thread(litellm.embedding, *args, **kwargs)
 
 logger =logging .getLogger (__name__ )
 
