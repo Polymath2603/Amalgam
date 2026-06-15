@@ -1,7 +1,17 @@
-# Characters (all except default)
-characters/**
-!characters/default/
-!characters/default/**
+# === Binary archive / temp / backup files (never committed) ===
+*.bak
+*.zip
+*.tar.gz
+*.tar
+*.7z
+*.rar
+cli_snippet.txt
+
+# Characters VRM assets are tracked, but avoid the pitfall:
+# the old rule said "characters/**" but the actual path is "data/characters/".
+# data/* already excludes data/characters/ — BAK/ZIP inside it are caught above.
+data/characters/**/*.bak
+data/characters/**/*.zip
 
 # Python
 *.pyc
