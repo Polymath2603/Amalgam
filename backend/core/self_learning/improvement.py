@@ -175,6 +175,9 @@ class SkillImprover:
             return False
         try:
             created_dt = datetime.fromisoformat(created)
+            # Make timezone-aware if it's naive (so comparison works with utcnow)
+            if created_dt.tzinfo is None:
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
             age = (datetime.now(timezone.utc) - created_dt).days
             return age >= STALE_AGE_DAYS
         except (ValueError, TypeError):
