@@ -110,8 +110,9 @@ class LiteLLMProvider :
     """Unified LLM provider using LiteLLM."""
 
     def __init__ (self ,settings =None ):
-        self ._settings =settings 
+        self ._settings =settings
         self ._provider ="gemini"
+        self ._model_tier ="default"
         self ._reload ()
 
     def _reload (self ):
@@ -138,6 +139,8 @@ class LiteLLMProvider :
             cfg ={}
 
         model_name =cfg .get ("model","")
+        if self ._model_tier =="fast"and cfg .get ("model_fast"):
+            model_name =cfg ["model_fast"]
         api_key =cfg .get ("api_key","")
         base_url =cfg .get ("base_url","")
 
@@ -387,7 +390,7 @@ class LiteLLMProvider :
             return []
 
         # If embedding model is different from current provider, we might need different keys
-        if "gemini" in embed_model and provider != "gemini":
+        if "gemini" in embed_model and self._provider != "gemini":
             gemini_cfg = self._settings.get("provider.gemini", {}) if self._settings else {}
             g_key = gemini_cfg.get("api_key")
             if g_key:

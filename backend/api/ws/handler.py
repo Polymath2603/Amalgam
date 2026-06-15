@@ -96,6 +96,7 @@ class ChatSession:
         self.pending_tasks: list[asyncio.Task] = []
         self.client_caps: dict = {}
         self.client_platform: str = "web"
+        self._main_loop = asyncio.get_running_loop()
 
     def _track_task(self, t: asyncio.Task):
         """Track a task and register safe cleanup on completion."""
@@ -360,8 +361,7 @@ class ChatSession:
 
         def _wakeword_callback():
             logger.info("Wake word detected!")
-            main_loop = asyncio.get_event_loop()
-            main_loop.call_soon_threadsafe(
+            self._main_loop.call_soon_threadsafe(
                 lambda: asyncio.ensure_future(self.process_response("Hey, I'm listening!")))
 
         ww.set_callback(_wakeword_callback)
@@ -484,12 +484,14 @@ class ChatSession:
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": "\n".join(lines), "finished": True})
         elif cmd == "memory":
-            stats = await memory().get_stats()
+            sessions = memory().get_sessions()
+            current_sid = memory().get_current_session()
+            total_msgs = sum(s.get("message_count", 0) for s in sessions)
             text = (
                 f"Memory stats:\n"
-                f"Sessions: {stats.get('sessions', '?')}\n"
-                f"Messages: {stats.get('messages', '?')}\n"
-                f"Current session: {memory().get_current_session()}"
+                f"Sessions: {len(sessions)}\n"
+                f"Total messages: {total_msgs}\n"
+                f"Current session: {current_sid}"
             )
             await self.send({"type": "chat_append", "role": "system", "text": text, "finished": True})
         elif cmd == "stats":
@@ -523,15 +525,16 @@ class ChatSession:
         elif cmd == "character":
             if args:
                 name = args.strip()
-                char_dir = f"/home/leonardo/Workplace/k/characters/{name}"
+                from backend.core.paths import CHARACTERS_DIR
+                char_dir = str(CHARACTERS_DIR / name)
                 import os as _os
                 if _os.path.isdir(char_dir):
                     settings().set("character.active", name)
                     await self.send({"type": "chat_append", "role": "system",
                                     "text": f"Loaded character: {name}", "finished": True})
                 else:
-                    chars = [d for d in _os.listdir("/home/leonardo/Workplace/k/characters/")
-                             if _os.path.isdir(_os.path.join("/home/leonardo/Workplace/k/characters/", d))]
+                    chars = [d for d in _os.listdir(str(CHARACTERS_DIR))
+                             if _os.path.isdir(_os.path.join(str(CHARACTERS_DIR), d))]
                     await self.send({"type": "chat_append", "role": "system",
                                     "text": f"Character '{name}' not found. Available: {', '.join(chars)}",
                                     "finished": True})

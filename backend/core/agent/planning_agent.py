@@ -243,5 +243,5 @@ Write a clear, complete response that integrates all the above results.
 Address the user's original request directly. Be concise — the user already
 saw progress updates, so this is just the final summary."""
 
-        async for chunk in self.llm.stream_complete(synthesis_prompt):
+        async for chunk in self.llm.stream([{"role": "user", "content": synthesis_prompt}]):
             yield chunk

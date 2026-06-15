@@ -16,6 +16,7 @@ SKILLS_DIR =DATA_DIR /"skills"
 
 EMBEDDINGS_DIR =DATA_DIR /"embeddings"
 SETTINGS_PATH =str (DATA_DIR /"settings.json")
+SYSPROMPTS_DIR =DATA_DIR /"sysprompts"
 CONVERSATIONS_DB =str (DATA_DIR /"conversations.db")
 RELATIONSHIP_DB =str (DATA_DIR /"relationship.db")
 SECRETS_PATH =str (DATA_DIR /".secrets.json")

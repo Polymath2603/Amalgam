@@ -101,7 +101,8 @@ def make_settings_reloader (mcp_client ):
 async def shutdown_application ():
     """Clean up shared resources. Call on application shutdown."""
     try :
-        from backend .core .deps import mcp 
+        from backend .core .deps import mcp ,memory 
         await mcp ().close ()
+        await memory ().shutdown ()
     except Exception as e :
         logger .warning (f"Shutdown error: {e }")

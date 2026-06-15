@@ -3,15 +3,17 @@ FastAPI application factory.
 Creates and configures the main app instance with all routes, middleware, static mounts,
 and startup lifecycle.
 """
-import os 
-import asyncio 
-import logging 
-from pathlib import Path 
+import os
+import asyncio
+import logging
+import time
+from pathlib import Path
 
-from fastapi import FastAPI ,WebSocket 
-from fastapi .responses import FileResponse ,Response 
-from fastapi .staticfiles import StaticFiles 
-from fastapi .middleware .cors import CORSMiddleware 
+from fastapi import FastAPI ,WebSocket ,Request
+from fastapi .responses import FileResponse ,Response ,JSONResponse
+from fastapi .staticfiles import StaticFiles
+from fastapi .middleware .cors import CORSMiddleware
+from starlette .middleware .base import BaseHTTPMiddleware
 import mimetypes
 
 mimetypes.add_type("text/css", ".css")
@@ -30,10 +32,9 @@ vault ,
 relationship ,
 tts as tts_route ,
 )
-from backend .core .paths import DATA_DIR ,CHARACTERS_DIR ,PROJECT_ROOT 
-from backend .core .startup import init_application 
-from backend .core .utils .icon_generator import generate_missing_icons 
-from pathlib import Path 
+from backend .core .paths import DATA_DIR ,CHARACTERS_DIR ,PROJECT_ROOT
+from backend .core .startup import init_application
+from backend .core .utils .icon_generator import generate_missing_icons
 
 _origins_env = os.environ.get("AMALGAM_CORS_ORIGINS", "")
 if _origins_env:
@@ -50,6 +51,34 @@ WEBUI_DIR =PROJECT_ROOT /"webui"
 
 logger =logging .getLogger (__name__ )
 
+_in_flight_requests: dict[str, list[float]] = {}
+
+
+class _RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple per-IP sliding-window rate limiter."""
+    def __init__(self, app, max_requests: int = 120, window_seconds: int = 60):
+        super().__init__(app)
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in ("/health", "/ready"):
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        window = _in_flight_requests.setdefault(client_ip, [])
+        # Prune stale entries
+        while window and window[0] < now - self.window_seconds:
+            window.pop(0)
+        if len(window) >= self.max_requests:
+            return JSONResponse(
+                {"error": "Rate limit exceeded — try again later"},
+                status_code=429,
+            )
+        window.append(now)
+        return await call_next(request)
+
 
 def create_app ():
     """Create and return the configured FastAPI application."""
@@ -62,6 +91,30 @@ def create_app ():
         allow_credentials=True,
         max_age=600,
     )
+    app.add_middleware(_RateLimitMiddleware, max_requests=120, window_seconds=60)
+
+    # Health check endpoint
+    @app.get("/health")
+    async def health():
+        return {"status": "ok", "service": "amalgam"}
+
+    @app.get("/ready")
+    async def ready():
+        from backend.core.memory import Memory
+        mem = Memory()
+        db_ok = False
+        try:
+            from backend.core.memory.fts import FTSMemory
+            fts = FTSMemory()
+            await fts.search("probe")
+            db_ok = True
+        except Exception:
+            pass
+        status = 200 if db_ok else 503
+        return JSONResponse(
+            {"status": "ok" if db_ok else "degraded", "database": db_ok},
+            status_code=status,
+        )
 
     app .include_router (settings_route .router )
     app .include_router (characters .router )

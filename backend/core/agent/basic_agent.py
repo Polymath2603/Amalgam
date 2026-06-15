@@ -1,5 +1,6 @@
 """Basic stateless tool-calling agent."""
 
+import asyncio
 import json
 import logging
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
@@ -33,19 +34,55 @@ class BasicAgent(BaseAgent):
         self._history: List[Dict] = []
 
     async def run(self, user_message: str, context: dict) -> AsyncIterator[str]:
-        """Stream a response, yielding text chunks."""
+        """Stream a response with tool execution loop."""
         session_id = context.get("session_id", "unknown")
         relationship_context = context.get("relationship_context", "")
         await self.memory.add_turn("user", user_message)
         messages = self._build_messages(user_message, None, relationship_context)
         schema = await self._get_tool_schema()
 
-        try:
-            async for chunk in self.llm.stream(messages, tools=schema):
-                yield chunk
-        except Exception as e:
-            logger.error(f"BasicAgent stream error: {e}")
-            yield f"Error: {e}"
+        max_iterations = 5
+        iterations = 0
+        current_input = user_message
+
+        while iterations < max_iterations:
+            iterations += 1
+            if iterations > 1:
+                messages = self._build_messages(current_input, None, relationship_context)
+
+            try:
+                if schema:
+                    collected_tool_calls = []
+                    text_accumulated = ""
+                    async for item in self.llm.stream_with_tools(messages, tools=schema):
+                        if isinstance(item, str):
+                            text_accumulated += item
+                        elif isinstance(item, dict) and item.get("type") == "tool_use":
+                            collected_tool_calls.append(item)
+
+                    if text_accumulated.strip():
+                        yield text_accumulated
+
+                    if collected_tool_calls:
+                        results = await asyncio.gather(*[
+                            self.execute_tool(tc["name"], tc.get("arguments") or {})
+                            for tc in collected_tool_calls
+                        ])
+                        combined = "\n".join(
+                            f"--- {tc['name']} ---\n{r}"
+                            for tc, r in zip(collected_tool_calls, results)
+                        )
+                        current_input = f"Tool results:\n{combined}"
+                    else:
+                        break
+                else:
+                    async for chunk in self.llm.stream(messages):
+                        yield chunk
+                    break
+            except Exception as e:
+                logger.error(f"BasicAgent iteration error: {e}")
+                yield f"Error: {e}"
+                break
 
     async def handle_user_input(self, text: str, images: list = None,
                                 relationship_context: str = "") -> AsyncIterator[Any]:

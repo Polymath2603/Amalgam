@@ -685,6 +685,9 @@ class Memory:
                 logger.error(f"Compaction failed: {e}")
 
     async def clear(self):
+        if not self.chroma:
+            logger.warning("ChromaDB not available — skipping collection operations")
+            return
         try:
             self.chroma.delete_collection("conversations")
         except Exception:
@@ -704,3 +707,12 @@ class Memory:
         self._working.clear()
         self._semantic.clear()
         self._episodic_memories.clear()
+
+    async def shutdown(self):
+        """Clean up executor and release resources."""
+        self._executor.shutdown(wait=False)
+        if self.chroma:
+            try:
+                self.chroma.clear_system_cache()
+            except Exception:
+                pass

@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import AsyncGenerator, Optional, Any
 import logging
 
+from backend.core.llm.cost_router import CostRouter
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,7 +72,7 @@ class BaseAgent(ABC):
         config : dict
             Agent configuration (temperature, max_tokens, etc.).
         """
-        self.llm = llm_client
+        self.llm = CostRouter(llm_client) if hasattr(llm_client, 'stream') else llm_client
         self.tools = tools
         self.memory = memory
         self.config = config

@@ -70,36 +70,111 @@ class TurnMetrics:
 
 # Approximate cost per 1M tokens (update as pricing changes)
 # Format: provider/model → (input_cost_per_1m, output_cost_per_1m)
+# Use bare provider prefix (e.g. "gemini/") as a fallback for any model under that provider.
 COST_TABLE = {
+    # --- Anthropic ---
     "anthropic/claude-opus-4-6":    (15.00, 75.00),
     "anthropic/claude-sonnet-4-6":  (3.00,  15.00),
     "anthropic/claude-haiku-4-5":   (0.25,  1.25),
+    "anthropic/":                   (3.00,  15.00),  # generic fallback
+    # --- OpenAI ---
     "openai/gpt-4o":                (2.50,  10.00),
     "openai/gpt-4o-mini":           (0.15,  0.60),
+    "openai/o1":                    (15.00, 60.00),
+    "openai/o3-mini":               (1.10,  4.40),
+    "openai/":                      (2.50,  10.00),  # generic fallback
+    # --- Azure OpenAI ---
+    "azure/gpt-4o":                 (2.50,  10.00),
+    "azure/gpt-4o-mini":            (0.15,  0.60),
+    "azure/":                       (2.50,  10.00),  # generic fallback
+    # --- Google Gemini ---
+    "google/gemini-2.0-flash":      (0.10,  0.40),
+    "google/gemini-2.0-pro":        (2.00,  10.00),
+    "google/":                      (0.50,  1.50),   # generic fallback
+    # Key also matches provider="gemini" (internal name) via prefix fallback
+    "gemini/gemini-2.0-flash":      (0.10,  0.40),
+    "gemini/gemini-2.0-pro":        (2.00,  10.00),
+    "gemini/gemini-2.5-flash":      (0.15,  0.60),
+    "gemini/gemini-2.5-pro":        (1.25,  5.00),
+    "gemini/":                      (0.50,  1.50),   # generic fallback
+    # --- Groq ---
     "groq/llama-3.1-70b-versatile": (0.59,  0.79),
     "groq/llama-3.1-8b-instant":    (0.05,  0.08),
-    # Local models cost $0
+    "groq/":                        (0.30,  0.40),   # generic fallback
+    # --- DeepSeek ---
+    "deepseek/deepseek-chat":       (0.27,  1.10),
+    "deepseek/deepseek-reasoner":   (0.55,  2.19),
+    "deepseek/":                    (0.40,  1.50),   # generic fallback
+    # --- Mistral ---
+    "mistral/mistral-large":        (2.00,  6.00),
+    "mistral/mistral-small":        (0.20,  0.60),
+    "mistral/":                     (1.00,  3.00),   # generic fallback
+    # --- Meta Llama ---
+    "meta/llama-3-70b":             (0.65,  0.85),
+    "meta/llama-3-8b":              (0.05,  0.08),
+    "meta/":                        (0.50,  0.70),   # generic fallback
+    # --- Cohere ---
+    "cohere/command-r-plus":        (3.00,  15.00),
+    "cohere/":                      (1.00,  5.00),   # generic fallback
+    # --- Together AI ---
+    "together_ai/":                 (0.50,  0.80),
+    # --- DashScope (Alibaba) ---
+    "dashscope/":                   (0.50,  1.00),
+    # --- HuggingFace Inference ---
+    "huggingface/":                 (0.10,  0.20),
+    # --- Amazon Bedrock ---
+    "bedrock/":                     (2.00,  8.00),
+    # --- GCP Vertex AI ---
+    "vertex_ai/":                   (1.00,  4.00),
+    # --- OpenRouter (wide range, use medium guess) ---
+    "openrouter/":                  (1.00,  3.00),
+    # --- ZAI (ZhipuAI) ---
+    "zai/":                         (1.00,  2.00),
+    # --- SiliconFlow (uses openai-compat, models vary widely) ---
+    "siliconflow/":                 (0.50,  1.00),
+    # --- KoboldAI ---
+    "koboldai/":                    (0.00,  0.00),
+    # --- Local models cost $0 ---
     "ollama/":                      (0.00,  0.00),
     "llamacpp/":                    (0.00,  0.00),
+    "vllm/":                        (0.00,  0.00),
+    "tgi/":                         (0.00,  0.00),
 }
 
 
 def estimate_cost(provider: str, model: str,
                   input_tokens: int, output_tokens: int) -> float:
     """Estimate cost in USD for this LLM call."""
-    key = f"{provider}/{model}"
+    # model already includes provider prefix (e.g. "gemini/gemini-2.5-flash"),
+    # so avoid duplicating the provider name in the key.
+    if model.startswith(f"{provider}/"):
+        key = model
+    else:
+        key = f"{provider}/{model}"
 
-    # Try exact match first, then prefix match
+    # Try exact match first
     rates = COST_TABLE.get(key)
-    if not rates:
-        for k, v in COST_TABLE.items():
-            if key.startswith(k.split("/")[0]):  # match by provider prefix
-                rates = v
-                break
+    if rates:
+        return _compute_cost(rates, input_tokens, output_tokens)
 
-    if not rates:
-        return 0.0
+    # Prefix fallback: find the longest prefix match in COST_TABLE
+    # e.g. "gemini/gemini-2.5-flash" matches "gemini/gemini-2.5-flash"
+    #      over the bare "gemini/" prefix.
+    best = None
+    best_len = 0
+    for k, v in COST_TABLE.items():
+        if key.startswith(k) and len(k) > best_len:
+            best = v
+            best_len = len(k)
 
+    if best is not None:
+        return _compute_cost(best, input_tokens, output_tokens)
+
+    return 0.0
+
+
+def _compute_cost(rates, input_tokens: int, output_tokens: int) -> float:
+    """Apply per-1M-token rates to actual token counts."""
     input_cost = (input_tokens / 1_000_000) * rates[0]
     output_cost = (output_tokens / 1_000_000) * rates[1]
     return round(input_cost + output_cost, 6)

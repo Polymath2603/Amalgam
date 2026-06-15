@@ -5,7 +5,7 @@ Plugin manager - discovers, loads, and manages plugins.
 import importlib.util
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Type, Any
 from .base import BasePlugin, PluginMetadata
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class PluginManager:
         """
         self.plugins_dir = plugins_dir or Path(__file__).parent
         self.plugins: Dict[str, BasePlugin] = {}
-        self.loaded_modules: Dict[str, any] = {}
+        self.loaded_modules: Dict[str, Any] = {}
     
     async def discover_and_load(self):
         """Discover and load all plugins from plugins directory.

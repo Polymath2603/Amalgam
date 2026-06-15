@@ -95,6 +95,21 @@ class ReflectiveAgent(BaseAgent):
         complex_turns = [t for t in recent if t.is_complex]
         if complex_turns:
             logger.info(f"Found {len(complex_turns)} complex turn(s) — skill creation candidate")
+            from backend.core.self_learning.auto_skill import AutoSkillCreator
+            creator = AutoSkillCreator(
+                llm_caller=lambda p: self.llm.generate([{"role": "user", "content": p}])
+            )
+            for t in complex_turns:
+                try:
+                    name = await creator.maybe_create_skill(
+                        user_message=t.user_message,
+                        tool_calls=t.tool_calls,
+                        full_response=t.full_response or "",
+                    )
+                    if name:
+                        logger.info("Auto-created skill '%s' from complex turn", name)
+                except Exception as e:
+                    logger.debug(f"Skill creation failed (non-fatal): {e}")
 
         # 2. Feed last turn into UserProfile (if available)
         from backend.core.user_profile import _user_profile as profile

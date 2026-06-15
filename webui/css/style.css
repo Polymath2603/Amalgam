@@ -532,7 +532,72 @@ textarea, input { background-color: var(--bg-input); color: var(--text); }
 .panel-section .btn-primary { margin-top: 0.75rem; }
 
 
-.toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 1000; }
+.metrics-dashboard {
+    padding: 1rem 1.5rem;
+    max-width: 800px;
+}
+
+.metrics-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.metric-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    text-align: center;
+}
+
+.metric-card .metric-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.metric-card .metric-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.metrics-section-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 1rem 0 0.5rem;
+}
+
+.metrics-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.metrics-table th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 600;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.metrics-table td {
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+}
+
+.metrics-empty {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 1rem 0;
+} position: fixed; bottom: 1.5rem; right: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem; z-index: 1000; }
 .toast {
     padding: 0.6rem 1rem; border-radius: var(--radius-sm); background: var(--bg-card);
     border: 1px solid var(--border); font-size: 0.8rem; animation: slideIn 0.2s ease;

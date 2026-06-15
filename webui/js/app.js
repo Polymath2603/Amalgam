@@ -11,6 +11,7 @@ const WS_BASE = IS_TAURI ? 'ws://localhost:8000' : '';
 
 import { initCustomSelects, syncAllCustomSelects } from './custom-select.js';
 import { t, setLanguage, initI18n, getCurrentLang } from './i18n.js';
+import { loadMetrics, initMetricsAutoRefresh } from './metrics.js';
 
 
 let avatarRenderer = null;
@@ -26,6 +27,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (r.ok) { const d = await r.json(); savedLang = d.value; }
     } catch {}
     await initI18n(savedLang);
+
+    initMetricsAutoRefresh();
 
     
     const langSelect = document.getElementById('language-select');
@@ -239,6 +242,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (tabId === 'avatar') {
                 createMainAvatar();
             }
+            if (tabId === 'metrics') loadMetrics();
         }
     }
 
