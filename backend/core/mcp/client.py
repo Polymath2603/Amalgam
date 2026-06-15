@@ -8,11 +8,19 @@ import time
 import asyncio
 import logging
 from typing import Dict ,Any ,List ,Optional
-from mcp .client .stdio import stdio_client ,StdioServerParameters
-from mcp .client .sse import sse_client
-from mcp .client .session import ClientSession
 from contextlib import AsyncExitStack
 import os
+
+# Graceful degradation when mcp package is not installed (e.g. Android/aarch64
+# where pydantic-core can't build, or environments that don't need MCP tools).
+_MCP_AVAILABLE = True
+try :
+    from mcp .client .stdio import stdio_client ,StdioServerParameters
+    from mcp .client .sse import sse_client
+    from mcp .client .session import ClientSession
+except ModuleNotFoundError :
+    _MCP_AVAILABLE = False
+    ClientSession = object  # placeholder for type annotations
 
 from backend .core .agent .permissions import ToolPermissions ,PermissionLevel
 from backend .core .agent .hooks import ToolHooks
@@ -118,6 +126,9 @@ class MCPClient :
     async def _connect_server (self ,name :str ,cmd :str ,args :List [str ],
     env :Optional [Dict [str ,str ]]=None ,timeout :float =15.0 ):
         """Connect to a stdio-based MCP server."""
+        if not _MCP_AVAILABLE :
+            logger .warning (f"Cannot connect to stdio MCP server {name } — mcp package not installed")
+            return False
         logger .debug (f"Connecting to stdio MCP server: {name }")
         if self ._closed :
             return False
@@ -164,6 +175,9 @@ class MCPClient :
     async def _connect_sse (self ,name :str ,url :str ,headers :dict =None ,
     timeout :float =15.0 ):
         """Connect to a remote SSE/HTTP MCP server."""
+        if not _MCP_AVAILABLE :
+            logger .warning (f"Cannot connect to SSE MCP server {name } — mcp package not installed")
+            return False
         logger .debug (f"Connecting to SSE MCP server: {name } at {url }")
         if self ._closed :
             return False

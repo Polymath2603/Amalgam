@@ -1,4 +1,5 @@
 from backend .core .llm import LLMRouter 
+import pytest
 
 
 class TestLLMRouter :
@@ -23,6 +24,6 @@ class TestLLMRouter :
         llm_router .reload_settings ()
         assert llm_router ._provider is not None 
 
-    def test_close (self ,llm_router ):
-        import asyncio 
-        asyncio .get_event_loop ().run_until_complete (llm_router .close ())
+    @pytest .mark .asyncio 
+    async def test_close (self ,llm_router ):
+        await llm_router .close ()
