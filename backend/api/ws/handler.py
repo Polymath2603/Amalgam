@@ -407,6 +407,7 @@ class ChatSession:
                 "/character <name> — load a character\n"
                 "/approve <tool> — approve a dangerous tool for one use\n"
                 "/permission <readonly|confirm|full> — set permission level\n"
+                "/profile <name> — switch settings profile (token-friendly|default|quality)\n"
                 "/help — show this"
             )
             await self.send({"type": "chat_append", "role": "system", "text": help_text, "finished": True})
@@ -574,6 +575,21 @@ class ChatSession:
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Current permission level: {level}\nValid: readonly, confirm, full",
                                 "finished": True})
+        elif cmd == "profile":
+            if args:
+                from backend.core.config.settings import switch_profile
+                try:
+                    switch_profile(args.strip())
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Profile switched to: {args.strip()}", "finished": True})
+                except ValueError as e:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Error: {e}", "finished": True})
+            else:
+                from backend.core.config.settings import get_effective_settings
+                s = get_effective_settings()
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Current profile: {s.get('profile', 'default')}", "finished": True})
         else:
             await self.send({"type": "chat_append", "role": "system",
                             "text": f"Unknown command: /{cmd}. Try /help", "finished": True})

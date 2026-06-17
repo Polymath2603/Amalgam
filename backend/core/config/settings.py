@@ -13,6 +13,54 @@ from typing import Any ,Dict ,List
 from pathlib import Path 
 from backend .core .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
 
+# --- Profile system (Task 16) ---
+PROFILES_DIR = Path("data/settings/profiles")
+
+def load_profile(profile_name: str) -> dict:
+    """Load a named profile. Returns empty dict if not found."""
+    path = PROFILES_DIR / f"{profile_name}.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text())
+    # Strip metadata keys
+    return {k: v for k, v in data.items() if not k.startswith("_")}
+
+def get_effective_settings() -> dict:
+    """
+    Load base settings.json then overlay the active profile.
+    Profile values take precedence over base settings.
+    """
+    base = {}
+    if Path(str(SETTINGS_PATH)).exists():
+        base = json.loads(Path(str(SETTINGS_PATH)).read_text())
+
+    profile_name = base.get("profile", "default")
+    profile = load_profile(profile_name)
+
+    # Deep merge: profile overlays base
+    return _deep_merge(base, profile)
+
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    result = dict(base)
+    for k, v in overlay.items():
+        if isinstance(v, dict) and isinstance(result.get(k), dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+def switch_profile(name: str):
+    """Switch to a different profile. Saved to settings.json."""
+    if name not in ("token-friendly", "default", "quality", "custom"):
+        raise ValueError(f"Unknown profile: {name}")
+    path = Path(str(SETTINGS_PATH))
+    settings = {}
+    if path.exists():
+        settings = json.loads(path.read_text())
+    settings["profile"] = name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, indent=2))
+
 logger =logging .getLogger (__name__ )
 
 CONFIG_VERSION =1 
@@ -563,6 +611,15 @@ class Settings :
 
         except Exception as e:
             logger.debug(f"Failed to load keys from secrets/env: {e}")
+
+        # Apply profile overlay (profile values take precedence over base settings)
+        try:
+            profile_name = self.data.get("profile", "default")
+            profile = load_profile(profile_name)
+            if profile:
+                self.data = _deep_merge(self.data, profile)
+        except Exception as e:
+            logger.debug(f"Failed to apply profile overlay: {e}")
 
         self._merge_mcp_servers()
 

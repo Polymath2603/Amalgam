@@ -1,0 +1,18 @@
+{
+  "_description": "Balanced. Good quality at reasonable cost. Recommended for daily use.",
+  "llm": {"model": "auto", "router_enabled": true},
+  "context": {
+    "working_memory_turns": 12,
+    "retrieved_context_max_tokens": 1000,
+    "skills_max_active": 2,
+    "constitution_compressed": false
+  },
+  "memory": {
+    "sideagent_enabled": false,
+    "fts_cross_session_enabled": true,
+    "retrieval_n": 5
+  },
+  "mcp": {"lazy_loading": true},
+  "avatar": {"enabled": true, "lipsync_quality": "standard", "postfx_enabled": false},
+  "orchestrator": {"plan_mode": true, "critic_lite_enabled": true}
+}

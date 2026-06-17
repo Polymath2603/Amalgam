@@ -1,0 +1,18 @@
+{
+  "_description": "Maximum capability. Best models, full context, all features.",
+  "llm": {"model": "auto", "router_enabled": true},
+  "context": {
+    "working_memory_turns": 20,
+    "retrieved_context_max_tokens": 2000,
+    "skills_max_active": 3,
+    "constitution_compressed": false
+  },
+  "memory": {
+    "sideagent_enabled": true,
+    "fts_cross_session_enabled": true,
+    "retrieval_n": 10
+  },
+  "mcp": {"lazy_loading": false},
+  "avatar": {"enabled": true, "lipsync_quality": "advanced", "postfx_enabled": true},
+  "orchestrator": {"plan_mode": true, "critic_lite_enabled": true}
+}

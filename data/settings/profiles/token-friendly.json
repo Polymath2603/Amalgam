@@ -1,0 +1,36 @@
+{
+  "_description": "Saves API cost through smarter context management. Core features intact.",
+  "llm": {
+    "model": "auto",
+    "router_enabled": true,
+    "notes": "auto routes simple questions to Groq 8B (<$0.001), only complex tasks use expensive models"
+  },
+  "context": {
+    "working_memory_turns": 5,
+    "retrieved_context_max_tokens": 400,
+    "skills_max_active": 1,
+    "constitution_compressed": true,
+    "notes": "Constitution is compressed to key rules only. Fewer history turns in context."
+  },
+  "memory": {
+    "sideagent_enabled": false,
+    "fts_cross_session_enabled": false,
+    "retrieval_n": 3,
+    "notes": "Sideagent verification skipped. FTS search disabled. Retrieval capped at 3 results."
+  },
+  "mcp": {
+    "lazy_loading": true,
+    "notes": "Tool schemas not injected. Agent calls describe_tool() only when needed."
+  },
+  "avatar": {
+    "enabled": true,
+    "lipsync_quality": "basic",
+    "postfx_enabled": false,
+    "notes": "Avatar on but postFX and advanced lipsync disabled (GPU cost)."
+  },
+  "orchestrator": {
+    "plan_mode": false,
+    "critic_lite_enabled": false,
+    "notes": "No plan preview. No post-task critic. Faster but less verified."
+  }
+}

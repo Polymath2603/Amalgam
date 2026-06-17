@@ -25,6 +25,9 @@ venv/
 # Private/user data
 data/*
 !data/characters/
+!data/settings/
+!data/settings/profiles/
+!data/settings/profiles/*.json
 backend/voice/checkpoints/
 backend/voice/checkpoints/
 .remember/
