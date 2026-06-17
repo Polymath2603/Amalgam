@@ -10,11 +10,22 @@ console.warn = (...args) => {
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
 const BASE_URL = IS_TAURI ? 'http://localhost:8000' : '';
 
 import { loadVRMAnimation } from './vrm-animation.js';
 import { AdaptiveLipsyncManager } from './adaptive-lipsync.js';
+let AdvancedLipSync = null;
+try {
+    const mod = await import('./advanced-lipsync.js');
+    AdvancedLipSync = mod.AdvancedLipSync;
+} catch (e) {
+    console.warn('[Avatar] AdvancedLipSync not available, using standard lipsync:', e.message);
+}
 import { IdleManager } from './idle-manager.js';
 
 /**
@@ -225,6 +236,12 @@ export class AvatarRenderer {
         this.renderer.setPixelRatio(this._isMobile ? 1.0 : Math.min(window.devicePixelRatio, 2));
         this.renderer.setClearColor(0x000000, 0);
         this.container.appendChild(this.renderer.domElement);
+
+        // Post-processing pipeline
+        this._composer = null;
+        this._bloomPass = null;
+        this._postProcessingEnabled = false;
+        this._initComposer();
 
         // WebGL context loss handlers for tab switch recovery
         this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
@@ -711,6 +728,50 @@ export class AvatarRenderer {
         }
 
         this.renderer.render(this.scene, this.camera);
+        if (this._composer && this._postProcessingEnabled) {
+            this._composer.render();
+        }
+    }
+
+    /* ── Post-processing pipeline (bloom, SMAA, ACESFilmic tone mapping) ── */
+    _initComposer() {
+        if (this._isMobile || this.preview) return; // skip on mobile/preview
+        try {
+            const composer = new EffectComposer(this.renderer);
+            const renderPass = new RenderPass(this.scene, this.camera);
+            composer.addPass(renderPass);
+
+            // Subtle bloom for glow effect
+            this._bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(
+                    this.container.clientWidth || 800,
+                    this.container.clientHeight || 600
+                ),
+                0.3,   // strength
+                0.5,   // radius
+                0.2    // threshold
+            );
+            composer.addPass(this._bloomPass);
+
+            // Output pass handles color space conversion (ACESFilmic tone mapping)
+            const outputPass = new OutputPass();
+            composer.addPass(outputPass);
+
+            this._composer = composer;
+            this._postProcessingEnabled = true;
+            console.log('[Avatar] Post-processing initialized (bloom + ACESFilmic)');
+        } catch (e) {
+            console.warn('[Avatar] Post-processing not available:', e.message);
+            this._composer = null;
+        }
+    }
+
+    setBloom(strength = 0.3, radius = 0.5, threshold = 0.2) {
+        if (this._bloomPass) {
+            this._bloomPass.strength = strength;
+            this._bloomPass.radius = radius;
+            this._bloomPass.threshold = threshold;
+        }
     }
 
     _updateBlink(delta) {
@@ -947,7 +1008,15 @@ export class AvatarRenderer {
 
     startLipSync(audioContext, analyserNode, visemeSchedule = null) {
         this._audioContext = audioContext;
-        this._lipsyncManager = new AdaptiveLipsyncManager(audioContext, analyserNode);
+        // Try AdvancedLipSync first (formant-estimating), fall back to standard
+        if (AdvancedLipSync) {
+            this._lipsyncManager = new AdvancedLipSync(audioContext, analyserNode, {
+                smoothingFrames: 3,
+                fftSize: 1024,
+            });
+        } else {
+            this._lipsyncManager = new AdaptiveLipsyncManager(audioContext, analyserNode);
+        }
         if (visemeSchedule) {
             this._lipsyncManager.setSchedule(visemeSchedule);
         }
@@ -1225,6 +1294,11 @@ export class AvatarRenderer {
         if (this._lifeInterval) {
             clearInterval(this._lifeInterval);
             this._lifeInterval = null;
+        }
+        // Clean up post-processing composer
+        if (this._composer) {
+            this._composer.dispose();
+            this._composer = null;
         }
         // Close audio context
         if (this._audioContext) {

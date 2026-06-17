@@ -19,6 +19,7 @@ from backend .core .relationship import Relationship
 from backend .core .mcp .client import MCPClient 
 from backend .core .voice .tts import TTS 
 from backend .voice .wakeword import WakeWordRouter 
+from backend .core .orchestrator import Orchestrator
 
 logger =logging .getLogger (__name__ )
 
@@ -35,6 +36,7 @@ _shared ={
 "relationship":None ,
 "wakeword":None ,
 "strategy_selector":None ,
+"orchestrator":None ,
 }
 _init_lock =threading .Lock ()
 
@@ -87,6 +89,8 @@ def get_shared ():
             _shared ["wakeword"]=WakeWordRouter (engine =ww_engine )
         if _shared ["strategy_selector"]is None :
             _shared ["strategy_selector"]=StrategySelector ()
+        if _shared ["orchestrator"]is None :
+            _shared ["orchestrator"]=Orchestrator (config =_shared ["settings"])
         if _shared ["agent"]is None :
             agent_type =_shared ["settings"].get ("agent.type","reflective_planning")
             try:
@@ -122,3 +126,4 @@ def agent ():return get_shared ()["agent"]
 def relationship ():return get_shared ()["relationship"]
 def wakeword ():return get_shared ()["wakeword"]
 def strategy_selector ():return get_shared ()["strategy_selector"]
+def orchestrator ():return get_shared ()["orchestrator"]
