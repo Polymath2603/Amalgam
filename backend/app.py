@@ -172,9 +172,11 @@ async def _delayed_startup_tasks ():
     try :
         await asyncio .sleep (2.0 )
         await generate_missing_icons ()
-        # Start hot-reloader
-        from backend .core .hot_reload import setup_hot_reload
-        reloader = setup_hot_reload()
+        # Start hot-reload watcher (plan spec)
+        from backend .core .hot_reload import setup_hot_reload, _reloader
+        from backend .skills .md_loader import get_loader as _get_skill_loader
+        from backend .core import constitution
+        reloader = setup_hot_reload(_get_skill_loader(), None, constitution)
         asyncio .create_task (reloader .start())
     except Exception as e :
         logger .error (f"Error in delayed startup tasks: {e }")

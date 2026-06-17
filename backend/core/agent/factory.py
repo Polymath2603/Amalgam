@@ -1,42 +1,30 @@
-"""Agent factory — instantiate agents by config key."""
-
-import logging
-from typing import Any, Optional
-
-from backend.core.agent.interface import AgentInterface
-from backend.core.agent.basic_agent import BasicAgent
-from backend.core.agent.reflective_agent import ReflectiveAgent
-from backend.core.agent.planning_agent import PlanningAgent
-
-logger = logging.getLogger(__name__)
-
-_REGISTRY: dict[str, type] = {
-    "basic": BasicAgent,
-    "reflective": ReflectiveAgent,
-    "planning": PlanningAgent,
-}
+"""
+AgentFactory — returns the correct agent type based on config.
+Swap agent type in settings without touching any other code.
+"""
+from .basic_agent import BasicAgent
+from .planning_agent import PlanningAgent
+from .reflective_agent import ReflectiveAgent
+from .base import BaseAgent
 
 
 class AgentFactory:
-    """Creates agent instances based on a config string."""
-
     @staticmethod
-    def create(agent_type: str = "basic", **kwargs) -> AgentInterface:
-        """Return an agent instance.
-
-        Kwargs are forwarded to the constructor (llm_router, memory, etc.).
+    def create(agent_type: str, llm, tools, memory, config) -> BaseAgent:
         """
-        cls = _REGISTRY.get(agent_type)
-        if cls is None:
-            logger.warning("Unknown agent type %r, falling back to basic", agent_type)
-            cls = BasicAgent
-        return cls(**kwargs)
-
-    @staticmethod
-    def register(name: str, cls: type):
-        """Register a custom agent class."""
-        _REGISTRY[name] = cls
-
-    @staticmethod
-    def available() -> list[str]:
-        return list(_REGISTRY.keys())
+        agent_type: "basic" | "planning" | "reflective" | "reflective_planning"
+        reflective_planning = PlanningAgent wrapped in ReflectiveAgent (recommended default)
+        """
+        match agent_type:
+            case "basic":
+                return BasicAgent(llm, tools, memory, config)
+            case "planning":
+                return PlanningAgent(llm, tools, memory, config)
+            case "reflective":
+                basic = BasicAgent(llm, tools, memory, config)
+                return ReflectiveAgent(basic, llm, tools, memory, config)
+            case "reflective_planning":
+                planning = PlanningAgent(llm, tools, memory, config)
+                return ReflectiveAgent(planning, llm, tools, memory, config)
+            case _:
+                raise ValueError(f"Unknown agent type: {agent_type}")

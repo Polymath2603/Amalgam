@@ -1,23 +1,17 @@
 """
-Skill curator — grades, archives, and merges skills on a 7-day cycle.
+Autonomous skill curator. Runs weekly as a background asyncio task.
+Source: Hermes-Agent's Autonomous Curator — prevents skill rot.
 
-The curator prevents skill rot: skills that are unused, stale, or duplicated
-are automatically pruned. Remaining skills are optionally merged via LLM.
+Schedule: run every 7 days. First run: 7 days after first skill is created.
+Output: archives bad skills, merges duplicates, writes vault report.
 
-Schedule: runs as a background asyncio task every 7 days.
-Manual trigger: python -m backend curate
-
-Source: Hermes-Agent's Autonomous Curator pattern.
+To trigger manually: python -m backend curate
 """
-
 import json
 import logging
-import math
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
-from difflib import SequenceMatcher
-from typing import Callable, Awaitable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,19 +20,16 @@ ARCHIVE_DIR = Path("data/skills/.archive")
 VAULT_DIR = Path("data/vault")
 CURATOR_STATE = Path("data/skills/.curator_state.json")
 
-# A skill used fewer than this many times AND older than STALE_DAYS → archived
 MIN_USAGE = 1
 STALE_DAYS = 30
 
 
 class SkillCurator:
-    """Grades, merges, and archives skills based on usage data from metrics.db."""
+    """
+    Grades, merges, and archives skills based on usage data from metrics.db.
+    """
 
-    def __init__(self, metrics_collector=None, llm_caller: Optional[Callable[[str], Awaitable[str]]] = None):
-        """
-        metrics_collector: MetricsCollector instance (for usage stats)
-        llm_caller: async fn(prompt) -> str (for merge + quality decisions)
-        """
+    def __init__(self, metrics_collector, llm_caller):
         self.metrics = metrics_collector
         self.llm = llm_caller
 
@@ -47,12 +38,11 @@ class SkillCurator:
         logger.info("Skill curator starting")
         start = datetime.now()
 
-        skill_files = list(SKILLS_DIR.glob("*/SKILL.md"))
+        skill_files = list(SKILLS_DIR.glob("*.md"))
         if not skill_files:
             logger.info("Curator: no skills to curate")
             return
 
-        # Get usage stats from metrics
         usage = await self._get_usage_stats()
 
         results = {
@@ -63,7 +53,7 @@ class SkillCurator:
         # Step 1: Grade and archive low-quality skills
         surviving = []
         for skill_path in skill_files:
-            name = skill_path.parent.stem  # dir name
+            name = skill_path.stem
             skill_usage = usage.get(name, 0)
             age_days = (datetime.now() - datetime.fromtimestamp(
                 skill_path.stat().st_mtime
@@ -73,14 +63,14 @@ class SkillCurator:
             results["graded"] += 1
 
             if grade < 0.2:
-                self._archive(skill_path.parent)
+                self._archive(skill_path)
                 results["archived"] += 1
                 logger.info(f"Archived: {name} (grade={grade:.2f})")
             else:
                 surviving.append(skill_path)
 
         # Step 2: Find and merge semantic duplicates
-        if len(surviving) >= 2 and self.llm:
+        if len(surviving) >= 2:
             merged = await self._find_and_merge_duplicates(surviving)
             results["merged"] = merged
 
@@ -102,29 +92,22 @@ class SkillCurator:
 
     def _grade(self, usage_count: int, age_days: int) -> float:
         """
-        Grade a skill 0.0–1.0 based on usage and freshness.
+        Grade a skill 0.0-1.0 based on usage and freshness.
         0.0 = should be archived. 1.0 = excellent, keep.
 
         Formula: usage score (0-0.7) + freshness score (0-0.3)
-        - usage_score: log-scaled so 1 use = 0.35, 5 uses = 0.5, 20 uses = 0.7
-        - freshness: linear decay from 1.0 (new) to 0.0 (>30 days unused)
         """
+        import math
         usage_score = min(0.7, 0.35 * math.log1p(usage_count))
         freshness = max(0.0, 1.0 - (age_days / STALE_DAYS)) * 0.3
         return usage_score + freshness
 
     def _archive(self, path: Path):
-        """Move a skill directory to the archive."""
         ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
         dest = ARCHIVE_DIR / path.name
-        if dest.exists():
-            shutil.rmtree(str(dest))
         shutil.move(str(path), str(dest))
 
     async def _get_usage_stats(self) -> dict[str, int]:
-        """Get per-skill usage counts from the last 30 days."""
-        if not self.metrics:
-            return {}
         try:
             report = await self.metrics.report(days=30)
             return {s["skill_used"]: s["uses"] for s in report.get("top_skills", [])}
@@ -132,65 +115,51 @@ class SkillCurator:
             return {}
 
     async def _find_and_merge_duplicates(self, skill_paths: list[Path]) -> int:
-        """
-        Find skills with similar names/descriptions and offer to merge them.
-        Uses simple name-similarity first (no embedding cost), LLM for borderline cases.
-        Returns count of merges performed.
-        """
+        from difflib import SequenceMatcher
         merged_count = 0
         processed = set()
 
         for i, a in enumerate(skill_paths):
             if a in processed:
                 continue
-            for b in skill_paths[i + 1:]:
+            for b in skill_paths[i+1:]:
                 if b in processed:
                     continue
-                # Simple name similarity check (no LLM cost)
-                ratio = SequenceMatcher(None, a.parent.stem, b.parent.stem).ratio()
+                ratio = SequenceMatcher(None, a.stem, b.stem).ratio()
                 if ratio > 0.7:
-                    logger.info(f"Duplicate candidate: {a.parent.stem} ↔ {b.parent.stem} (sim={ratio:.2f})")
+                    logger.info(f"Duplicate candidate: {a.stem} <-> {b.stem} (sim={ratio:.2f})")
                     merged = await self._merge_skills(a, b)
                     if merged:
                         processed.add(a)
                         processed.add(b)
                         merged_count += 1
-                        break  # one merge at a time to avoid conflicts
+                        break
 
         return merged_count
 
     async def _merge_skills(self, path_a: Path, path_b: Path) -> bool:
-        """Ask the LLM to merge two similar skills into one."""
-        if not self.llm:
-            return False
         try:
             content_a = path_a.read_text()
             content_b = path_b.read_text()
 
             prompt = f"""These two skills are similar. Merge them into one better skill.
-Keep the best parts of each. Use the SKILL.md format with YAML frontmatter.
+Keep the best parts of each. Use the SKILL.md format.
 Respond ONLY with the merged SKILL.md content, no explanation.
 
-SKILL A ({path_a.parent.name}):
+SKILL A ({path_a.name}):
 {content_a}
 
-SKILL B ({path_b.parent.name}):
+SKILL B ({path_b.name}):
 {content_b}"""
 
-            merged = await self.llm(prompt)
+            merged = await self.llm(prompt, max_tokens=800)
             if not merged or len(merged) < 100:
                 return False
 
-            # Save merged skill under the name of the higher-usage one
-            text_a = path_a.read_text()
-            text_b = path_b.read_text()
-            if len(text_b) > len(text_a):
-                path_a, path_b = path_b, path_a
-
             merged_path = path_a
             merged_path.write_text(merged)
-            self._archive(path_b.parent)
-            logger.info(f"Merged {path_b.parent.name} into {path_a.parent.name}")
+            self._archive(path_b)
+            logger.info(f"Merged {path_b.name} into {path_a.name}")
             return True
 
         except Exception as e:

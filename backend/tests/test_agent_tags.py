@@ -1,6 +1,6 @@
 """Tests for Agent pure tag-processing functions."""
 import pytest
-from backend.core.agent import Agent
+from backend.core.agent.core import Agent
 
 
 @pytest.fixture

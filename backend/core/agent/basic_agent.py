@@ -17,20 +17,13 @@ class BasicAgent(BaseAgent):
     Also retains ``handle_user_input()`` for legacy callers.
     """
 
-    def __init__(self, llm_router, memory, mcp_client=None,
-                 settings=None, tools=None):
-        # Map positional args to BaseAgent's named interface
-        super().__init__(
-            llm_client=llm_router,
-            tools=tools or {},
-            memory=memory,
-            config=settings or {},
-        )
-        self.llm = llm_router
+    def __init__(self, llm, tools=None, memory=None, config=None):
+        super().__init__(llm, tools or {}, memory, config or {})
+        self.llm = llm
         self.memory = memory
-        self.mcp_client = mcp_client
-        self.settings = settings
-        self._tools = tools or []
+        self.mcp_client = config.get('mcp_client') if isinstance(config, dict) else None
+        self.settings = config or {}
+        self._tools = list((tools or {}).values())
         self._history: List[Dict] = []
 
     def update_settings(self, settings):
@@ -114,12 +107,6 @@ class BasicAgent(BaseAgent):
         stored = self.memory.get_session_sync(session_id) if hasattr(
             self.memory, "get_session_sync") else []
         self._history = stored
-
-    async def execute_tool(self, tool_name: str, tool_input: dict) -> str:
-        """Execute an MCP tool by name."""
-        if self.mcp_client:
-            return await self.mcp_client.call_tool(tool_name, tool_input)
-        return f"No MCP client available for tool: {tool_name}"
 
     # --- Internal helpers ---
 

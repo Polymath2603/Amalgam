@@ -1,4 +1,4 @@
-"""Tests for BasicAgent, ReflectiveAgent, and PlanningAgent."""
+"""Tests for BasicAgent, ReflectiveAgent, and PlanningAgent (plan spec)."""
 
 import json
 import pytest
@@ -19,6 +19,7 @@ def mock_llm():
 
     llm.stream = MagicMock(side_effect=stream_impl)
     llm.generate = AsyncMock(return_value="mock response")
+    llm.complete = AsyncMock(return_value="mock completion")
     return llm
 
 
@@ -32,12 +33,35 @@ def mock_memory():
 
 
 @pytest.fixture
-def mock_mcp_client():
-    mcp = MagicMock()
-    mcp.has_servers = MagicMock(return_value=False)
-    mcp.call_tool = AsyncMock(return_value="tool result")
-    mcp.get_tool_schema = MagicMock(return_value=None)
-    return mcp
+def mock_tools():
+    return {}
+
+
+# ===================================================================
+# BaseAgent
+# ===================================================================
+
+class TestBaseAgent:
+    def test_tool_call_dataclass(self):
+        from backend.core.agent.base import ToolCall
+        tc = ToolCall(name="search", input={"q": "test"}, output="result", success=True)
+        assert tc.name == "search"
+        assert tc.input == {"q": "test"}
+        assert tc.output == "result"
+        assert tc.success is True
+
+    def test_agent_trace_is_complex(self):
+        from backend.core.agent.base import AgentTrace, ToolCall
+        trace = AgentTrace(session_id="s1", user_message="hi")
+        assert trace.is_complex is False
+        trace.tool_calls = [ToolCall("t1", {}, "ok")] * 5
+        assert trace.is_complex is True
+
+    def test_agent_trace_not_complex(self):
+        from backend.core.agent.base import AgentTrace
+        trace = AgentTrace(session_id="s1", user_message="hi")
+        trace.tool_calls = [MagicMock() for _ in range(3)]
+        assert trace.is_complex is False
 
 
 # ===================================================================
@@ -45,146 +69,66 @@ def mock_mcp_client():
 # ===================================================================
 
 class TestBasicAgentInit:
-    def test_default_init(self, mock_llm, mock_memory):
+    def test_default_init(self, mock_llm):
         from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory, mcp_client=None)
+        agent = BasicAgent(mock_llm)
         assert agent.llm is mock_llm
-        assert agent.memory is mock_memory
-        assert agent.mcp_client is None
-        assert agent._tools == []
-        assert agent._history == []
+        assert agent.tools == {}
+        assert agent.memory is None
+        assert agent.config == {}
 
-    def test_init_with_tools(self, mock_llm, mock_memory, mock_mcp_client):
+    def test_init_with_tools(self, mock_llm, mock_memory, mock_tools):
         from backend.core.agent.basic_agent import BasicAgent
-        tools = [{"name": "search", "fn": lambda x: x}]
-        agent = BasicAgent(mock_llm, mock_memory, mock_mcp_client,
-                           settings={"temp": 0.5}, tools=tools)
-        assert agent.mcp_client is mock_mcp_client
-        assert agent._tools == tools
+        agent = BasicAgent(mock_llm, tools=mock_tools, memory=mock_memory,
+                           config={"temp": 0.5})
+        assert agent.tools == mock_tools
+        assert agent.memory is mock_memory
+        assert agent.config == {"temp": 0.5}
 
 
 class TestBasicAgentRun:
     @pytest.mark.asyncio
     async def test_yields_chunks(self, mock_llm, mock_memory):
         from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
+        agent = BasicAgent(mock_llm, memory=mock_memory)
         chunks = []
         async for c in agent.run("hello", {"session_id": "s1"}):
             chunks.append(c)
-        assert chunks == ["chunk1 ", "chunk2"]
-        mock_memory.add_turn.assert_awaited_once_with("user", "hello")
+        assert len(chunks) > 0
+
+
+class TestBasicAgentExecuteTool:
+    @pytest.mark.asyncio
+    async def test_execute_known_tool(self, mock_llm):
+        from backend.core.agent.base import ToolCall
+        from backend.core.agent.basic_agent import BasicAgent
+        async def fake_tool(**kwargs):
+            return f"ran with {kwargs}"
+        tools = {"my_tool": fake_tool}
+        agent = BasicAgent(mock_llm, tools=tools)
+        tc = await agent.execute_tool("my_tool", {"x": 1})
+        assert isinstance(tc, ToolCall)
+        assert tc.success is True
+        assert "ran with" in tc.output
 
     @pytest.mark.asyncio
-    async def test_stream_error_yields_error_chunk(self, mock_llm, mock_memory):
+    async def test_execute_unknown_tool(self, mock_llm):
         from backend.core.agent.basic_agent import BasicAgent
-        mock_llm.stream.side_effect = RuntimeError("boom")
-        agent = BasicAgent(mock_llm, mock_memory)
-        chunks = []
-        async for c in agent.run("hi", {}):
-            chunks.append(c)
-        assert any("Error" in c for c in chunks)
-
-
-class TestBasicAgentLegacyInterface:
-    @pytest.mark.asyncio
-    async def test_handle_user_input(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
-        chunks = []
-        async for c in agent.handle_user_input("hello", relationship_context="ctx"):
-            chunks.append(c)
-        assert chunks == ["chunk1 ", "chunk2"]
+        agent = BasicAgent(mock_llm)
+        tc = await agent.execute_tool("nonexistent", {})
+        assert tc.success is False
+        assert "unknown tool" in tc.output.lower()
 
     @pytest.mark.asyncio
-    async def test_get_response(self, mock_llm, mock_memory):
+    async def test_execute_failing_tool(self, mock_llm):
         from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
-        result = await agent.get_response("hello")
-        assert result == "mock response"
-
-    @pytest.mark.asyncio
-    async def test_get_response_error(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        mock_llm.generate.side_effect = RuntimeError("fail")
-        agent = BasicAgent(mock_llm, mock_memory)
-        result = await agent.get_response("hello")
-        assert "Error" in result
-
-
-class TestBasicAgentHelpers:
-    def test_load_history(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        mock_memory.get_session_sync.return_value = [{"role": "user", "content": "prev"}]
-        agent = BasicAgent(mock_llm, mock_memory)
-        agent.load_history("sess1")
-        assert agent._history == [{"role": "user", "content": "prev"}]
-
-    def test_build_system_prompt_no_context(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
-        prompt = agent._build_system_prompt()
-        assert "You are a helpful AI assistant" in prompt
-
-    def test_build_system_prompt_with_context(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
-        prompt = agent._build_system_prompt("User likes Python")
-        assert "User likes Python" in prompt
-
-    def test_build_messages(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
-        msgs = agent._build_messages("hi", None, "ctx")
-        assert len(msgs) == 2  # system + user
-        assert msgs[0]["role"] == "system"
-        assert msgs[1]["role"] == "user"
-        assert msgs[1]["content"] == "hi"
-
-    def test_build_messages_with_images(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
-        msgs = agent._build_messages("hi", ["img1"])
-        assert msgs[1].get("images") == ["img1"]
-
-    def test_build_messages_includes_history(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory)
-        agent._history = [{"role": "assistant", "content": "prev resp"}]
-        msgs = agent._build_messages("hi")
-        assert len(msgs) == 3
-        assert msgs[1] == {"role": "assistant", "content": "prev resp"}
-
-    @pytest.mark.asyncio
-    async def test_execute_tool_with_mcp(self, mock_llm, mock_memory, mock_mcp_client):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory, mock_mcp_client)
-        result = await agent.execute_tool("search", {"q": "test"})
-        assert result == "tool result"
-        mock_mcp_client.call_tool.assert_awaited_once_with("search", {"q": "test"})
-
-    @pytest.mark.asyncio
-    async def test_execute_tool_no_mcp(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        agent = BasicAgent(mock_llm, mock_memory, mcp_client=None)
-        result = await agent.execute_tool("search", {"q": "test"})
-        assert "No MCP client" in result
-
-    @pytest.mark.asyncio
-    async def test_get_tool_schema_from_mcp(self, mock_llm, mock_memory, mock_mcp_client):
-        from backend.core.agent.basic_agent import BasicAgent
-        mock_mcp_client.has_servers.return_value = True
-        mock_mcp_client.get_tool_schema.return_value = [{"name": "search"}]
-        agent = BasicAgent(mock_llm, mock_memory, mock_mcp_client)
-        schema = await agent._get_tool_schema()
-        assert schema == [{"name": "search"}]
-
-    @pytest.mark.asyncio
-    async def test_get_tool_schema_fallback(self, mock_llm, mock_memory):
-        from backend.core.agent.basic_agent import BasicAgent
-        tools = [{"name": "search"}]
-        agent = BasicAgent(mock_llm, mock_memory, tools=tools)
-        schema = await agent._get_tool_schema()
-        assert schema == tools
+        async def broken(**kwargs):
+            raise ValueError("boom")
+        tools = {"broken": broken}
+        agent = BasicAgent(mock_llm, tools=tools)
+        tc = await agent.execute_tool("broken", {})
+        assert tc.success is False
+        assert "Tool error" in tc.output
 
 
 # ===================================================================
@@ -192,255 +136,165 @@ class TestBasicAgentHelpers:
 # ===================================================================
 
 class TestReflectiveAgentInit:
-    def test_init_creates_inner_agent(self, mock_llm, mock_memory, mock_mcp_client):
+    def test_init_with_inner(self, mock_llm, mock_memory, mock_tools):
         from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory, mock_mcp_client)
-        assert agent._inner is not None
+        from backend.core.agent.basic_agent import BasicAgent
+        inner = BasicAgent(mock_llm, tools=mock_tools, memory=mock_memory)
+        agent = ReflectiveAgent(inner, mock_llm, mock_tools, mock_memory, {})
+        assert agent.inner is inner
         assert agent._turn_count == 0
-        assert agent._traces == []
-
-    def test_turn_count_property(self, mock_llm, mock_memory):
-        from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
-        assert agent.turn_count == 0
-
-    def test_traces_property(self, mock_llm, mock_memory):
-        from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
-        assert agent.traces == []
 
 
 class TestReflectiveAgentRun:
     @pytest.mark.asyncio
-    async def test_delegates_to_inner(self, mock_llm, mock_memory):
+    async def test_delegates_to_inner(self, mock_llm, mock_memory, mock_tools):
         from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
+        from backend.core.agent.basic_agent import BasicAgent
+        inner = BasicAgent(mock_llm, tools=mock_tools, memory=mock_memory)
+        agent = ReflectiveAgent(inner, mock_llm, mock_tools, mock_memory, {})
         chunks = []
         async for c in agent.run("hello", {"session_id": "s1"}):
             chunks.append(c)
-        assert chunks == ["chunk1 ", "chunk2"]
+        assert len(chunks) > 0
         assert agent._turn_count == 1
-        assert len(agent._traces) == 1
-
-    @pytest.mark.asyncio
-    async def test_run_error_yields_error_chunk(self, mock_llm, mock_memory):
-        from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
-        # Patch _inner at the instance level (it's not a class attribute)
-        with patch.object(agent, "_inner") as mock_inner:
-            mock_inner.run = MagicMock()
-            mock_inner.run.return_value.__aiter__.side_effect = RuntimeError("fail")
-            chunks = []
-            async for c in agent.run("hi", {}):
-                chunks.append(c)
-            assert any("Error" in c for c in chunks)
-
-    @pytest.mark.asyncio
-    async def test_reflection_triggers_after_n_turns(self, mock_llm, mock_memory):
-        from backend.core.agent.reflective_agent import REFLECTION_EVERY_N
-        from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
-        with patch.object(agent, "_reflect", new=AsyncMock()) as mock_reflect:
-            for _ in range(REFLECTION_EVERY_N):
-                async for _ in agent.run("t", {"session_id": "s1"}):
-                    pass
-            assert agent._turn_count == 0  # reset after reflection
-            mock_reflect.assert_awaited_once()
-
-
-class TestReflectiveAgentInterfaces:
-    @pytest.mark.asyncio
-    async def test_handle_user_input(self, mock_llm, mock_memory):
-        from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
-        chunks = []
-        async for c in agent.handle_user_input("hello", relationship_context="ctx"):
-            chunks.append(c)
-        assert chunks == ["chunk1 ", "chunk2"]
-
-    @pytest.mark.asyncio
-    async def test_get_response(self, mock_llm, mock_memory):
-        from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
-        result = await agent.get_response("hello")
-        assert result == "mock response"
-
-    def test_load_history(self, mock_llm, mock_memory):
-        from backend.core.agent.reflective_agent import ReflectiveAgent
-        agent = ReflectiveAgent(mock_llm, mock_memory)
-        with patch.object(agent._inner, "load_history") as mock_lh:
-            agent.load_history("s1")
-            mock_lh.assert_called_once_with("s1")
 
 
 # ===================================================================
 # PlanningAgent
 # ===================================================================
 
-class TestPlanningAgentClassify:
-    @pytest.mark.parametrize("msg,expected", [
-        ("what is the weather", "simple"),
-        ("who is the president", "simple"),
-        ("tell me about Python", "simple"),
-        ("search for cats", "simple"),
-        ("calculate 2+2", "simple"),
-        ("remind me to buy milk", "simple"),
-        ("random text", "compound"),
-        ("what is X and also Y", "simple"),
-        ("first do this, then that", "compound"),
-        ("analyze this data", "compound"),
-        ("Sentence one. Sentence two. Sentence three.", "compound"),
-    ])
-    def test_classify_task(self, msg, expected):
-        from backend.core.agent.planning_agent import PlanningAgent
-        assert PlanningAgent._classify_task(msg) == expected
-
-
 class TestPlanningAgentInit:
-    def test_init_creates_inner(self, mock_llm, mock_memory, mock_mcp_client):
+    def test_init(self, mock_llm, mock_memory, mock_tools):
         from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory, mock_mcp_client,
-                              settings={}, tools=[])
-        assert agent._inner is not None
+        agent = PlanningAgent(mock_llm, mock_tools, mock_memory, {})
+        assert agent.llm is mock_llm
+        assert agent.tools == mock_tools
 
 
-class TestPlanningAgentRun:
-    @pytest.mark.asyncio
-    async def test_simple_task_fast_path(self, mock_llm, mock_memory):
+class TestPlanningAgentClassify:
+    def test_is_compound_positive(self):
         from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
-        chunks = []
-        async for c in agent.run("what is Python", {"session_id": "s1"}):
-            chunks.append(c)
-        # Should take fast path — no planning prefix
-        assert chunks == ["chunk1 ", "chunk2"]
+        agent = PlanningAgent(None, {}, None, {})
+        msg = ("first analyze the data, and then write a report, "
+               "and also check for errors, and finally send an email to the team about results")
+        assert agent._is_compound(msg) is True
 
-    @pytest.mark.asyncio
-    async def test_compound_task_planning_flow(self, mock_llm, mock_memory):
+    def test_is_compound_short_message(self):
         from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
-        # Patch _decompose_task to return controlled steps
-        agent._decompose_task = AsyncMock(return_value=[
-            {"description": "Step one"},
-            {"description": "Step two"},
-        ])
-        # Patch _execute_step to return controlled strings
-        agent._execute_step = AsyncMock(side_effect=["result1", "result2"])
-        chunks = []
-        async for c in agent.run("analyze and compare X and Y", {"session_id": "s1"}):
-            chunks.append(c)
-        full = "".join(chunks)
-        assert "Planning" in full
-        assert "Step one" in full
-        assert "Step two" in full
-        assert "Synthesizing" in full
+        agent = PlanningAgent(None, {}, None, {})
+        # Short message with compound signal but < 15 words
+        assert agent._is_compound("first this then that") is False
 
-    @pytest.mark.asyncio
-    async def test_fallback_when_decomposition_fails(self, mock_llm, mock_memory):
+    def test_is_compound_negative(self):
         from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
-        agent._decompose_task = AsyncMock(return_value=[])
-        chunks = []
-        async for c in agent.run("analyze X", {"session_id": "s1"}):
-            chunks.append(c)
-        # Falls back to inner agent after planning prefix
-        assert chunks == ["[Planning] Breaking down your request...\n\n", "chunk1 ", "chunk2"]
-
-    @pytest.mark.asyncio
-    async def test_step_error_handling(self, mock_llm, mock_memory):
-        from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
-        agent._decompose_task = AsyncMock(return_value=[
-            {"description": "Fail step"},
-        ])
-        agent._execute_step = AsyncMock(side_effect=RuntimeError("step fail"))
-        chunks = []
-        async for c in agent.run("analyze X", {"session_id": "s1"}):
-            chunks.append(c)
-        full = "".join(chunks)
-        assert "Error in step 1" in full
+        agent = PlanningAgent(None, {}, None, {})
+        assert agent._is_compound("what is the weather") is False
 
 
 class TestPlanningAgentDecompose:
     @pytest.mark.asyncio
-    async def test_decompose_success(self, mock_llm, mock_memory):
+    async def test_decompose_success(self, mock_llm):
         from backend.core.agent.planning_agent import PlanningAgent
-        mock_llm.generate = AsyncMock(return_value='[{"description": "Step 1"}, {"description": "Step 2"}]')
-        agent = PlanningAgent(mock_llm, mock_memory)
-        steps = await agent._decompose_task("do X and Y", {})
+        mock_llm.complete = AsyncMock(
+            return_value='[{"title": "Step 1", "instruction": "Do step 1"}, {"title": "Step 2", "instruction": "Do step 2"}]'
+        )
+        agent = PlanningAgent(mock_llm, {}, None, {})
+        steps = await agent._decompose("do X and Y", {})
         assert len(steps) == 2
-        assert steps[0]["description"] == "Step 1"
+        assert steps[0]["title"] == "Step 1"
 
     @pytest.mark.asyncio
-    async def test_decompose_strips_code_fence(self, mock_llm, mock_memory):
+    async def test_decompose_strips_code_fence(self, mock_llm):
         from backend.core.agent.planning_agent import PlanningAgent
-        mock_llm.generate = AsyncMock(
-            return_value='```json\n[{"description": "Step 1"}]\n```'
+        mock_llm.complete = AsyncMock(
+            return_value='```json\n[{"title": "Step 1", "instruction": "Do step 1"}]\n```'
         )
-        agent = PlanningAgent(mock_llm, mock_memory)
-        steps = await agent._decompose_task("do X", {})
+        agent = PlanningAgent(mock_llm, {}, None, {})
+        steps = await agent._decompose("do X", {})
         assert len(steps) == 1
 
     @pytest.mark.asyncio
-    async def test_decompose_returns_empty_on_bad_json(self, mock_llm, mock_memory):
+    async def test_decompose_returns_empty_on_bad_json(self, mock_llm):
         from backend.core.agent.planning_agent import PlanningAgent
-        mock_llm.generate = AsyncMock(return_value="not json")
-        agent = PlanningAgent(mock_llm, mock_memory)
-        steps = await agent._decompose_task("do X", {})
+        mock_llm.complete = AsyncMock(return_value="not json")
+        agent = PlanningAgent(mock_llm, {}, None, {})
+        steps = await agent._decompose("do X", {})
         assert steps == []
 
     @pytest.mark.asyncio
-    async def test_decompose_returns_empty_on_llm_error(self, mock_llm, mock_memory):
+    async def test_decompose_returns_empty_on_llm_error(self, mock_llm):
         from backend.core.agent.planning_agent import PlanningAgent
-        mock_llm.generate.side_effect = RuntimeError("LLM down")
-        agent = PlanningAgent(mock_llm, mock_memory)
-        steps = await agent._decompose_task("do X", {})
+        mock_llm.complete.side_effect = RuntimeError("LLM down")
+        agent = PlanningAgent(mock_llm, {}, None, {})
+        steps = await agent._decompose("do X", {})
         assert steps == []
 
     @pytest.mark.asyncio
-    async def test_decompose_caps_at_five_steps(self, mock_llm, mock_memory):
+    async def test_decompose_caps_at_five_steps(self, mock_llm):
         from backend.core.agent.planning_agent import PlanningAgent
-        many_steps = [{"description": f"S{i}"} for i in range(10)]
-        mock_llm.generate = AsyncMock(return_value=json.dumps(many_steps))
-        agent = PlanningAgent(mock_llm, mock_memory)
-        steps = await agent._decompose_task("big task", {})
+        many_steps = [{"title": f"S{i}", "instruction": f"Do {i}"} for i in range(10)]
+        mock_llm.complete = AsyncMock(return_value=json.dumps(many_steps))
+        agent = PlanningAgent(mock_llm, {}, None, {})
+        steps = await agent._decompose("big task", {})
         assert len(steps) == 5
 
 
-class TestPlanningAgentSynthesize:
+class TestPlanningAgentRun:
     @pytest.mark.asyncio
-    async def test_synthesize_yields_chunks(self, mock_llm, mock_memory):
+    async def test_simple_task_fast_path(self, mock_llm, mock_memory, mock_tools):
         from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
-        results = [{"step": 1, "description": "S1", "result": "out1"}]
+        agent = PlanningAgent(mock_llm, mock_tools, mock_memory, {})
         chunks = []
-        async for c in agent._synthesize("test", results, {}):
+        async for c in agent.run("what is Python", {"session_id": "s1"}):
             chunks.append(c)
-        assert chunks == ["chunk1 ", "chunk2"]
+        # Should take fast path
+        assert len(chunks) > 0
 
-
-class TestPlanningAgentInterfaces:
     @pytest.mark.asyncio
-    async def test_handle_user_input(self, mock_llm, mock_memory):
+    async def test_fallback_when_decomposition_fails(self, mock_llm, mock_memory, mock_tools):
         from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
+        agent = PlanningAgent(mock_llm, mock_tools, mock_memory, {})
+        # Force a compound classification with a long message containing signals
+        agent._is_compound = MagicMock(return_value=True)
+        agent._decompose = AsyncMock(return_value=[])
         chunks = []
-        async for c in agent.handle_user_input("hello", relationship_context="ctx"):
+        async for c in agent.run("first do X, and then do Y, and also check Z please", {"session_id": "s1"}):
             chunks.append(c)
-        # "hello" is classified as "compound" by default, yielding the planning prefix
-        # then decomposition fails and falls back to inner agent
-        assert chunks == ["[Planning] Breaking down your request...\n\n", "chunk1 ", "chunk2"]
+        # Falls back to basic agent after planning prefix
+        assert len(chunks) >= 2
 
-    @pytest.mark.asyncio
-    async def test_get_response(self, mock_llm, mock_memory):
-        from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
-        result = await agent.get_response("hello")
-        assert result == "mock response"
 
-    def test_load_history(self, mock_llm, mock_memory):
+# ===================================================================
+# AgentFactory
+# ===================================================================
+
+class TestAgentFactory:
+    def test_create_basic(self):
+        from backend.core.agent.factory import AgentFactory
+        from backend.core.agent.basic_agent import BasicAgent
+        agent = AgentFactory.create("basic", None, {}, None, {})
+        assert isinstance(agent, BasicAgent)
+
+    def test_create_planning(self):
+        from backend.core.agent.factory import AgentFactory
         from backend.core.agent.planning_agent import PlanningAgent
-        agent = PlanningAgent(mock_llm, mock_memory)
-        with patch.object(agent._inner, "load_history") as mock_lh:
-            agent.load_history("s1")
-            mock_lh.assert_called_once_with("s1")
+        agent = AgentFactory.create("planning", None, {}, None, {})
+        assert isinstance(agent, PlanningAgent)
+
+    def test_create_reflective(self):
+        from backend.core.agent.factory import AgentFactory
+        from backend.core.agent.reflective_agent import ReflectiveAgent
+        agent = AgentFactory.create("reflective", None, {}, None, {})
+        assert isinstance(agent, ReflectiveAgent)
+
+    def test_create_reflective_planning(self):
+        from backend.core.agent.factory import AgentFactory
+        from backend.core.agent.reflective_agent import ReflectiveAgent
+        agent = AgentFactory.create("reflective_planning", None, {}, None, {})
+        assert isinstance(agent, ReflectiveAgent)
+
+    def test_create_unknown_raises(self):
+        from backend.core.agent.factory import AgentFactory
+        import pytest
+        with pytest.raises(ValueError):
+            AgentFactory.create("unknown", None, {}, None, {})

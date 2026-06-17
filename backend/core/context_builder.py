@@ -8,10 +8,10 @@ from backend.core.vault import VaultManager
 from backend.core.user_profile import UserProfile
 from backend.core.utils.tokens import estimate_tokens, truncate_to_token_limit
 from backend.core.constitution import build_system_prompt
-from backend.skills.md_skill import skill_section as _build_skills_section
+from backend.skills.md_loader import get_loader as _get_skill_loader
 
 # Module-level singleton — loaded once at startup, persists across sessions
-_user_profile = UserProfile(data_dir="data")
+_user_profile = UserProfile()  # module-level singleton
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ class ContextBuilder:
         )
 
         tool_section = self._build_tool_section(tools, native_tools_available=native_tools_available)
-        skill_section = _build_skills_section()
+        skill_section = self._build_skills_for_query(user_msg)
         summary_section = self._build_summary_section(summary)
         relevant_section = self._build_relevant_section(relevant)
         relationship_section = self._build_relationship_section(relationship_context)
@@ -249,6 +249,16 @@ class ContextBuilder:
         if not profile_str:
             return ""
         return f"\n\n### About the User\n{profile_str}"
+
+    def _build_skills_for_query(self, query: str) -> str:
+        """Inject matching skills into the system prompt per plan spec.
+        Uses MDSkillLoader.for_query() to find skills matching the user message.
+        """
+        loader = _get_skill_loader()
+        active = loader.for_query(query, max_skills=2)
+        if not active:
+            return ""
+        return "\n\n" + "\n\n".join(s.to_prompt_injection() for s in active)
 
     def _build_relationship_section(self, relationship_context: str) -> str:
         if not relationship_context:
