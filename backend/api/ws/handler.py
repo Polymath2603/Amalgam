@@ -593,6 +593,24 @@ class ChatSession:
             except Exception:
                 pass
 
+        # Background: update user profile from this session
+        try:
+            sid = memory().get_current_session()
+            msgs = memory().get_session_messages(sid)
+            if len(msgs) >= 3:
+                from backend.core.user_profile import UserProfile
+                profile = UserProfile()
+                asyncio.create_task(
+                    profile.update_from_session(
+                        messages=msgs,
+                        llm_caller=lambda prompt: llm().generate(
+                            [{"role": "user", "content": prompt}],
+                        ),
+                    )
+                )
+        except Exception:
+            pass  # never block shutdown
+
     async def handle_client_hello(self, data: dict):
         """Handle client_hello — acknowledge capabilities from native shell."""
         caps = data.get("capabilities", {})

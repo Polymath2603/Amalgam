@@ -1,15 +1,109 @@
 """
 Cost router — classifies requests and routes to appropriate model tier.
 
+Two layers:
+1. `LLMCostRouter` / `route_llm_call()` — standalone router that picks the
+   cheapest appropriate model for a task (use before calling the LLM).
+2. `CostRouter` — wraps a provider and routes per-call within that provider
+   (legacy compatibility, used by BasicAgent).
+
 Simple/trivial queries go to a cheaper fast model.
 Complex queries (code, analysis, reasoning) use the full smart model.
 Saves cost without sacrificing quality on hard tasks.
+
+Source: AgenticFlow's SONA routing system (~60% cost savings on mixed workloads).
 """
 
 import logging
-from typing import List, Dict
+import re
+from dataclasses import dataclass
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Standalone router (plan spec: LLMCostRouter + route_llm_call)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ModelConfig:
+    """Which provider + model to use for a task type."""
+    provider: str     # "anthropic", "groq", "openai", "ollama"
+    model: str        # exact model string as used by litellm
+    max_tokens: int   # safe output cap for this task type
+
+
+# Task type → cheapest appropriate model
+ROUTING_TABLE: dict[str, ModelConfig] = {
+    "simple_qa":      ModelConfig("groq",      "llama-3.1-8b-instant",  512),
+    "classification": ModelConfig("groq",      "llama-3.1-8b-instant",  128),
+    "summarization":  ModelConfig("groq",      "llama-3.1-70b-versatile", 1024),
+    "translation":    ModelConfig("groq",      "llama-3.1-70b-versatile", 2048),
+    "creative":       ModelConfig("anthropic", "claude-sonnet-4-6",      4096),
+    "code":           ModelConfig("anthropic", "claude-sonnet-4-6",      4096),
+    "analysis":       ModelConfig("anthropic", "claude-sonnet-4-6",      8192),
+    "tool_use":       ModelConfig("anthropic", "claude-opus-4-6",        8192),
+    "default":        ModelConfig("anthropic", "claude-sonnet-4-6",      4096),
+}
+
+# Keyword patterns per task type (checked in order — first match wins)
+PATTERNS: list[tuple[str, list[str]]] = [
+    ("tool_use",      [r"\b(search|find on web|browse|run|execute|write to|create file|screenshot)\b"]),
+    ("code",          [r"\b(code|function|class|debug|bug|error|script|python|javascript|sql)\b", r"```"]),
+    ("analysis",      [r"\b(analyze|explain why|compare|difference between|pros and cons|evaluate)\b"]),
+    ("creative",      [r"\b(write a (story|poem|essay|blog|email|letter))\b", r"\b(creative|compose|draft)\b"]),
+    ("translation",   [r"\b(translate|in (french|spanish|german|japanese|chinese|arabic))\b"]),
+    ("summarization", [r"\b(summarize|tldr|tl;dr|key points|overview|condense)\b"]),
+    ("classification",[r"\b(is it|does it|yes or no|categorize|classify)\b"]),
+]
+
+
+class LLMCostRouter:
+    """
+    Standalone router that picks the cheapest model for a task.
+
+    Usage:
+        router = LLMCostRouter()
+        cfg = router.route(user_message, user_model_pref="auto")
+        # cfg.provider, cfg.model, cfg.max_tokens
+    """
+
+    def route(
+        self,
+        message: str,
+        user_model_pref: Optional[str] = None,
+    ) -> ModelConfig:
+        # Always respect explicit user choice
+        if user_model_pref and user_model_pref not in ("auto", "", None):
+            return ModelConfig("user", user_model_pref, 4096)
+
+        task_type = self._classify(message)
+        return ROUTING_TABLE.get(task_type, ROUTING_TABLE["default"])
+
+    def _classify(self, message: str) -> str:
+        msg = message.lower()
+        for task_type, pats in PATTERNS:
+            if any(re.search(p, msg) for p in pats):
+                return task_type
+        # Short messages with no special pattern → simple QA (cheapest)
+        if len(message.split()) < 12:
+            return "simple_qa"
+        return "default"
+
+
+# Module-level singleton
+_router = LLMCostRouter()
+
+
+def route_llm_call(message: str, user_pref: Optional[str] = None) -> ModelConfig:
+    """Convenience: route a user message to the cheapest appropriate model."""
+    return _router.route(message, user_pref)
+
+
+# ---------------------------------------------------------------------------
+# Legacy wrapper (plan's simple keywords + CostRouter class)
+# ---------------------------------------------------------------------------
 
 # Keywords that indicate a simple/trivial query
 _SIMPLE_KEYWORDS = {

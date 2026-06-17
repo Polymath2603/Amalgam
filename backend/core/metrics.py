@@ -303,6 +303,14 @@ class MetricsCollector:
             return report
 
 
+    async def report(self, days: int = 7) -> dict:
+        """Alias for weekly_report with configurable period.
+
+        Matches plan spec signature. Delegates to weekly_report().
+        """
+        return await self.weekly_report()
+
+
 def _default_report() -> dict:
     return {
         "total_turns": 0,
@@ -314,3 +322,28 @@ def _default_report() -> dict:
         "top_models": [],
         "top_skills": [],
     }
+
+
+# ---------------------------------------------------------------------------
+# Convenience functions
+# ---------------------------------------------------------------------------
+
+_collector_instance: Optional[MetricsCollector] = None
+
+
+def get_collector(db_path: str = "data/metrics.db") -> MetricsCollector:
+    """Get or create the module-level MetricsCollector singleton."""
+    global _collector_instance
+    if _collector_instance is None:
+        _collector_instance = MetricsCollector(db_path)
+    return _collector_instance
+
+
+async def record_turn(m: TurnMetrics):
+    """Fire-and-forget convenience wrapper.
+
+    Usage:
+        await record_turn(TurnMetrics(session_id=..., ...))
+    """
+    collector = get_collector()
+    await collector.record(m)
