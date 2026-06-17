@@ -66,20 +66,18 @@ async def init_application ():
         asyncio .create_task (mcp_client .connect_from_settings (mcp_servers ))
 
     settings .start_watcher ()
-    settings .on_change (make_settings_reloader (mcp_client )) 
+    settings .on_change (make_settings_reloader (mcp_client ,asyncio .get_event_loop ())) 
 
 
-def make_settings_reloader (mcp_client ):
+def make_settings_reloader (mcp_client ,loop ):
     """Return a callback that hot-reloads components when settings change."""
-    import asyncio 
     from backend .core .deps import get_shared 
 
     def _reload (settings ):
         """Reload MCP servers and refresh character data on settings change."""
         shared =get_shared ()
         try :
-            loop =asyncio .get_event_loop ()
-            if loop .is_running ():
+            if loop and loop .is_running ():
                 mcp_servers =settings .get_mcp_servers ()
                 if mcp_servers :
                     for s in mcp_servers :
@@ -89,7 +87,9 @@ def make_settings_reloader (mcp_client ):
                             s .setdefault ("env",{})
                             s ["env"]["AMALGAM_SHELL_MODE"]=shell_mode 
                             s ["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"]=",".join (shell_prefixes )
-                    asyncio .create_task (mcp_client .connect_from_settings (mcp_servers ))
+                    asyncio .run_coroutine_threadsafe (
+                        mcp_client .connect_from_settings (mcp_servers ),loop 
+                    )
 
                 settings ._characters =load_characters_from_yaml ()
         except Exception as e :

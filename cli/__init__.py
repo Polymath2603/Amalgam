@@ -54,8 +54,21 @@ def _suppress_logs():
     for name in loggers:
         logging.getLogger(name).setLevel(logging.CRITICAL)
     
-    # Also set root logger to CRITICAL to be safe
+    # Also set root logger to CRITICAL
     logging.getLogger().setLevel(logging.CRITICAL)
+    
+    # Suppress all handlers on all loggers
+    for name in logging.root.manager.loggerDict:
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.CRITICAL)
+        logger.handlers.clear()
+        logger.propagate = False
+    
+    # Clear root handlers too
+    logging.getLogger().handlers.clear()
+    
+    # Set env var so configure_logging picks it up
+    os.environ["LOG_LEVEL"] = "CRITICAL"
 
 
 def _extract_error_message(error_str: str) -> str:
@@ -81,6 +94,9 @@ async def run_cli_direct ():
     
     from backend .core .startup import init_application ,shutdown_application 
     await init_application ()
+    
+    # Re-suppress now that configure_logging has been called (it resets from settings)
+    _suppress_logs()
 
     from backend .core .deps import get_shared 
 
