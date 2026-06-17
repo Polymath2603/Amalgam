@@ -136,3 +136,44 @@ async def batch_set_settings (body :dict ):
     except Exception as e:
         logger.warning(f"Failed to push settings to agent: {e}")
     return {"status":"ok","count":len (pairs )}
+
+
+@router .get ("/api/setup/status")
+async def check_setup_status ():
+    """Check if at least one AI provider is configured with an API key."""
+    s =settings ()
+    configured =False
+    providers =["gemini","openai","anthropic","groq"]
+    for prov in providers :
+        key =s .get (f"provider.{prov}.api_key","")
+        if key and len (key )>0:
+            configured =True
+            break
+    return {"needs_setup":not configured}
+
+
+@router .post ("/api/setup/save")
+async def save_setup (body :dict ):
+    """Save initial provider configuration from the setup wizard."""
+    provider =body .get ("provider","gemini")
+    api_key =body .get ("api_key","")
+    model =body .get ("model","")
+
+    if not api_key :
+        return {"status":"error","message":"API key is required"}
+
+    s =settings ()
+    s .set ("provider.active",provider )
+    s .set (f"provider.{provider}.api_key",api_key )
+    if model :
+        s .set (f"provider.{provider}.model",model )
+
+    llm ().reload_settings ()
+    try:
+        agent ().update_settings (s )
+    except AttributeError:
+        logger.warning("Agent does not support update_settings")
+    except Exception as e:
+        logger.warning(f"Failed to push settings to agent: {e}")
+
+    return {"status":"ok","provider":provider}

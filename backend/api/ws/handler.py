@@ -672,6 +672,26 @@ class ChatSession:
                     if text or images:
                         await self.process_response(text, images)
 
+                elif msg_type == "avatar_life_event":
+                    event = data.get("event", "")
+                    logger.info(f"Avatar life event: {event}")
+                    if event == "bored":
+                        try:
+                            text = await agent().generate_idle_prompt()
+                            if text:
+                                await self.process_response(text)
+                            asyncio.create_task(agent().subconscious_reflect())
+                        except Exception as e:
+                            logger.warning(f"Bored prompt failed: {e}")
+
+                elif msg_type == "interrupt":
+                    if data.get("action") == "stop_audio_and_animation":
+                        await self.cancel_assistant()
+                        await self.send({
+                            "type": "interrupt",
+                            "action": "stop_audio_and_animation",
+                        })
+
         except WebSocketDisconnect:
             logger.warning("Chat WebSocket disconnected")
         except Exception as e:

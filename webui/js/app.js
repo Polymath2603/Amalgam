@@ -28,6 +28,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch {}
     await initI18n(savedLang);
 
+    // Check if setup is needed (first-time setup wizard)
+    try {
+        const setupResp = await fetch(`${BASE_URL}/api/setup/status`);
+        if (setupResp.ok) {
+            const setupStatus = await setupResp.json();
+            if (setupStatus.needs_setup) {
+                showSetupWizard();
+            }
+        }
+    } catch (e) {
+        console.warn('Setup status check failed:', e);
+    }
+
     initMetricsAutoRefresh();
 
     
@@ -243,6 +256,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 createMainAvatar();
             }
             if (tabId === 'metrics') loadMetrics();
+            if (tabId === 'swarm' && !window.swarmGraph) {
+                initSwarmTab();
+            }
         }
     }
 
@@ -562,6 +578,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                     thinkEl.textContent = data.text;
                     body.appendChild(thinkEl);
                 }
+            } else if (data.type === 'swarm_update') {
+                if (typeof handleSwarmUpdate === 'function') {
+                    handleSwarmUpdate(data.data);
+                }
+            } else if (data.type === 'avatar_life_event') {
+                if (data.event === 'bored' && avatarRenderer) {
+                    avatarRenderer.setEmotion('bored');
+                }
+            } else if (data.type === 'interrupt') {
+                if (data.action === 'stop_audio_and_animation') {
+                    if (typeof flushTTSQueue === 'function') flushTTSQueue();
+                    if (avatarRenderer) avatarRenderer.setEmotion('surprised');
+                }
             }
         }
     }
@@ -780,6 +809,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         clearErrors();
         flushTTSQueue();
+        if (typeof avatarRenderer?.interact === 'function') avatarRenderer.interact();
 
         
         const editId = chatInput.dataset.editTarget;
@@ -2416,3 +2446,66 @@ function detectGPUCapability() {
 const gpuInfo = detectGPUCapability();
 window._gpuTier = gpuInfo.tier;
 console.log(`GPU tier: ${gpuInfo.tier} (${gpuInfo.reason})`);
+
+/* ---------- Setup wizard functions ---------- */
+function showSetupWizard() {
+    const wizard = document.getElementById('setup-wizard-overlay');
+    if (wizard) {
+        wizard.style.display = 'flex';
+        // Reset to form view
+        document.getElementById('setup-wizard-content').style.display = 'block';
+        document.getElementById('setup-wizard-done').style.display = 'none';
+        document.getElementById('setup-error').style.display = 'none';
+    }
+}
+
+function hideSetupWizard() {
+    const wizard = document.getElementById('setup-wizard-overlay');
+    if (wizard) wizard.style.display = 'none';
+}
+
+async function saveSetupWizard() {
+    const provider = document.getElementById('setup-provider').value;
+    const apiKey = document.getElementById('setup-api-key').value.trim();
+    const model = document.getElementById('setup-model-override').value.trim();
+    const errorEl = document.getElementById('setup-error');
+    const saveBtn = document.getElementById('setup-save-btn');
+
+    if (!apiKey) {
+        errorEl.textContent = 'Please enter an API key.';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    errorEl.style.display = 'none';
+
+    try {
+        const resp = await fetch(`${BASE_URL}/api/setup/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, api_key: apiKey, model }),
+        });
+        const data = await resp.json();
+        if (data.status === 'ok') {
+            document.getElementById('setup-wizard-content').style.display = 'none';
+            document.getElementById('setup-wizard-done').style.display = 'block';
+            setTimeout(hideSetupWizard, 2000);
+        } else {
+            errorEl.textContent = data.message || 'Save failed.';
+            errorEl.style.display = 'block';
+        }
+    } catch (e) {
+        errorEl.textContent = `Error: ${e.message}`;
+        errorEl.style.display = 'block';
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Start Chatting';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const saveBtn = document.getElementById('setup-save-btn');
+    if (saveBtn) saveBtn.addEventListener('click', saveSetupWizard);
+});

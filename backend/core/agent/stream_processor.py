@@ -1,99 +1,55 @@
-"""Stream processing — typed delta chunks and event emission."""
-
-import json
+"""
+Emotion tag stream processor — parses [emotion] tags from LLM responses.
+Source: ChatVRM's emotion-tag system — the LLM declares its own emotional performance.
+Tags are stripped from displayed text. Emotions are fired as WebSocket events.
+"""
 import re
-from enum import Enum
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from typing import AsyncGenerator, Callable, Awaitable
+
+TAG_PATTERN = re.compile(r'\[(\w+)\]')
+
+VALID_EMOTIONS = {
+    "neutral", "joy", "angry", "sad", "relaxed", "surprised",
+    "thinking", "shy", "excited", "confident", "tired", "scared",
+    "bored", "loving",
+}
 
 
-class DeltaTag(Enum):
-    TEXT = "text"
-    TOOL_CALL = "tool_call"
-    TOOL_RESULT = "tool_result"
-    ERROR = "error"
-    DONE = "done"
-    META = "meta"
+async def parse_emotion_stream(
+    raw_chunks: AsyncGenerator[str, None],
+    on_emotion: Callable[[str], Awaitable[None]],
+    emotion_mode: str = "tags",
+) -> AsyncGenerator[str, None]:
+    """
+    Wraps a raw LLM stream. Strips emotion tags, fires on_emotion callbacks.
 
+    raw_chunks: the LLM response chunks
+    on_emotion: async fn(emotion_name: str) — called when a tag is found
+    emotion_mode: if "tools", pass through unchanged (tags not expected)
+    """
+    if emotion_mode != "tags":
+        async for chunk in raw_chunks:
+            yield chunk
+        return
 
-class StreamProcessor:
-    """Parses raw LLM stream output into typed deltas."""
+    buffer = ""
+    async for chunk in raw_chunks:
+        buffer += chunk
+        while True:
+            match = TAG_PATTERN.search(buffer)
+            if not match:
+                break
+            if match.start() > 0:
+                yield buffer[:match.start()]
+            emotion = match.group(1).lower()
+            if emotion in VALID_EMOTIONS:
+                await on_emotion(emotion)
+            buffer = buffer[match.end():]
+        if len(buffer) > 10:
+            yield buffer[:-10]
+            buffer = buffer[-10:]
 
-    _TAG_PATTERN = re.compile(r"<(\w+)>(.*?)</\1>", re.DOTALL)
-
-    @staticmethod
-    def process(raw: str) -> List[Dict[str, Any]]:
-        """Split a raw string into a list of tagged deltas.
-
-        Each delta has ``tag`` (DeltaTag) and ``data``.
-        Untagged text is tagged as TEXT.
-        """
-        deltas: List[Dict[str, Any]] = []
-        pos = 0
-
-        for m in StreamProcessor._TAG_PATTERN.finditer(raw):
-            # Text before this tag
-            if m.start() > pos:
-                text = raw[pos:m.start()].strip()
-                if text:
-                    deltas.append({"tag": DeltaTag.TEXT, "data": text})
-
-            tag_name = m.group(1).lower()
-            content = m.group(2).strip()
-
-            try:
-                tag = DeltaTag(tag_name)
-            except ValueError:
-                tag = DeltaTag.TEXT
-
-            if tag == DeltaTag.TOOL_CALL:
-                try:
-                    data = json.loads(content)
-                except json.JSONDecodeError:
-                    data = {"raw": content}
-            else:
-                data = content
-
-            deltas.append({"tag": tag, "data": data})
-            pos = m.end()
-
-        # Remaining text
-        remaining = raw[pos:].strip()
-        if remaining:
-            deltas.append({"tag": DeltaTag.TEXT, "data": remaining})
-
-        if not deltas:
-            deltas.append({"tag": DeltaTag.TEXT, "data": raw})
-
-        return deltas
-
-    @staticmethod
-    async def stream_deltas(raw_stream: AsyncIterator[str]) -> AsyncIterator[Dict[str, Any]]:
-        """Wrap a raw string stream, yielding typed delta dicts."""
-        buffer = ""
-        async for chunk in raw_stream:
-            buffer += chunk
-            # Emit complete tags as they arrive
-            while True:
-                m = StreamProcessor._TAG_PATTERN.search(buffer)
-                if not m:
-                    break
-                # Emit any text before the match
-                if m.start() > 0:
-                    prefix = buffer[:m.start()].strip()
-                    if prefix:
-                        yield {"tag": DeltaTag.TEXT, "data": prefix}
-                tag_name = m.group(1).lower()
-                content = m.group(2).strip()
-                try:
-                    tag = DeltaTag(tag_name)
-                except ValueError:
-                    tag = DeltaTag.TEXT
-                yield {"tag": tag, "data": content}
-                buffer = buffer[m.end():]
-            # Emit dangling text as provisional TEXT
-            if buffer.strip():
-                yield {"tag": DeltaTag.TEXT, "data": buffer}
-                buffer = ""
-        if buffer.strip():
-            yield {"tag": DeltaTag.TEXT, "data": buffer}
-        yield {"tag": DeltaTag.DONE, "data": None}
+    if buffer:
+        cleaned = TAG_PATTERN.sub("", buffer)
+        if cleaned:
+            yield cleaned

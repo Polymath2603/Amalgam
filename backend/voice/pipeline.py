@@ -133,6 +133,16 @@ class VoicePipeline :
         finally :
             logger .debug ("VoicePipeline: Stopped")
 
+    def interrupt (self ):
+        """Interrupt current TTS output — stop audio playback, cancel in-flight streams.
+        Called when the user speaks (VAD fires) mid-response.
+        """
+        logger .debug ("VoicePipeline: Interrupt requested")
+        return {
+            "type": "interrupt",
+            "action": "stop_audio_and_animation",
+        }
+
     def stop_listening (self ):
         self ._stop_event .set ()
         if self ._stream is not None :

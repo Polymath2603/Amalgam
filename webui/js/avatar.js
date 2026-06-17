@@ -428,6 +428,9 @@ export class AvatarRenderer {
                     this._startIdleBehaviorLoop();
                 }
 
+                // Start life state machine (idle → bored → sleeping)
+                this.initLifeStateMachine();
+
                 // Apply any emotion that was queued before VRM was ready
                 if (this._pendingEmotion) {
                     const pending = this._pendingEmotion;
@@ -1117,6 +1120,49 @@ export class AvatarRenderer {
         scheduleNext();
     }
 
+    /* ---------- Life state machine (idle → bored → sleeping) ---------- */
+    // Source: Amica's autonomous life states (idle→bored→sleeping)
+    initLifeStateMachine() {
+        this.lifeState = 'idle';   // idle | bored | sleeping
+        this._boredTimer = 0;
+        this._inactivityThreshold = 30000;  // 30 seconds → bored
+        this._sleepThreshold = 300000;       // 5 minutes → sleeping
+        this._lifeInterval = setInterval(() => this._updateLifeState(), 5000);
+    }
+
+    _updateLifeState() {
+        if (this.lifeState === 'sleeping') return;
+        if (this.lifeState === 'idle' && this._boredTimer >= this._inactivityThreshold) {
+            this.lifeState = 'bored';
+            this.setEmotion('bored');
+            this._dispatchLifeEvent('bored');
+        } else if (this.lifeState === 'bored' && this._boredTimer >= this._sleepThreshold) {
+            this.lifeState = 'sleeping';
+            this.setEmotion('sleep');
+            this._dispatchLifeEvent('sleeping');
+        }
+        this._boredTimer += 5000;
+    }
+
+    _dispatchLifeEvent(event) {
+        // Tell the backend the avatar is bored → backend can initiate conversation
+        if (window.ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'avatar_life_event',
+                event: event,
+            }));
+        }
+        // Also dispatch a DOM event so local components can react
+        document.dispatchEvent(new CustomEvent('avatarLifeState', { detail: { event } }));
+    }
+
+    interact() {
+        // User interaction resets the life state
+        this._boredTimer = 0;
+        this.lifeState = 'idle';
+        this.setEmotion('neutral');
+    }
+
     destroy() {
         // Cancel animation frame
         if (this._rafId) {
@@ -1174,6 +1220,11 @@ export class AvatarRenderer {
         if (this._lipsyncManager) {
             this._lipsyncManager.destroy?.();
             this._lipsyncManager = null;
+        }
+        // Clean up life state machine
+        if (this._lifeInterval) {
+            clearInterval(this._lifeInterval);
+            this._lifeInterval = null;
         }
         // Close audio context
         if (this._audioContext) {

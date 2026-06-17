@@ -21,6 +21,7 @@ from backend.core.metrics import MetricsCollector, TurnMetrics
 logger = logging.getLogger(__name__)
 
 THINK_RE = re.compile(r'<think>(.*?)</think>', re.DOTALL)
+EMOTION_TAG_RE = re.compile(r'\[(\w+)\]')
 
 _metrics = MetricsCollector("data/metrics.db")
 
@@ -72,9 +73,16 @@ class Agent:
             content = m.group(1).strip()
             if content:
                 yield ('__roleplay__', content)
+        for m in EMOTION_TAG_RE.finditer(text):
+            emotion = m.group(1).lower()
+            if emotion in {'neutral','joy','angry','sad','relaxed','surprised',
+                           'thinking','shy','excited','confident','tired','scared',
+                           'bored','loving'}:
+                yield ('__emotion__', emotion)
 
     def _strip_all_tags(self, text: str) -> str:
         text = THINK_RE.sub('', text)
+        text = EMOTION_TAG_RE.sub('', text)
         text = _LEGACY_ACTION_RE.sub('', text)
         text = _LEGACY_EMOTION_RE.sub('', text)
         text = _LEGACY_EXPRESSION_RE.sub('', text)
@@ -89,6 +97,7 @@ class Agent:
         return text.strip()
 
     def _clean_remaining_tags(self, text: str) -> str:
+        text = EMOTION_TAG_RE.sub('', text)
         text = re.sub(r'/\[\[[^\]\s]*', '', text)
         text = re.sub(r'/\(\([^\)\s]*', '', text)
         text = re.sub(r'\[\[[^\]\s]*', '', text)
