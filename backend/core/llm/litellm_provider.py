@@ -12,15 +12,108 @@ import os
 from typing import AsyncIterator ,List ,Dict ,Any ,Optional 
 
 import litellm 
+from types import SimpleNamespace
+
+# Check if litellm has modern async API with streaming support
 try:
-    from litellm import acompletion, aembedding
+    from litellm import acompletion as _litellm_acompletion, aembedding as _litellm_aembedding
+    _MODERN_LITELLM = True
 except ImportError:
-    # Older litellm versions (pre-2024) lack async wrappers — define them inline
-    import asyncio
-    async def acompletion(*args, **kwargs):
-        return await asyncio.to_thread(litellm.completion, *args, **kwargs)
-    async def aembedding(*args, **kwargs):
-        return await asyncio.to_thread(litellm.embedding, *args, **kwargs)
+    _MODERN_LITELLM = False
+
+# Old litellm (pre-2024) has completion(model, messages, azure=False) with no stream/extra kwargs
+_OLD_COMPLETION_PARAMS = {"model", "messages", "azure"}
+
+async def acompletion(*args, **kwargs):
+    """Async completion — works with both old and modern litellm."""
+    if _MODERN_LITELLM:
+        return await _litellm_acompletion(*args, **kwargs)
+    
+    is_stream = kwargs.pop("stream", False)
+    
+    # Old litellm uses openai global config or env vars — set them from kwargs
+    api_key = kwargs.pop("api_key", None)
+    api_base = kwargs.pop("api_base", None)
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+        import openai as _openai
+        _openai.api_key = api_key
+        # Also set provider-specific env vars the old litellm checks
+        if api_key.startswith("sk-or-"):
+            os.environ["OPENROUTER_API_KEY"] = api_key
+        if api_key.startswith("gsk_"):
+            os.environ["GROQ_API_KEY"] = api_key
+    if api_base:
+        os.environ["OPENAI_API_BASE"] = api_base
+        import openai as _openai
+        _openai.api_base = api_base
+    
+    # Also pick up gemini key set by _get_model_config
+    gemini_key = kwargs.pop("gemini_api_key", None) or os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        os.environ["GEMINI_API_KEY"] = gemini_key
+    
+    # Strip kwargs the old API doesn't accept
+    filtered = {k: v for k, v in kwargs.items() if k in _OLD_COMPLETION_PARAMS}
+    try:
+        response = await asyncio.to_thread(litellm.completion, *args, **filtered)
+    except UnboundLocalError:
+        # Old litellm raised this when it doesn't recognize the model
+        raise ValueError(f"Model not recognized by this litellm version. "
+                         f"Consider upgrading litellm or using a supported model prefix "
+                         f"(openai/, gemini/, anthropic/, etc.). "
+                         f"Args: model={args[0] if args else kwargs.get('model', '?')}") from None
+    
+    if is_stream:
+        # Old litellm can't truly stream — wrap the single response as a fake chunk
+        content = _extract_content(response)
+        async def _gen():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content=content, tool_calls=None),
+                    finish_reason="stop",
+                    index=0
+                )]
+            )
+        return _gen()
+    return response
+
+
+def _extract_content(response):
+    """Extract text content from a litellm response (works with object or dict)."""
+    try:
+        if hasattr(response, 'choices') and response.choices:
+            choice = response.choices[0]
+            if hasattr(choice, 'message'):
+                return choice.message.content or ""
+            elif isinstance(choice, dict):
+                return choice.get('message', {}).get('content', '')
+        elif isinstance(response, dict):
+            choices = response.get('choices', [])
+            if choices:
+                return choices[0].get('message', {}).get('content', '')
+    except Exception:
+        pass
+    return ""
+
+
+async def aembedding(*args, **kwargs):
+    """Async embedding — works with both old and modern litellm."""
+    if _MODERN_LITELLM:
+        return await _litellm_aembedding(*args, **kwargs)
+    
+    # Map common embedding kwargs to env vars for old litellm
+    api_key = kwargs.pop("api_key", None)
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
+    
+    # Old litellm: embedding(model, input=[], azure=False)
+    filtered = {k: v for k, v in kwargs.items() if k in {"model", "input", "azure"}}
+    try:
+        return await asyncio.to_thread(litellm.embedding, *args, **filtered)
+    except UnboundLocalError:
+        raise ValueError(f"Embedding model not recognized by this litellm version. "
+                         f"Args: model={args[0] if args else kwargs.get('model', '?')}") from None
 
 logger =logging .getLogger (__name__ )
 
@@ -43,6 +136,7 @@ PROVIDER_PREFIX ={
 "ollama":"ollama",
 "llamacpp":"openai",
 "koboldai":"openai",
+"opencode":"openai",
 "aws":"bedrock",
 "gcp":"vertex_ai",
 }

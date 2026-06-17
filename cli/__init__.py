@@ -36,7 +36,7 @@ def _show_banner (console ,session_id ,provider ,model ,title=None):
     grid =Table .grid (padding =1 )
     grid .add_column (style ="cyan")
     grid .add_column ()
-    grid .add_row ("Session",f"[bold]{title or session_id[:16]}...[/bold]")
+    grid .add_row ("Session",f"[bold]{title or session_id[:16]}[/bold]")
     grid .add_row ("Provider",provider )
     grid .add_row ("Model",model )
     console .print (Panel (grid ,title ="[bold yellow]Amalgam[/bold yellow]",border_style ="yellow"))
