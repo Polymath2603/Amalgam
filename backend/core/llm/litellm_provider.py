@@ -58,11 +58,21 @@ async def acompletion(*args, **kwargs):
     try:
         response = await asyncio.to_thread(litellm.completion, *args, **filtered)
     except UnboundLocalError:
-        # Old litellm raised this when it doesn't recognize the model
-        raise ValueError(f"Model not recognized by this litellm version. "
-                         f"Consider upgrading litellm or using a supported model prefix "
-                         f"(openai/, gemini/, anthropic/, etc.). "
-                         f"Args: model={args[0] if args else kwargs.get('model', '?')}") from None
+        # Old litellm can't route this model — try raw OpenAI API as last resort
+        # (works for any OpenAI-compatible provider like opencode, openrouter, etc.)
+        response = await _fallback_openai_completion(args, filtered, api_key, api_base, is_stream)
+        if is_stream:
+            content = _extract_content(response)
+            async def _gen():
+                yield SimpleNamespace(
+                    choices=[SimpleNamespace(
+                        delta=SimpleNamespace(content=content, tool_calls=None),
+                        finish_reason="stop",
+                        index=0
+                    )]
+                )
+            return _gen()
+        return response
     
     if is_stream:
         # Old litellm can't truly stream — wrap the single response as a fake chunk
@@ -95,6 +105,45 @@ def _extract_content(response):
     except Exception:
         pass
     return ""
+
+
+async def _fallback_openai_completion(args, filtered_kwargs, api_key, api_base, is_stream):
+    """Last-resort fallback: call raw OpenAI API directly.
+    
+    Used when old litellm can't route the model (UnboundLocalError).
+    Works for any OpenAI-compatible provider.
+    """
+    import openai as _openai
+    
+    # Get model and messages from filtered kwargs (or positional args)
+    model = filtered_kwargs.get("model", "")
+    if not model and args:
+        model = args[0]
+    if not model:
+        raise ValueError("No model specified")
+    
+    messages = filtered_kwargs.get("messages")
+    if not messages and len(args) > 1:
+        messages = args[1]
+    if not messages:
+        raise ValueError("No messages specified")
+    
+    if api_key:
+        _openai.api_key = api_key
+    if api_base:
+        _openai.api_base = api_base.rstrip("/")
+    
+    # Strip the prefix (e.g. "openai/" -> "") for actual API call
+    # OpenAI-compatible APIs use just the model name
+    raw_model = model.split("/", 1)[-1] if "/" in model else model
+    
+    def _do_call():
+        return _openai.ChatCompletion.create(
+            model=raw_model,
+            messages=messages,
+        )
+    
+    return await asyncio.to_thread(_do_call)
 
 
 async def aembedding(*args, **kwargs):
