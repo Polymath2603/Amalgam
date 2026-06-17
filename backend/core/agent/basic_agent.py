@@ -33,6 +33,14 @@ class BasicAgent(BaseAgent):
         self._tools = tools or []
         self._history: List[Dict] = []
 
+    def update_settings(self, settings):
+        """Update settings when they change."""
+        self.settings = settings
+        self.config = settings if isinstance(settings, dict) else settings or {}
+        if hasattr(self.llm, 'reload_settings'):
+            self.llm.reload_settings()
+        logger.debug("BasicAgent.update_settings called")
+
     async def run(self, user_message: str, context: dict) -> AsyncIterator[str]:
         """Stream a response with tool execution loop."""
         session_id = context.get("session_id", "unknown")

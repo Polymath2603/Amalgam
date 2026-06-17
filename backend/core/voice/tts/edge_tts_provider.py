@@ -4,7 +4,12 @@ import asyncio
 import tempfile 
 import logging 
 
-import edge_tts 
+try:
+    import edge_tts 
+    _EDGE_TTS_AVAILABLE = True
+except ImportError:
+    _EDGE_TTS_AVAILABLE = False
+
 import numpy as np 
 from scipy .io import wavfile 
 
@@ -37,6 +42,8 @@ class EdgeTTSProvider (TTSProvider ):
 
     def __init__ (self ,voice ="en-US-AriaNeural"):
         super ().__init__ (voice )
+        if not _EDGE_TTS_AVAILABLE :
+            logger .warning ("edge_tts package not installed. TTS will fail. Install with: pip install edge-tts")
         self ._has_ffmpeg =shutil .which ("ffmpeg")is not None 
         if not self ._has_ffmpeg :
             logger .warning ("ffmpeg not found. Edge-TTS will fail. Install ffmpeg.")
@@ -56,6 +63,10 @@ class EdgeTTSProvider (TTSProvider ):
 
     async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if not text .strip ():
+            return np .zeros (0 ,dtype =np .float32 ),[],16000 
+
+        if not _EDGE_TTS_AVAILABLE :
+            logger .warning (f"edge_tts not installed — skipping TTS for: {text[:40]}...")
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
         await self ._ensure_valid_voice ()

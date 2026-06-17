@@ -85,7 +85,12 @@ async def update_settings (body :dict ):
         tts ().engine =settings ().get ("voice.engine","edge-tts")
         tts ().configure_rvc (url ,f0_up_key ,f0_method )
     _sync_emotion_tags ()
-    agent ().update_settings (settings ())
+    try:
+        agent ().update_settings (settings ())
+    except AttributeError:
+        logger.warning("Agent does not support update_settings")
+    except Exception as e:
+        logger.warning(f"Failed to push settings to agent: {e}")
 
     if "character"in body and "active"in body ["character"]:
         char_id =body ["character"]["active"]
@@ -104,7 +109,12 @@ async def set_setting (body :dict ):
         settings ().set (key ,value )
         llm ().reload_settings ()
         _sync_emotion_tags ()
-        agent ().update_settings (settings ())
+        try:
+            agent ().update_settings (settings ())
+        except AttributeError:
+            logger.warning("Agent does not support update_settings")
+        except Exception as e:
+            logger.warning(f"Failed to push settings to agent: {e}")
     return {"status":"ok"}
 
 
@@ -119,5 +129,10 @@ async def batch_set_settings (body :dict ):
         s .set (key ,value )
     llm ().reload_settings ()
     _sync_emotion_tags ()
-    agent ().update_settings (s )
+    try:
+        agent ().update_settings (s )
+    except AttributeError:
+        logger.warning("Agent does not support update_settings")
+    except Exception as e:
+        logger.warning(f"Failed to push settings to agent: {e}")
     return {"status":"ok","count":len (pairs )}

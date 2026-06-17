@@ -76,6 +76,13 @@ class ReflectiveAgent(BaseAgent):
         async for chunk in self.run(text, ctx):
             yield chunk
 
+    def update_settings(self, settings):
+        """Update settings and propagate to inner agent."""
+        self.config = settings if isinstance(settings, dict) else settings or {}
+        if hasattr(self._inner, 'update_settings'):
+            self._inner.update_settings(settings)
+        logger.debug("ReflectiveAgent.update_settings called")
+
     async def get_response(self, text: str) -> str:
         """Delegate to inner agent."""
         return await self._inner.get_response(text)

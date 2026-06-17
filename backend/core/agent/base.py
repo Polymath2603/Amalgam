@@ -99,6 +99,16 @@ class BaseAgent(ABC):
             Text chunks of the agent's response (streaming).
         """
         ...
+        yield ""
+
+    def update_settings(self, settings):
+        """Update agent configuration when settings change.
+        
+        Base implementation updates the config dict. Subclasses with
+        richer state (e.g. self.settings, self.llm) should override.
+        """
+        self.config = settings if isinstance(settings, dict) else settings or {}
+        logger.debug("BaseAgent.update_settings called")
 
     async def execute_tool(self, tool_name: str, tool_input: dict) -> str:
         """
