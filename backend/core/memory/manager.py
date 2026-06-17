@@ -16,7 +16,9 @@ try:
 except ImportError:
     _HAS_CHROMADB = False
 from backend.core.memory.cache import FACTCache
+FactCache = FACTCache  # alias for plan compatibility
 from backend.core.memory.hybrid import HybridRetrieval
+HybridRetriever = HybridRetrieval  # alias for plan compatibility
 from backend.core.memory.session_index import SessionIndex
 from backend.core.memory.fts import FTSSearch
 from backend.core.memory.working import WorkingMemory
@@ -544,11 +546,17 @@ class Memory:
         if not self.llm and _LOCAL_EMBEDDING is None:
             return []
 
+        session_id = self.get_current_session()
+
+        # Use retrieve_for_context for caching + hybrid retrieval, then wrap to dicts
+        contents = await self.retrieve_for_context(query, session_id, n=top_k)
+        if contents:
+            return [{"role": "assistant", "content": c} for c in contents]
+
+        # Fallback: direct hybrid if retrieve_for_context returned nothing
         query_emb = await self._get_embedding(query)
         if not query_emb:
             return []
-
-        session_id = self.get_current_session()
         try:
             return await self._hybrid.retrieve(query, query_emb, session_id, top_k)
         except Exception as e:
@@ -568,6 +576,44 @@ class Memory:
                 logger.debug(f"ChromaDB query failed: {e2}")
 
         return []
+
+    async def retrieve_for_context(
+        self,
+        query: str,
+        session_id: str | None = None,
+        n: int = 5,
+    ) -> list[str]:
+        """
+        Retrieve relevant memory for the current query.
+        Uses: FACT cache → RRF hybrid (BM25 + ChromaDB) → return top-N.
+        Matches plan spec exactly (Task 3).
+        """
+        if not query or not query.strip():
+            return []
+
+        if session_id is None:
+            session_id = self.get_current_session()
+
+        # 1. Check FACT cache first — instant, no DB call
+        cache_key = f"{session_id[:8]}:{query[:80]}"
+        cached = self._fact_cache.get_key(cache_key)
+        if cached is not None:
+            return cached
+
+        # 2. RRF hybrid retrieval
+        query_emb = await self._get_embedding(query)
+        if not query_emb:
+            return []
+        try:
+            results = await self._hybrid.retrieve(query, query_emb, session_id, n)
+            contents = [r.get("content", "") for r in results if r.get("content")]
+        except Exception:
+            contents = []
+
+        # 3. Cache the result for 5 minutes
+        self._fact_cache.set_key(cache_key, contents, ttl=300)
+
+        return contents
 
     async def search_all_sessions(self, query: str, top_k: int = 10) -> List[Dict]:
         """Semantic search across ALL sessions (no session_id filter).

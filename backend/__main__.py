@@ -64,11 +64,19 @@ async def _print_stats(days: int):
 
 async def _run_curator():
     """Run the skill curator manually."""
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
     from backend.core.skills.curator import SkillCurator
     from backend.core.metrics import get_collector
 
     collector = get_collector()
-    curator = SkillCurator(metrics_collector=collector)
+
+    # CLI curator uses a dummy LLM caller (merge/summary steps are no-ops)
+    async def _dummy_llm(prompt: str, **kwargs) -> str:
+        return ""
+
+    curator = SkillCurator(metrics_collector=collector, llm_caller=_dummy_llm)
     await curator.run()
 
 

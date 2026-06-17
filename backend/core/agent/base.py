@@ -59,3 +59,19 @@ class BaseAgent(ABC):
         except Exception as e:
             logger.warning(f"Tool '{name}' raised: {e}")
             return ToolCall(name, tool_input, f"Tool error: {e}", False)
+
+    async def handle_user_input(self, text: str, images: list = None,
+                                relationship_context: str = "") -> 'AsyncGenerator[str | tuple[str, str], None]':
+        """Legacy streaming interface — delegates to run() for backward compatibility.
+        
+        Yields text chunks from run() plus standard signal tuples
+        (__thinking__, __tool__, __error__) that the WebSocket handler expects.
+        """
+        from typing import AsyncIterator as _AsyncIterator
+        ctx = {
+            "session_id": getattr(self.memory, 'get_current_session', lambda: '')() if hasattr(self.memory, 'get_current_session') else '',
+            "relationship_context": relationship_context,
+            "images": images or [],
+        }
+        async for chunk in self.run(text, ctx):
+            yield chunk

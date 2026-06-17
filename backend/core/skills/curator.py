@@ -62,10 +62,11 @@ class SkillCurator:
             grade = self._grade(skill_usage, age_days)
             results["graded"] += 1
 
-            if grade < 0.2:
+            # Archive only if BOTH: low usage AND stale (matches MIN_USAGE/STALE_DAYS intent)
+            if skill_usage < MIN_USAGE and age_days > STALE_DAYS:
                 self._archive(skill_path)
                 results["archived"] += 1
-                logger.info(f"Archived: {name} (grade={grade:.2f})")
+                logger.info(f"Archived: {name} (grade={grade:.2f}, used={skill_usage}, age={age_days}d)")
             else:
                 surviving.append(skill_path)
 

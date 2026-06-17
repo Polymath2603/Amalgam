@@ -23,6 +23,27 @@ class FACTCache:
 
     def get(self, text: str) -> Any | None:
         key = self._make_key(text)
+        return self._get_by_key(key)
+
+    def set(self, text: str, value: Any) -> None:
+        key = self._make_key(text)
+        is_static = any(p.search(text) for p in self._static_patterns)
+        ttl = self._static_ttl if is_static else self._default_ttl
+        self._cache[key] = (value, time.time() + ttl)
+
+    def get_key(self, key: str) -> Any | None:
+        """Get cached value by explicit key (no hashing)."""
+        return self._get_by_key(key)
+
+    def set_key(self, key: str, value: Any, ttl: int | None = None) -> None:
+        """Set cached value by explicit key (no hashing).
+        Useful for composite keys like 'session_id:query'.
+        """
+        if ttl is None:
+            ttl = self._default_ttl
+        self._cache[key] = (value, time.time() + ttl)
+
+    def _get_by_key(self, key: str) -> Any | None:
         if key in self._cache:
             value, expires_at = self._cache[key]
             if time.time() < expires_at:
