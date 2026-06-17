@@ -395,6 +395,7 @@ class ChatSession:
                 "Slash commands:\n"
                 "/clear — clear history\n"
                 "/new — start new session\n"
+                "/rename <title> — rename current session\n"
                 "/provider <name> — switch provider\n"
                 "/model <name> — switch model\n"
                 "/session <id> — show/load session\n"
@@ -523,6 +524,23 @@ class ChatSession:
                 valid = ", ".join(sorted(valid_themes))
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Current theme: {current}\nValid themes: {valid}", "finished": True})
+        elif cmd == "rename":
+            if args:
+                try:
+                    old = memory().get_current_session()
+                    new = await memory().rename_session(old, args.strip())
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Session renamed → \"{new}\"", "finished": True})
+                except ValueError as e:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Error: {e}", "finished": True})
+                except Exception as e:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Rename failed: {e}", "finished": True})
+            else:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": "Usage: /rename <new title>", "finished": True})
+
         elif cmd == "character":
             if args:
                 name = args.strip()
