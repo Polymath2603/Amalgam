@@ -168,10 +168,14 @@ def create_app ():
 
 
 async def _delayed_startup_tasks ():
-    """Run icon generation 2 seconds after startup so the server is responsive first."""
+    """Run icon generation and hot-reloader 2 seconds after startup so the server is responsive first."""
     try :
         await asyncio .sleep (2.0 )
         await generate_missing_icons ()
+        # Start hot-reloader
+        from backend .core .hot_reload import setup_hot_reload
+        reloader = setup_hot_reload()
+        asyncio .create_task (reloader .start())
     except Exception as e :
         logger .error (f"Error in delayed startup tasks: {e }")
 

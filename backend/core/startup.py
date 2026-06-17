@@ -104,5 +104,7 @@ async def shutdown_application ():
         from backend .core .deps import mcp ,memory 
         await mcp ().close ()
         await memory ().shutdown ()
+        from backend .core .hot_reload import get_reloader
+        get_reloader().stop()
     except Exception as e :
         logger .warning (f"Shutdown error: {e }")

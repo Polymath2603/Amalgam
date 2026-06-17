@@ -3,6 +3,7 @@ Amalgam CLI — usage: python -m backend <command>
 
 Commands:
   stats [--days N]    Show cost/usage statistics for the last N days (default: 7)
+  curate              Run skill curator manually (grades, archives, merges skills)
   server              Start the FastAPI server (default if no command given)
 """
 
@@ -17,6 +18,10 @@ def main():
             idx = sys.argv.index("--days")
             days = int(sys.argv[idx + 1]) if idx + 1 < len(sys.argv) else 7
         asyncio.run(_print_stats(days))
+        sys.exit(0)
+
+    if len(sys.argv) > 1 and sys.argv[1] == "curate":
+        asyncio.run(_run_curator())
         sys.exit(0)
 
     # Default: run server
@@ -55,6 +60,16 @@ async def _print_stats(days: int):
         for s in r["top_skills"]:
             print(f"    {s['skill_used']:<32} {s['uses']:>4} uses")
     print()
+
+
+async def _run_curator():
+    """Run the skill curator manually."""
+    from backend.core.skills.curator import SkillCurator
+    from backend.core.metrics import get_collector
+
+    collector = get_collector()
+    curator = SkillCurator(metrics_collector=collector)
+    await curator.run()
 
 
 if __name__ == "__main__":
