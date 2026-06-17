@@ -7,6 +7,7 @@ from backend.core.paths import PROJECT_ROOT, VAULT_DIR, CHARACTERS_DIR
 from backend.core.vault import VaultManager
 from backend.core.user_profile import UserProfile
 from backend.core.utils.tokens import estimate_tokens, truncate_to_token_limit
+from backend.core.constitution import build_system_prompt
 from backend.skills.md_skill import skill_section as _build_skills_section
 
 # Module-level singleton — loaded once at startup, persists across sessions
@@ -267,7 +268,10 @@ class ContextBuilder:
         memory_bias = character.get("memory_bias", []) if character else []
         forbidden = character.get("forbidden", []) if character else []
 
-        identity = system_prompt or f"You are {name}, a helpful AI assistant."
+        identity = build_system_prompt(
+            character_soul=system_prompt or f"You are {name}, a helpful AI assistant.",
+            character_name=name,
+        )
         style_parts = []
         if personality:
             style_parts.append(f"Personality: {personality}")
