@@ -21,7 +21,7 @@ from backend.core.metrics import MetricsCollector, TurnMetrics
 logger = logging.getLogger(__name__)
 
 THINK_RE = re.compile(r'<think>(.*?)</think>', re.DOTALL)
-EMOTION_TAG_RE = re.compile(r'\[(\w+)\]')
+EMOTION_TAG_RE = re.compile(r'(?<!\[)\[(\w+)\]')
 
 _metrics = MetricsCollector("data/metrics.db")
 

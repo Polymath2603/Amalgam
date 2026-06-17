@@ -3193,31 +3193,31 @@ function switchTab(name) {
 
 ```
 PHASE 0 — UNBLOCK (do today, ~1 hour)
-[ ] TASK 1:  Create backend/core/utils/wav.py
-[ ] TASK 2:  git commit on-disk files + git rm -r desktop/ + GitHub topics
+[x] TASK 1:  Create backend/core/utils/wav.py
+[x] TASK 2:  git commit on-disk files + git rm -r desktop/ + GitHub topics
 
 PHASE 1 — FOUNDATION (days 1-5)
-[ ] TASK 3:  Wire memory pipeline (cache → hybrid RRF → FTS5)
-[ ] TASK 7:  CONSTITUTION.md + per-agent soul system
-[ ] TASK 8:  Permission system (ask/auto-safe/allow-all + 4 tiers)
-[ ] TASK 12: User profile accumulator (injected into every prompt)
-[ ] TASK 13: Metrics collector + `python -m backend stats`
+[x] TASK 3:  Wire memory pipeline (cache → hybrid RRF → FTS5)
+[x] TASK 7:  CONSTITUTION.md + per-agent soul system
+[x] TASK 8:  Permission system (ask/auto-safe/allow-all + 4 tiers)
+[x] TASK 12: User profile accumulator (injected into every prompt)
+[x] TASK 13: Metrics collector + `python -m backend stats`
 
 PHASE 2 — PLATFORM (days 6-10)
-[ ] TASK 4:  Agent package (base, basic, planning, reflective, factory)
-[ ] TASK 5:  SKILL.md format + loader + 3 seed skills + injection scanner
-[ ] TASK 6:  LLM cost router (40-60% cost reduction)
-[ ] TASK 14: Skill curator (7-day background cycle)
-[ ] TASK 15: Hot-reload + self-modification for skills/agents
+[x] TASK 4:  Agent package (base, basic, planning, reflective, factory)
+[x] TASK 5:  SKILL.md format + loader + 3 seed skills + injection scanner
+[x] TASK 6:  LLM cost router (40-60% cost reduction)
+[x] TASK 14: Skill curator (7-day background cycle)
+[x] TASK 15: Hot-reload + self-modification for skills/agents
 
 PHASE 3 — UX + SETTINGS (days 11-13)
-[ ] TASK 16: Settings profiles (token-friendly/default/quality/custom)
-[ ] TASK 11: First-time setup wizard
-[ ] TASK 17: Swarm graph UI tab (D3.js)
+[x] TASK 16: Settings profiles (token-friendly/default/quality/custom)
+[x] TASK 11: First-time setup wizard
+[x] TASK 17: Swarm graph UI tab (D3.js)
 
 PHASE 4 — AVATAR + VOICE (days 14-20)
-[ ] TASK 9:  Avatar 14-emotion + emotion tag stream parser + life state machine
-[ ] TASK 10: Voice interrupt / barge-in
+[x] TASK 9:  Avatar 14-emotion + emotion tag stream parser + life state machine
+[x] TASK 10: Voice interrupt / barge-in
 
 AFTER THIS LIST — build in order:
   → Orchestrator class (OrchestratorState, todo list, router, plan mode)
