@@ -257,7 +257,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (tabId === 'metrics') loadMetrics();
             if (tabId === 'swarm' && !window.swarmGraph) {
-                initSwarmTab();
+                if (typeof window.initSwarmTab === 'function') window.initSwarmTab();
             }
         }
     }
@@ -579,8 +579,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     body.appendChild(thinkEl);
                 }
             } else if (data.type === 'swarm_update') {
-                if (typeof handleSwarmUpdate === 'function') {
-                    handleSwarmUpdate(data.data);
+                if (typeof window.handleSwarmUpdate === 'function') {
+                    window.handleSwarmUpdate(data.data);
                 }
             } else if (data.type === 'avatar_life_event') {
                 if (data.event === 'bored' && avatarRenderer) {
