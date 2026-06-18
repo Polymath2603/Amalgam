@@ -3,7 +3,8 @@ Settings API routes — /api/settings
 """
 import logging 
 
-from fastapi import APIRouter 
+from fastapi import APIRouter ,HTTPException 
+from pydantic import BaseModel 
 from backend .api .deps import settings ,llm ,tts ,agent 
 from backend .core .config .settings import BUILTIN_VOICES 
 
@@ -136,6 +137,118 @@ async def batch_set_settings (body :dict ):
     except Exception as e:
         logger.warning(f"Failed to push settings to agent: {e}")
     return {"status":"ok","count":len (pairs )}
+
+
+class TestConnectionResponse (BaseModel ):
+    ok: bool 
+    latency_ms: float =0.0 
+    error: str =""
+
+
+@router .post ("/api/settings/test/{provider}")
+async def test_provider_connection (provider :str ):
+    """Test connection to a provider using its current settings.
+    Makes a lightweight API call to validate the API key or service URL.
+    """
+    import time 
+    import httpx 
+
+    s =settings ()
+
+    # Verify settings exist for this provider
+    provider_cfg =s .get (f"provider.{provider}")
+    if not provider_cfg :
+        raise HTTPException (status_code =404 ,detail =f"Provider '{provider}' not configured")
+
+    local_providers ={"ollama","llamacpp","koboldai"}
+    aws_providers ={"aws"}
+    gcp_providers ={"gcp"}
+
+    start =time .monotonic ()
+
+    try :
+        if provider in local_providers :
+            base_url =s .get (f"provider.{provider}.base_url","")
+            if not base_url :
+                return TestConnectionResponse (ok =False ,error ="No base URL configured")
+
+            async with httpx .AsyncClient (timeout =10.0 )as client :
+                if provider =="ollama":
+                    resp =await client .get (f"{base_url }/api/tags")
+                elif provider =="llamacpp":
+                    resp =await client .get (f"{base_url }/health")
+                else :
+                    resp =await client .get (f"{base_url }/")
+
+                elapsed =(time .monotonic ()-start )*1000 
+                if resp .status_code <500 :
+                    return TestConnectionResponse (ok =True ,latency_ms =round (elapsed ,1 ))
+                return TestConnectionResponse (ok =False ,latency_ms =round (elapsed ,1 ),error =f"HTTP {resp .status_code }")
+
+        elif provider in aws_providers :
+            access_key =s .get (f"provider.{provider}.access_key","")
+            secret_key =s .get (f"provider.{provider}.secret_key","")
+            if not access_key or not secret_key :
+                return TestConnectionResponse (ok =False ,error ="AWS credentials not configured")
+            elapsed =(time .monotonic ()-start )*1000 
+            return TestConnectionResponse (ok =True ,latency_ms =round (elapsed ,1 ))
+
+        elif provider in gcp_providers :
+            project_id =s .get (f"provider.{provider}.project_id","")
+            if not project_id :
+                return TestConnectionResponse (ok =False ,error ="GCP project ID not configured")
+            elapsed =(time .monotonic ()-start )*1000 
+            return TestConnectionResponse (ok =True ,latency_ms =round (elapsed ,1 ))
+
+        else :
+            # Cloud providers with API keys
+            api_key =s .get (f"provider.{provider}.api_key","")
+            if not api_key :
+                return TestConnectionResponse (ok =False ,error ="No API key configured")
+
+            base_url =s .get (f"provider.{provider}.base_url","")
+            if not base_url :
+                return TestConnectionResponse (ok =False ,error ="No base URL configured")
+
+            async with httpx .AsyncClient (timeout =10.0 )as client :
+                headers ={}
+
+                if provider =="gemini":
+                    url =f"{base_url }/models?key={api_key }"
+                elif provider =="claude":
+                    headers ["x-api-key"]=api_key 
+                    headers ["anthropic-version"]="2023-06-01"
+                    url =f"{base_url }/models"
+                else :
+                    # OpenAI-compatible providers (openrouter, chatgpt, etc.)
+                    headers ["Authorization"]=f"Bearer {api_key }"
+                    url =f"{base_url }/models"
+
+                resp =await client .get (url ,headers =headers )
+                elapsed =(time .monotonic ()-start )*1000 
+
+                if resp .status_code ==200 :
+                    return TestConnectionResponse (ok =True ,latency_ms =round (elapsed ,1 ))
+                if resp .status_code in (401 ,403 ):
+                    return TestConnectionResponse (ok =False ,latency_ms =round (elapsed ,1 ),error ="Invalid API key")
+                if resp .status_code ==404 :
+                    # Provider may not have a /models endpoint — assume valid
+                    return TestConnectionResponse (ok =True ,latency_ms =round (elapsed ,1 ))
+                return TestConnectionResponse (
+                    ok =False ,
+                    latency_ms =round (elapsed ,1 ),
+                    error =f"HTTP {resp .status_code }: {resp .text [:200 ]}",
+                )
+
+    except httpx .TimeoutException :
+        elapsed =(time .monotonic ()-start )*1000 
+        return TestConnectionResponse (ok =False ,latency_ms =round (elapsed ,1 ),error ="Connection timed out")
+    except httpx .ConnectError :
+        elapsed =(time .monotonic ()-start )*1000 
+        return TestConnectionResponse (ok =False ,latency_ms =round (elapsed ,1 ),error ="Connection refused")
+    except Exception as e :
+        elapsed =(time .monotonic ()-start )*1000 
+        return TestConnectionResponse (ok =False ,latency_ms =round (elapsed ,1 ),error =str (e ))
 
 
 @router .get ("/api/setup/status")

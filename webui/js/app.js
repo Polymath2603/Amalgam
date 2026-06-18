@@ -1635,6 +1635,60 @@ document.addEventListener('DOMContentLoaded', async () => {
         const chars = await api(BASE_URL + '/api/characters');
         const charName = chars?.[charId]?.name || (charId.charAt(0).toUpperCase() + charId.slice(1));
         setCharacterAvatar(charName);
+        addTestConnectionButtons();
+    }
+
+    function addTestConnectionButtons() {
+        const providers = ['gemini', 'openrouter', 'zai', 'siliconflow', 'groq', 
+                           'chatgpt', 'claude', 'deepseek', 'mistral', 'together',
+                           'azure-openai', 'alibaba', 'huggingface'];
+        
+        for (const provider of providers) {
+            const keyInput = document.getElementById(`${provider}-api-key`);
+            if (!keyInput) continue;
+            
+            const container = keyInput.closest('.input-with-action');
+            if (!container) continue;
+            
+            // Skip if already added
+            if (container.querySelector('.test-conn-btn')) continue;
+            
+            const testBtn = document.createElement('button');
+            testBtn.className = 'icon-btn test-conn-btn';
+            testBtn.innerHTML = '<span class="material-icons-round">wifi_find</span>';
+            testBtn.title = 'Test connection';
+            testBtn.dataset.provider = provider;
+            
+            testBtn.addEventListener('click', async () => {
+                testBtn.disabled = true;
+                testBtn.innerHTML = '<span class="material-icons-round" style="animation: spin 1s linear infinite">sync</span>';
+                
+                try {
+                    const resp = await fetch(`${BASE_URL}/api/settings/test/${provider}`, {
+                        method: 'POST',
+                    });
+                    const result = await resp.json();
+                    
+                    if (result.ok) {
+                        testBtn.innerHTML = '<span class="material-icons-round" style="color: var(--success)">check_circle</span>';
+                        showToast(`Connected (${result.latency_ms}ms)`, 'success');
+                    } else {
+                        testBtn.innerHTML = '<span class="material-icons-round" style="color: var(--danger)">error</span>';
+                        showToast(`Failed: ${result.error}`, 'danger');
+                    }
+                } catch (e) {
+                    testBtn.innerHTML = '<span class="material-icons-round" style="color: var(--danger)">error</span>';
+                    showToast(`Connection test failed: ${e.message}`, 'danger');
+                }
+                
+                setTimeout(() => {
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = '<span class="material-icons-round">wifi_find</span>';
+                }, 3000);
+            });
+            
+            container.appendChild(testBtn);
+        }
     }
 
     function setVal(id, val) {
@@ -2417,6 +2471,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.visualViewport.addEventListener('resize', adjustForKeyboard);
         window.visualViewport.addEventListener('scroll', adjustForKeyboard);
     }
+
+    // Add CSS animation for test connection spinner
+    const _styleSheet = document.createElement('style');
+    _styleSheet.textContent = `
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .test-conn-btn .material-icons-round { font-size: 18px; }
+    `;
+    document.head.appendChild(_styleSheet);
 });
 
 // 6A.5 — GPU capability detection
