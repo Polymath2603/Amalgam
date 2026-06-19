@@ -6,6 +6,9 @@ import pytest
 
 os.environ["K_HEADLESS"] = "1"
 os.environ["K_TESTING"] = "1"
+# Prevent litellm from making network requests at import time (telemetry, updates).
+# litellm connects to GitHub CDN on import which can hang when offline or on restricted networks.
+os.environ.setdefault("LITELLM_DISABLE_TELEMETRY", "true")
 
 
 @pytest.fixture
