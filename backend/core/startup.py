@@ -7,9 +7,9 @@ import os
 import asyncio 
 import logging 
 
-from backend .core .deps import get_shared 
-from backend .core .paths import VAULT_DIR 
-from backend .core .config .settings import load_characters_from_yaml 
+from backend.core .deps import get_shared 
+from backend.core .paths import VAULT_DIR 
+from backend.core .config .settings import load_characters_from_yaml 
 
 logger =logging .getLogger (__name__ )
 
@@ -29,7 +29,7 @@ async def init_application ():
 
     log_level =settings .get ("log.level","WARNING")
     log_format =settings .get ("log.format","console")
-    from backend .core .log_config import configure_logging 
+    from backend.core .log_config import configure_logging 
     configure_logging (level =log_level ,log_format =log_format )
     memory =shared ["memory"]
     mcp_client =shared ["mcp"]
@@ -68,10 +68,30 @@ async def init_application ():
     settings .start_watcher ()
     settings .on_change (make_settings_reloader (mcp_client ,asyncio .get_event_loop ())) 
 
+    # ── Discover and load plugins ────────────────────────────────────
+    try :
+        from backend .plugins .manager import PluginManager
+        plugin_mgr = PluginManager (auto_register =True )
+        await plugin_mgr .discover_and_load ()
+        shared ["plugin_manager"]=plugin_mgr
+        logger .info ("Plugin system initialized with %d plugin(s)",len (plugin_mgr .plugins ))
+    except Exception as e :
+        logger .warning (f"Plugin initialization skipped: {e }")
+
+    # ── Register health checks and start background checker ────────────
+    from backend.core.health import register_builtin_checks, get_registry
+
+    register_builtin_checks(
+        settings_obj=settings,
+        llm_obj=shared.get("llm"),
+        tts_obj=shared.get("tts"),
+    )
+    await get_registry().start_background_checker(interval=60)
+
 
 def make_settings_reloader (mcp_client ,loop ):
     """Return a callback that hot-reloads components when settings change."""
-    from backend .core .deps import get_shared 
+    from backend.core .deps import get_shared 
 
     def _reload (settings ):
         """Reload MCP servers and refresh character data on settings change."""
@@ -101,10 +121,26 @@ def make_settings_reloader (mcp_client ,loop ):
 async def shutdown_application ():
     """Clean up shared resources. Call on application shutdown."""
     try :
-        from backend .core .deps import mcp ,memory 
+        from backend.core .deps import mcp ,memory
         await mcp ().close ()
         await memory ().shutdown ()
-        from backend .core .hot_reload import get_reloader
+        from backend.core .hot_reload import get_reloader
         get_reloader().stop()
+        from backend.core .health import get_registry
+        await get_registry().stop_background_checker()
+        # Shutdown all plugins
+        try :
+            from backend .plugins .manager import PluginManager
+            from backend .core .deps import get_shared
+            shared =get_shared ()
+            plugin_mgr =shared .get ("plugin_manager")
+            if plugin_mgr :
+                errors =await plugin_mgr .shutdown_all (timeout =10.0 )
+                if errors :
+                    logger .warning (
+                        "%d plugin(s) had shutdown errors",len (errors )
+                    )
+        except Exception as e :
+            logger .warning (f"Plugin shutdown error: {e }")
     except Exception as e :
         logger .warning (f"Shutdown error: {e }")

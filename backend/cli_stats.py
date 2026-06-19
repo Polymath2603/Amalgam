@@ -71,7 +71,7 @@ async def main(days: int = 7):
         console=_err_con,
     ) as progress:
         progress.add_task(description="[cyan]Generating metrics report...[/cyan]", total=None)
-        report = await m.weekly_report()
+        report = await m.report(days=days)
 
     total_turns = report.get("total_turns", 0)
 

@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-METRICS_DB = Path("data/metrics.db")
+
+from backend.core.paths import DATA_DIR
+METRICS_DB = DATA_DIR / "metrics.db"
 
 # Cost table: provider/model -> (input_$/1M, output_$/1M)
 COST_TABLE = {

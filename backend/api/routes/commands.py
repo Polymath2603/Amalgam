@@ -32,7 +32,10 @@ COMMANDS =[
 {"name":"permission","desc":"Set permission level (readonly, confirm, full)"},
 ]
 
+# Commands are static — cache the response
+_CACHED_COMMANDS_RESPONSE = {"commands": COMMANDS}
+
 
 @router .get ("/api/commands")
 async def get_commands ():
-    return {"commands":COMMANDS }
+    return _CACHED_COMMANDS_RESPONSE

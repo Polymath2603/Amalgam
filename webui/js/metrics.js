@@ -1,17 +1,25 @@
 // Metrics dashboard — fetches and renders per-turn + tool analytics
 
+const _IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
+const _BASE_URL = _IS_TAURI ? 'http://localhost:8000' : '';
+
 export function loadMetrics() {
   const el = document.getElementById('metrics-dashboard');
   if (!el) return;
-  el.innerHTML = '<p class="metrics-empty" data-i18n="metrics.loading">Loading...</p>';
+  el.innerHTML = `<div class="metrics-summary">${'<div class="metric-card"><div class="skeleton skeleton-text" style="width:60%;margin:0 auto"></div><div class="skeleton skeleton-text" style="width:40%;margin:0.25rem auto 0"></div></div>'.repeat(5)}</div>`;
+  el.setAttribute('aria-busy', 'true');
 
   Promise.all([
-    fetch('/api/metrics/summary').then(r => r.json()),
-    fetch('/api/metrics/turns?limit=30').then(r => r.json()),
-    fetch('/api/metrics/tool-history?limit=20').then(r => r.json()),
+    fetch(_BASE_URL + '/api/metrics/summary').then(r => r.json()),
+    fetch(_BASE_URL + '/api/metrics/turns?limit=30').then(r => r.json()),
+    fetch(_BASE_URL + '/api/metrics/tool-history?limit=20').then(r => r.json()),
   ])
-    .then(([summary, turns, tools]) => renderMetrics(el, summary, turns, tools))
+    .then(([summary, turns, tools]) => {
+      el.removeAttribute('aria-busy');
+      renderMetrics(el, summary, turns, tools);
+    })
     .catch(() => {
+      el.removeAttribute('aria-busy');
       el.innerHTML = `<p class="metrics-empty" data-i18n="metrics.no_data">No metrics yet — start chatting to see data.</p>`;
     });
 }

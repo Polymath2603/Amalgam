@@ -14,7 +14,8 @@ import sys
 import argparse
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-os.environ["HF_TOKEN"] = ""
+if "HF_TOKEN" not in os.environ:
+    os.environ["HF_TOKEN"] = ""
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -179,7 +180,7 @@ def _error(msg, **kwargs):
 def main():
     parser = argparse.ArgumentParser(
         description="Amalgam — voice-first AI companion",
-        add_help=False,  # We handle --help ourselves
+        add_help=False,
     )
     parser.add_argument(
         "frontend",
@@ -210,9 +211,15 @@ def main():
     parser.add_argument("--stats-days", type=int, default=7,
         help="Number of days for stats report (default: 7)",
     )
-    parser.add_argument("--help", action="store_true", help="Show this help message")
+    parser.add_argument("-h", "--help", action="store_true", help="Show this help message")
 
-    args, _ = parser.parse_known_args()
+    args, unknown = parser.parse_known_args()
+
+    # Reject unknown arguments for non-CLI frontends (cli subcommand forwards them)
+    if unknown and args.frontend != "cli":
+        _error(f"Unknown argument(s): {' '.join(unknown)}")
+        _info("Run 'python main.py --help' for usage")
+        sys.exit(2)
 
     # Handle --help or help command
     if args.help or args.frontend == "help":
@@ -263,6 +270,11 @@ def main():
     elif args.frontend == "cli":
         from cli import main as cli_main
 
+        # Forward remaining arguments: strip 'cli' from arg list and pass the rest
+        # e.g. `python main.py cli status` → main.py gets ['main.py', 'cli', 'status']
+        # We rebuild sys.argv so that cli.main() sees ['main.py', 'status']
+        cli_argv = [sys.argv[0]] + unknown
+        sys.argv = cli_argv
         cli_main()
     else:
         port = args.port or int(os.environ.get("AMALGAM_PORT", "8000"))

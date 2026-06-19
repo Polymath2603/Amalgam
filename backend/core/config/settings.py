@@ -14,7 +14,7 @@ from pathlib import Path
 from backend .core .paths import CHARACTERS_DIR ,SETTINGS_PATH ,PROJECT_ROOT ,VAULT_DIR ,DATA_DIR 
 
 # --- Profile system (Task 16) ---
-PROFILES_DIR = Path("data/settings/profiles")
+PROFILES_DIR = DATA_DIR / "settings" / "profiles"
 
 def load_profile(profile_name: str) -> dict:
     """Load a named profile. Returns empty dict if not found."""
@@ -245,20 +245,6 @@ DEFAULTS ={
 "model":"nova-2"
 },
 "tts_timeout":60.0 
-},
-"llm":{
-"temperature":0.7 ,
-"max_tokens":2048 ,
-"timeout":120.0 ,
-"context_token_limit":6000 
-},
-"memory":{
-"retrieval_k":3 ,
-"context_window":50 ,
-"summarize_threshold":40 ,
-"summarize_keep":15 ,
-"embedding_backend":"provider",
-"fact_extraction":True 
 },
 "wake_word":{
 "enabled":False ,

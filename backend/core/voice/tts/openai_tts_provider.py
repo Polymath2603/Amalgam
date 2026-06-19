@@ -3,7 +3,7 @@ import logging
 import numpy as np 
 import httpx 
 
-from .base import TTSProvider 
+from .base import TTSProvider, decode_wav, retry_http 
 
 logger =logging .getLogger (__name__ )
 
@@ -22,10 +22,10 @@ class OpenAITTSProvider (TTSProvider ):
         if base_url :
             self ._base_url =base_url .rstrip ("/")
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if not self ._api_key :
             logger .warning ("OpenAI TTS API key not set")
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
         url =f"{self ._base_url }/audio/speech"
         headers ={
@@ -39,23 +39,15 @@ class OpenAITTSProvider (TTSProvider ):
         "response_format":"wav",
         }
         try :
-            response =await self ._client .post (url ,json =body ,headers =headers )
-            if response .status_code ==200 :
-                audio_bytes =response .content 
-                import io 
-                import wave 
-                import struct 
-                with io .BytesIO (audio_bytes )as buf :
-                    with wave .open (buf ,"rb")as wf :
-                        sr =wf .getframerate ()
-                        frames =wf .readframes (wf .getnframes ())
-                        audio_np =np .frombuffer (frames ,dtype =np .int16 ).astype (np .float32 )/32767.0 
-                return audio_np ,[],sr 
-            else :
+            response =await retry_http (self ._client ,"POST",url ,json =body ,headers =headers )
+            if response is not None and response .status_code ==200 :
+                audio_np ,sr =decode_wav (response .content )
+                return audio_np ,None ,sr 
+            elif response is not None :
                 logger .error (f"OpenAI TTS error {response .status_code }: {response .text [:200 ]}")
         except Exception as e :
             logger .error (f"OpenAI TTS error: {e }")
-        return np .zeros (0 ,dtype =np .float32 ),[],24000 
+        return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
     async def close (self ):
         await self ._client .aclose ()

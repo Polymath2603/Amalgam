@@ -24,6 +24,19 @@ _jinja_env = jinja2.Environment(
 
 VRM_EXPRESSIONS = ["happy", "angry", "sad", "relaxed", "surprised", "blink"]
 
+# Voice ID → natural description for prompt injection
+_VOICE_DESCRIPTIONS = {
+    "en-US-AriaNeural": "a warm, friendly female voice (Aria)",
+    "en-US-JaneNeural": "a calm, gentle female voice (Jane)",
+    "en-US-GuyNeural": "a friendly male voice (Guy)",
+    "en-US-JennyNeural": "a cheerful, warm female voice (Jenny)",
+    "en-US-DavisNeural": "a confident male voice (Davis)",
+    "en-US-TonyNeural": "a deep, authoritative male voice (Tony)",
+    "en-US-NancyNeural": "a playful, expressive female voice (Nancy)",
+    "en-US-SaraNeural": "a bright, friendly female voice (Sara)",
+    "en-US-JasonNeural": "a calm, reassuring male voice (Jason)",
+}
+
 
 _PROMPT_TEMPLATE = """\
 
@@ -266,48 +279,72 @@ class ContextBuilder:
         return f"\n\n{relationship_context}"
 
     def _build_character_prompt(self, character: Dict, additional_prompt: str = "",
-                                character_id: str = None, tools: list = None) -> str:
+                                character_id: str = None, tools: list = None) -> dict:
         name = character.get("name", "Assistant") if character else "Assistant"
         system_prompt = character.get("system_prompt", "") if character else ""
-        personality = character.get("personality", "") if character else ""
-        characteristics = character.get("characteristics", "") if character else ""
-        interaction_style = character.get("interaction_style", "") if character else ""
         vocabulary = character.get("vocabulary", []) if character else []
         dialogue_examples = character.get("dialogue_examples", []) if character else []
         quirks = character.get("quirks", []) if character else []
         memory_bias = character.get("memory_bias", []) if character else []
         forbidden = character.get("forbidden", []) if character else []
+        char_desc = character.get("description", "") if character else ""
+        mood = character.get("mood_baseline") if character else None
+        volatility = character.get("mood_volatility") if character else None
+        voice = character.get("voice", "") if character else ""
+        greeting = character.get("greeting", "") if character else ""
 
+        # --- Identity: constitution + description + system_prompt ---
+        identity_content = system_prompt or f"You are {name}, a helpful AI assistant."
+        if char_desc:
+            identity_content = f"### About You\n{char_desc}\n\n{identity_content}"
         identity = build_system_prompt(
-            character_soul=system_prompt or f"You are {name}, a helpful AI assistant.",
+            character_soul=identity_content,
             character_name=name,
         )
+
+        # --- Character style: non-redundant metadata only ---
         style_parts = []
-        if personality:
-            style_parts.append(f"Personality: {personality}")
-        if characteristics:
-            style_parts.append(f"Traits: {characteristics}")
-        if interaction_style:
-            style_parts.append(f"Style: {interaction_style}")
+
+        if voice:
+            voice_desc = _VOICE_DESCRIPTIONS.get(
+                voice, f"a distinctive voice ({voice})"
+            )
+            style_parts.append(f"Your voice: {voice_desc}.")
+
         if vocabulary:
             quoted = ' '.join(f'"{p}"' for p in vocabulary)
             style_parts.append(f"Signature phrases: {quoted}")
+
         if quirks:
             style_parts.append(f"Quirks: {'; '.join(quirks)}")
+
         if memory_bias:
             style_parts.append(f"Always remember: {'; '.join(memory_bias)}")
+
         if forbidden:
-            style_parts.append(f"Forbidden: {'; '.join(forbidden)}")
-        character_style = "\n".join(style_parts) if style_parts else "Be warm, natural, and engaging."
+            formatted = "\n".join(f"- {f}" for f in forbidden)
+            style_parts.append(f"🚫 ABSOLUTE FORBIDDEN — never engage with:\n{formatted}")
+
+        if mood is not None:
+            mood_info = f"Your default mood level is {mood}"
+            if volatility is not None:
+                mood_info += f" and your mood changes at a rate of {volatility}"
+            style_parts.append(mood_info + ".")
+
+        character_style = "\n\n".join(style_parts) if style_parts else "Be warm, natural, and engaging."
 
         if dialogue_examples:
-            character_style += "\n\n### Dialogue Examples"
+            character_style += (
+                "\n\n### Dialogue Examples\n"
+                "These are stylistic references — use them as tone inspiration, not verbatim templates:"
+            )
             for ex in dialogue_examples:
                 character_style += f'\n- "{ex}"'
 
         if additional_prompt and additional_prompt.strip():
             character_style += f"\n\n{additional_prompt}"
 
+        # --- Avatar section ---
         anims = self._get_available_animations(character_id)
         if anims:
             anim_lines = "\n".join(f"  - \"{a}\"" for a in anims)
@@ -345,8 +382,10 @@ class ContextBuilder:
         else:
             avatar_section = ""
 
+        # --- Vault rules ---
         vault_rules = self._build_vault_section()
 
+        # --- Reasoning note ---
         if self.settings and not self.settings.get("ui.thinking_enabled", True):
             reasoning_note = ""
         else:
@@ -358,6 +397,7 @@ class ContextBuilder:
             "character_style": character_style,
             "vault_rules": vault_rules,
             "reasoning_note": reasoning_note,
+            "greeting": greeting,
         }
 
     def build_from_messages(self, messages: list, new_user_msg: str) -> list:

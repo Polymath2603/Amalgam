@@ -1,7 +1,7 @@
 """Tests for the metacognitive engine (StrategySelector, DeltaEvaluator)."""
 
 import pytest
-from backend.core.metacognitive.strategy_selector import StrategySelector, STRATEGIES
+from backend.core.metacognitive.strategy_selector import StrategySelector, LLMStrategy, STRATEGIES
 
 
 class TestStrategySelector:
@@ -241,7 +241,7 @@ class TestMetaCognitiveEngine:
     def test_reset(self):
         from backend.core.metacognitive.engine import MetaCognitiveEngine
         mce = MetaCognitiveEngine(window=5)
-        mce.record_outcome("code", 0.5, type("s", (), {"temperature": 0.7})())
+        mce.record_outcome("code", 0.5, LLMStrategy(temperature=0.7, max_iterations=3, use_chain_of_thought=True, max_output_tokens=4096))
         assert len(mce.strategy_selector._history) >= 1
         mce.reset()
         assert len(mce.strategy_selector._history) == 0

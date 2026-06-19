@@ -4,6 +4,7 @@
     "nav.characters": "Characters",
     "nav.settings": "Settings",
     "nav.metrics": "Metrics",
+    "nav.swarm": "Swarm",
 
     "metrics.title": "Metrics",
     "metrics.loading": "Loading...",
@@ -156,11 +157,22 @@
     "status.thinking": "Thinking...",
     "status.speaking": "Speaking...",
     "status.listening": "Listening...",
+    "status.offline": "You are offline",
     "status.typing": "Typing...",
     "status.error": "Error",
     "status.ready": "Ready",
     "status.connected": "Connected",
     "status.disconnected": "Disconnected",
+    "status.reconnecting": "Reconnecting...",
+    "status.reconnecting_countdown": "Reconnecting in {seconds}s... (attempt {attempt})",
+
+    "welcome.title": "Welcome to Amalgam",
+    "welcome.subtitle": "Your AI companion is ready. Start a conversation or try one of these prompts:",
+    "welcome.hint_about": "Tell me about yourself",
+    "welcome.hint_capabilities": "What can you do?",
+    "welcome.hint_brainstorm": "Help me brainstorm ideas",
+
+    "characters.no_characters": "No characters found",
 
     "toast.settings_saved": "All settings saved",
     "toast.settings_failed": "Failed to save settings",
@@ -232,6 +244,8 @@
 
     "history.no_conversations": "No conversations yet",
     "history.messages": "{count} messages",
+
+    "install.prompt": "Install Amalgam for offline use",
 
     "command.allowed_once": "allowed once",
     "command.prefix_allowed": "prefix allowed",

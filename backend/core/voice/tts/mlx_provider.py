@@ -56,8 +56,7 @@ class MLXProvider (TTSProvider ):
 
         try :
             audio_np =await loop .run_in_executor (None ,_sync_synth )
-            visemes =["A"]*(len (text )//2 )
-            return audio_np ,visemes ,self ._sr 
+            return audio_np ,None ,self ._sr 
         except Exception as e :
             logger .error (f"MLX TTS synthesis error: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[],self ._sr 
+            return np .zeros (0 ,dtype =np .float32 ),None ,self ._sr 

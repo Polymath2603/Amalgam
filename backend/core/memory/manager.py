@@ -1,4 +1,5 @@
 import json
+import os
 import asyncio
 import concurrent.futures
 import threading
@@ -46,8 +47,9 @@ class Memory:
         self._summarize_lock = asyncio.Lock()
         self._current_session: Optional[str] = None
         self._known_sessions: set = set()
+        self._session_data_cache: Dict[str, Dict] = {}
         self._lock = threading.Lock()
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="mem_io")
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4, thread_name_prefix="mem_io")
 
         EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
         if _HAS_CHROMADB:
@@ -83,9 +85,22 @@ class Memory:
         self._episodic_memories: Dict[str, EpisodicMemory] = {}
 
     def _maybe_migrate(self):
+        """Migrate legacy session embeddings to ChromaDB (runs once).
+        
+        A sentinel file (``.migrated``) is created on completion to prevent
+        re-running on every startup.
+        """
+        from backend.core.paths import EMBEDDINGS_DIR
+
+        sentinel = EMBEDDINGS_DIR / ".migrated"
+        if sentinel.exists():
+            return
+
         existing = set(self.chroma_col.get()["ids"])
         if existing:
+            sentinel.touch()
             return
+
         for p in self._iter_session_paths():
             try:
                 data = json.loads(p.read_text())
@@ -107,6 +122,8 @@ class Memory:
                     self.chroma_col.add(ids=ids, embeddings=embs, metadatas=metas)
             except Exception as e:
                 logger.debug(f"Migration skipped for {p}: {e}")
+
+        sentinel.touch()
 
     def _session_path(self, session_id: str) -> Path:
         if not session_id:
@@ -139,18 +156,27 @@ class Memory:
         return None
 
     def _read_sync(self, session_id: str) -> Optional[Dict]:
+        """Read session data from memory cache or disk."""
+        # Return cached copy if available (avoids full-file I/O every turn)
+        if session_id in self._session_data_cache:
+            return self._session_data_cache[session_id]
         path = self._session_path(session_id)
         if not path.exists():
             return None
         try:
-            return json.loads(path.read_text())
+            data = json.loads(path.read_text())
+            self._session_data_cache[session_id] = data
+            return data
         except (json.JSONDecodeError, OSError):
             return None
 
     def _write_sync(self, session_id: str, data: Dict):
+        """Write session data to disk and update in-memory cache."""
         path = self._session_path(session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2, default=str))
+        # Update cache so subsequent reads avoid disk I/O
+        self._session_data_cache[session_id] = data
 
     async def _read(self, session_id: str) -> Optional[Dict]:
         path = self._session_path(session_id)
@@ -470,6 +496,7 @@ class Memory:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self._executor, path.unlink)
             self._known_sessions.discard(session_id)
+            self._session_data_cache.pop(session_id, None)
             self._session_index.remove(session_id)
             return True
         return False
@@ -746,6 +773,7 @@ class Memory:
         for path in list(self._iter_session_paths()):
             await loop.run_in_executor(self._executor, path.unlink)
         self._known_sessions.clear()
+        self._session_data_cache.clear()
         self._session_index._index.clear()
         self._session_index._save()
         self._hybrid = HybridRetrieval(self.chroma_col)

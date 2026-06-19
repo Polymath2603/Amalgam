@@ -9,16 +9,35 @@ Usage:
 from pathlib import Path
 import logging
 
+from backend.core.paths import DATA_DIR
+
 logger = logging.getLogger(__name__)
-CONSTITUTION_PATH = Path("data/constitution.md")
+CONSTITUTION_PATH = DATA_DIR / "constitution.md"
+
+# Cache for hot-reload support — _reload_constitution sets this to None
+_cache: str | None = None
 
 
 def load_constitution() -> str:
     """Load the global constitution. Returns empty string if file doesn't exist."""
+    global _cache
+    if _cache is not None:
+        return _cache
     if CONSTITUTION_PATH.exists():
-        return CONSTITUTION_PATH.read_text(encoding="utf-8").strip()
-    logger.warning("data/constitution.md not found — no global rules applied")
+        _cache = CONSTITUTION_PATH.read_text(encoding="utf-8").strip()
+        return _cache
+    logger.warning("constitution.md not found — no global rules applied")
+    _cache = ""
     return ""
+
+
+def reload_cache():
+    """Clear the cached constitution so it's re-read on next access.
+
+    Called by HotReloader when constitution.md changes.
+    """
+    global _cache
+    _cache = None
 
 
 def build_system_prompt(
@@ -28,20 +47,21 @@ def build_system_prompt(
 ) -> str:
     """
     Combine CONSTITUTION.md with a character's own system prompt.
-    Constitution comes first so its rules take precedence.
-    The character soul follows — it defines personality, not safety rules.
+    Uses natural language framing instead of [Section] headers.
     """
     if skip_constitution:
         return character_soul
 
     constitution = load_constitution()
-    if not constitution:
-        return character_soul
-
     parts = []
+
     if constitution:
-        parts.append(f"[Global Rules]\n{constitution}")
+        parts.append(f"You are operating under these global rules:\n{constitution}")
+
     if character_soul:
-        parts.append(f"[Character: {character_name or 'assistant'}]\n{character_soul}")
+        if constitution:
+            parts.append(f"Your identity:\n{character_soul}")
+        else:
+            parts.append(character_soul)
 
     return "\n\n".join(parts)

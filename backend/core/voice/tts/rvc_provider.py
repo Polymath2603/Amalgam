@@ -4,7 +4,7 @@ import logging
 import numpy as np 
 import httpx 
 
-from .base import TTSProvider 
+from .base import TTSProvider, retry_http 
 
 logger =logging .getLogger (__name__ )
 
@@ -30,11 +30,11 @@ class RVCProvider (TTSProvider ):
 
     async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if not text .strip ():
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
         if self ._tts_provider is None :
             logger .error ("RVC requires a TTS provider set via set_tts_provider()")
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
         source_result =await self ._tts_provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
         if isinstance (source_result ,tuple )and len (source_result )>=3 :
@@ -44,7 +44,7 @@ class RVCProvider (TTSProvider ):
             source_sr =24000 
 
         if len (source_audio )==0 :
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
         import io 
         import wave 
@@ -73,21 +73,26 @@ class RVCProvider (TTSProvider ):
             data ["model"]=self .voice 
 
         try :
-            resp =await self ._client .post (
+            resp =await retry_http (self ._client ,"POST",
             f"{self ._url }/voice-change",
             data =data ,
             files =files ,
             )
-            if resp .status_code !=200 :
-                logger .error (f"RVC error {resp .status_code }: {resp .text [:200 ]}")
-                return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            if resp is None or resp .status_code !=200 :
+                logger .error ("RVC error or request failed")
+                return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
             audio_np =np .frombuffer (resp .content ,dtype =np .int16 ).astype (np .float32 )/32767.0 
-            visemes =["A"]*(len (text )//2 )
-            return audio_np ,visemes ,24000 
+            return audio_np ,None ,24000 
+        except httpx .HTTPStatusError as e :
+            logger .error (f"RVC HTTP error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
+        except httpx .RequestError as e :
+            logger .error (f"RVC request error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
         except Exception as e :
             logger .error (f"RVC error: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
     async def close (self ):
         await self ._client .aclose ()

@@ -6,12 +6,17 @@ import json
 import re
 import logging
 
+from collections.abc import AsyncGenerator
+from typing import Any
+
 from fastapi import WebSocket, WebSocketDisconnect
-from backend.api.deps import settings, memory, tts, agent, relationship, wakeword
+from backend.api.deps import settings, memory, tts, agent, relationship, wakeword, mcp, orchestrator
 from backend.api.ws.tts_service import synthesize_sentence, synthesize_now
+from backend.core.orchestrator import AgentProtocol
 from pathlib import Path
 from backend.core.paths import CHARACTERS_DIR, PROJECT_ROOT
 from backend.voice.pipeline import VoicePipeline
+from backend.core.errors import ServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,29 @@ def _resolve_animation(text: str, char_id: str) -> str | None:
     return None
 
 
+class _OrchestratorAgentAdapter:
+    """Adapts the application's Agent to the AgentProtocol expected by the orchestrator.
+
+    The orchestrator's ``dispatch_step`` calls ``handle_user_input(task_description)``
+    on sub-agents.  This wrapper maps that call to the application agent's richer
+    ``handle_user_input(text, images, relationship_context)`` interface.
+    """
+
+    def __init__(self, agent_type: str = "basic"):
+        self.agent_type = agent_type
+
+    async def handle_user_input(self, inp: str) -> AsyncGenerator[str, None]:
+        """Delegate to the DI-provided application agent."""
+        app_agent = agent()
+        async for chunk in app_agent.handle_user_input(inp):
+            if isinstance(chunk, str):
+                yield chunk
+            elif isinstance(chunk, tuple):
+                # Skip signals (emotion, thinking, etc.) — just yield text
+                if chunk[0] in ("__text__",):
+                    yield chunk[1]
+
+
 class ChatSession:
     """Per-WebSocket connection state and message handling."""
 
@@ -97,6 +125,8 @@ class ChatSession:
         self.client_caps: dict = {}
         self.client_platform: str = "web"
         self._main_loop = asyncio.get_running_loop()
+        # Wire MCP client for /stats, /approve, /permission slash commands
+        self._mcp_client = mcp()
 
     def _track_task(self, t: asyncio.Task):
         """Track a task and register safe cleanup on completion."""
@@ -251,10 +281,17 @@ class ChatSession:
                 if not t.done():
                     t.cancel()
             raise
+        except ServiceError as e:
+            logger.error(f"Service error in agent loop: {e}")
+            await self.send({"type": "chat_append", "role": "assistant",
+                            "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
+            await self.send(e.to_dict())
         except Exception as e:
             logger.error(f"Agent error in loop: {e}")
             await self.send({"type": "chat_append", "role": "assistant",
                             "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
+            await self.send({"type": "error", "service": "agent",
+                             "message": str(e), "recoverable": False, "suggestion": "", "details": {}})
         finally:
             # Compact completed tasks to prevent unbounded growth
             done_tasks = [t for t in self.pending_tasks if t.done()]
@@ -414,11 +451,20 @@ class ChatSession:
             await self.send({"type": "chat_append", "role": "system", "text": help_text, "finished": True})
         elif cmd == "provider":
             if args:
+                # Parse subcommand pattern: /provider [add|set|rm] <name>
+                # or legacy: /provider <name>
+                from cli.provider import KNOWN_PROVIDERS
+                arg_parts = args.split(maxsplit=1)
+                sub = arg_parts[0].lower()
+                if sub in ("add", "set", "rm") and len(arg_parts) > 1:
+                    provider_name = arg_parts[1]
+                else:
+                    provider_name = sub
                 loop = asyncio.get_running_loop()
                 s = settings()
-                await loop.run_in_executor(None, lambda: s.set("provider.active", args))
+                await loop.run_in_executor(None, lambda: s.set("provider.active", provider_name))
                 await self.send({"type": "chat_append", "role": "system",
-                                "text": f"Switched to provider: {args}", "finished": True})
+                                "text": f"Switched to provider: {provider_name}", "finished": True})
             else:
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Current provider: {settings().get('provider.active', 'gemini')}", "finished": True})
@@ -608,9 +654,146 @@ class ChatSession:
                 s = get_effective_settings()
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Current profile: {s.get('profile', 'default')}", "finished": True})
+        elif cmd == "plan":
+            await self._handle_plan_command(args)
+        elif cmd == "plans":
+            """Alias for /plan list."""
+            await self._handle_plan_command("list")
         else:
             await self.send({"type": "chat_append", "role": "system",
                             "text": f"Unknown command: /{cmd}. Try /help", "finished": True})
+
+    async def _handle_plan_command(self, args: str):
+        """Handle /plan <subcommand> [args].
+
+        Subcommands:
+          create <name> <json_steps>   — create a new plan
+          list                          — list all plans
+          status <plan_id>              — show plan status
+          run <plan_id>                 — execute a plan
+          cancel <plan_id>              — cancel a pending/running plan
+        """
+        parts = args.strip().split(maxsplit=1)
+        sub = parts[0].lower() if parts else "list"
+
+        try:
+            if sub == "create":
+                if len(parts) < 2:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": "Usage: /plan create <name> <json_steps>", "finished": True})
+                    return
+                # Parse: name + JSON steps array
+                create_args = parts[1]
+                # Try to extract name (everything before first '{')
+                brace_idx = create_args.find("{")
+                if brace_idx < 0:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": "Missing JSON steps array. Usage: /plan create <name> <json_steps>",
+                                    "finished": True})
+                    return
+                name = create_args[:brace_idx].strip() or "Unnamed Plan"
+                steps_json = create_args[brace_idx:]
+                steps = json.loads(steps_json)
+                if not isinstance(steps, list):
+                    raise ValueError("steps must be a JSON array")
+
+                orch = orchestrator()
+                plan = orch.create_plan(name, steps)
+                # Persist plan
+                orch.save_state()
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Plan created: {plan.name} ({plan.id})\n"
+                                        f"Steps: {len(plan.steps)}\n"
+                                        f"Run with: /plan run {plan.id}",
+                                "finished": True})
+
+            elif sub == "list":
+                orch = orchestrator()
+                plans = list(orch.plans.values())
+                if not plans:
+                    text = "No plans."
+                else:
+                    lines = ["**Plans:**"]
+                    for p in plans:
+                        done = sum(1 for s in p.steps if s.status == "done")
+                        lines.append(f"  {p.id}: {p.name} — {p.status} ({done}/{len(p.steps)} steps)")
+                    text = "\n".join(lines)
+                await self.send({"type": "chat_append", "role": "system", "text": text, "finished": True})
+
+            elif sub == "status":
+                if len(parts) < 2:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": "Usage: /plan status <plan_id>", "finished": True})
+                    return
+                plan_id = parts[1].strip()
+                orch = orchestrator()
+                plan = orch.get_plan(plan_id)
+                if not plan:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Plan {plan_id!r} not found.", "finished": True})
+                    return
+                lines = [f"**Plan:** {plan.name} ({plan.id})", f"Status: {plan.status}"]
+                for s in plan.steps:
+                    icon = {"done": "✅", "running": "🔄", "failed": "❌", "pending": "⏳", "blocked": "🔒"}
+                    lines.append(f"  {icon.get(s.status, '❓')} {s.id}: {s.description} [{s.status}]")
+                if plan.steps:
+                    lines.append(f"  Runnable: {[s.id for s in orch.get_runnable_steps(plan_id)]}")
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": "\n".join(lines), "finished": True})
+
+            elif sub == "run":
+                if len(parts) < 2:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": "Usage: /plan run <plan_id>", "finished": True})
+                    return
+                plan_id = parts[1].strip()
+                orch = orchestrator()
+                if not orch.get_plan(plan_id):
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": f"Plan {plan_id!r} not found.", "finished": True})
+                    return
+
+                # Set up WS sender for swarm updates
+                orch.set_ws_sender(lambda msg: self.send(msg))
+
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Executing plan {plan_id}...", "finished": True})
+
+                def agent_factory(agent_type: str = "basic") -> AgentProtocol:
+                    return _OrchestratorAgentAdapter(agent_type)
+
+                result = await orch.execute_plan(plan_id, agent_factory)
+                # Persist updated state
+                orch.save_state()
+
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Plan {result['status']}: {result}",
+                                "finished": True})
+
+            elif sub == "cancel":
+                if len(parts) < 2:
+                    await self.send({"type": "chat_append", "role": "system",
+                                    "text": "Usage: /plan cancel <plan_id>", "finished": True})
+                    return
+                plan_id = parts[1].strip()
+                orch = orchestrator()
+                orch.cancel_plan(plan_id)
+                orch.save_state()
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Plan {plan_id} cancelled.", "finished": True})
+
+            else:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Unknown plan subcommand: {sub}. Try: create, list, status, run, cancel",
+                                "finished": True})
+
+        except json.JSONDecodeError as e:
+            await self.send({"type": "chat_append", "role": "system",
+                            "text": f"Invalid JSON: {e}", "finished": True})
+        except Exception as e:
+            logger.error("Plan command error: %s", e)
+            await self.send({"type": "chat_append", "role": "system",
+                            "text": f"Plan command failed: {e}", "finished": True})
 
     async def cleanup(self):
         """Cancel all pending tasks and stop voice/wake word."""
@@ -709,6 +892,10 @@ class ChatSession:
                             "type": "interrupt",
                             "action": "stop_audio_and_animation",
                         })
+
+                elif msg_type == "ping":
+                    # Heartbeat ping — respond with pong immediately
+                    await self.send({"type": "pong"})
 
         except WebSocketDisconnect:
             logger.warning("Chat WebSocket disconnected")

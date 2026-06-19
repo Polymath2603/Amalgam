@@ -10,6 +10,7 @@ import numpy as np
 from fastapi import WebSocket
 from backend.api.deps import tts, settings
 from backend.core.utils.wav import numpy_to_wav_bytes
+from backend.core.errors import TTSError
 
 logger = logging.getLogger(__name__)
 

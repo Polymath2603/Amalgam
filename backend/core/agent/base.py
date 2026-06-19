@@ -36,11 +36,12 @@ class AgentTrace:
 
 
 class BaseAgent(ABC):
-    def __init__(self, llm, tools: dict, memory, config: dict):
+    def __init__(self, llm, tools: dict, memory, config: dict, mcp_client=None):
         self.llm = llm
         self.tools = tools
         self.memory = memory
         self.config = config
+        self.mcp_client = mcp_client
 
     @abstractmethod
     async def run(
@@ -50,15 +51,53 @@ class BaseAgent(ABC):
         ...
         yield ""
 
+    async def spawn_subagent(self, prompt: str) -> str:
+        """Spawn a sub-agent to handle a focused task.
+
+        Override in subclasses to provide custom sub-agent behaviour.
+        Returns the complete response as a string.
+        """
+        # Default: delegate to a fresh BasicAgent with same capabilities
+        from backend.core.agent.basic_agent import BasicAgent
+        sub = BasicAgent(self.llm, self.tools, self.memory, self.config, mcp_client=self.mcp_client)
+        parts: list[str] = []
+        async for chunk in sub.run(prompt, {"session_id": "subagent"}):
+            parts.append(str(chunk))
+        return "".join(parts)
+
     async def execute_tool(self, name: str, tool_input: dict) -> ToolCall:
-        if name not in self.tools:
-            return ToolCall(name, tool_input, f"Error: unknown tool '{name}'", False)
+        # First check local tools dict
+        if name in self.tools:
+            try:
+                result = await self.tools[name](**tool_input)
+                tc = ToolCall(name, tool_input, str(result)[:4000], True)
+            except Exception as e:
+                logger.warning(f"Tool '{name}' raised: {e}")
+                tc = ToolCall(name, tool_input, f"Tool error: {e}", False)
+
+        # Fall back to MCP client if available
+        elif self.mcp_client is not None:
+            try:
+                result = await self.mcp_client.call_tool_structured(name, tool_input)
+                if result.success:
+                    tc = ToolCall(name, tool_input, result.content[:4000], True)
+                else:
+                    tc = ToolCall(name, tool_input, result.error or f"Error: unknown tool '{name}'", False)
+            except Exception as e:
+                logger.warning(f"MCP tool '{name}' failed: {e}")
+                tc = ToolCall(name, tool_input, f"Tool error: {e}", False)
+        else:
+            tc = ToolCall(name, tool_input, f"Error: unknown tool '{name}'", False)
+
+        # Allow plugins to transform tool results
         try:
-            result = await self.tools[name](**tool_input)
-            return ToolCall(name, tool_input, str(result)[:4000], True)
-        except Exception as e:
-            logger.warning(f"Tool '{name}' raised: {e}")
-            return ToolCall(name, tool_input, f"Tool error: {e}", False)
+            from backend.core.plugin import get_registry
+            registry = get_registry()
+            tc.output = await registry.hook_tool_result(name, tool_input, tc.output)
+        except Exception:
+            pass
+
+        return tc
 
     async def handle_user_input(self, text: str, images: list = None,
                                 relationship_context: str = "") -> 'AsyncGenerator[str | tuple[str, str], None]':

@@ -167,6 +167,8 @@ class TestCorrectionStore:
         cs = CorrectionStore(data_dir=str(tmp_path))
         cs.extract_correction("s1", "no, it's Python", "")
         cs.find_relevant("Python")
+        # force flush pending updates
+        cs.flush()
         # reload to verify applied_count persisted
         cs2 = CorrectionStore(data_dir=str(tmp_path))
         assert cs2._corrections[0]["applied_count"] >= 1
@@ -183,10 +185,10 @@ class TestSkillImprover:
         from backend.core.self_learning.improvement import SkillImprover
         si = SkillImprover()
         import asyncio
-        report = asyncio.run(si.review_skills(force=True))
+        report = asyncio.run(si.review_skills())
         assert "total" in report
         assert "used" in report
-        assert "unused" in report
+        assert "underused" in report
         assert "stale" in report
         assert "candidates" in report
         assert report["timestamp"] is not None
@@ -245,15 +247,15 @@ class TestPreferenceLearner:
         from backend.core.self_learning.preferences import PreferenceLearner
         pl = PreferenceLearner(data_dir=str(tmp_path))
         pl.observe_interaction("hello world", "Hi there!", user_followed_up=True)
-        assert len(pl._response_lengths) == 1
-        assert len(pl._engagements) == 1
-        assert pl._engagements[0] == 1
+        assert len(pl._interactions) == 1
+        assert pl._interactions[0].response_length == len("Hi there!")
+        assert pl._interactions[0].engaged is True
 
     def test_observe_interaction_no_followup(self, tmp_path):
         from backend.core.self_learning.preferences import PreferenceLearner
         pl = PreferenceLearner(data_dir=str(tmp_path))
         pl.observe_interaction("hello", "Hi!", user_followed_up=False)
-        assert pl._engagements[0] == 0
+        assert pl._interactions[0].engaged is False
 
     def test_observe_interaction_extracts_topics(self, tmp_path):
         from backend.core.self_learning.preferences import PreferenceLearner
@@ -294,16 +296,16 @@ class TestPreferenceLearner:
         from backend.core.self_learning.preferences import PreferenceLearner
         pl = PreferenceLearner(data_dir=str(tmp_path))
         pl.observe_interaction("hello", "world", True)
-        assert len(pl._engagements) >= 1
+        assert len(pl._interactions) >= 1
         pl.reset()
-        assert len(pl._engagements) == 0
+        assert len(pl._interactions) == 0
         assert pl.get_frequent_topics() == []
 
     def test_save_and_load_roundtrip(self, tmp_path):
         from backend.core.self_learning.preferences import PreferenceLearner
         pl = PreferenceLearner(data_dir=str(tmp_path))
         pl.observe_interaction("hello Python", "Hi!", True)
-        assert len(pl._response_lengths) == 1
+        assert len(pl._interactions) == 1
 
         pl2 = PreferenceLearner(data_dir=str(tmp_path))
-        assert len(pl2._response_lengths) == 1
+        assert len(pl2._interactions) == 1

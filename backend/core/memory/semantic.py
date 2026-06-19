@@ -1,20 +1,26 @@
 """Semantic memory — cross-session BM25 retrieval."""
 
+import json
 import logging
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class SemanticMemory:
-    """Cross-session semantic storage using BM25 over a local document store."""
+    """Cross-session semantic storage using BM25 over a local document store.
+
+    Facts are persisted to a JSON file so they survive process restarts.
+    """
 
     def __init__(self, storage_path: str):
-        self._path = storage_path
+        self._path = Path(storage_path)
         self._documents: List[Dict] = []
         self._bm25 = None
         self._dirty = False
+        self._load()
 
     def add_fact(self, content: str, metadata: Optional[Dict] = None) -> str:
         """Store a fact (cross-session). Returns fact ID."""
@@ -22,6 +28,7 @@ class SemanticMemory:
         entry = {"id": fid, "content": content, "metadata": metadata or {}}
         self._documents.append(entry)
         self._dirty = True
+        self.save()
         logger.debug(f"SemanticMemory: added fact {fid}")
         return fid
 
@@ -46,6 +53,36 @@ class SemanticMemory:
         self._documents.clear()
         self._bm25 = None
         self._dirty = False
+
+    def save(self):
+        """Persist documents to disk.
+
+        Note: does **not** reset ``_dirty`` — that is done by
+        :meth:`_rebuild_bm25` so that newly added facts are included
+        in the BM25 index on the next search.
+        """
+        if not self._dirty:
+            return
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(
+                json.dumps(self._documents, indent=2, default=str)
+            )
+        except Exception as e:
+            logger.error(f"SemanticMemory: failed to save facts: {e}")
+
+    def _load(self):
+        """Load documents from disk."""
+        if not self._path.exists():
+            return
+        try:
+            data = json.loads(self._path.read_text())
+            if isinstance(data, list):
+                self._documents = data
+                self._dirty = False
+                logger.debug(f"SemanticMemory: loaded {len(data)} facts")
+        except Exception as e:
+            logger.warning(f"SemanticMemory: failed to load facts: {e}")
 
     def _rebuild_bm25(self):
         if not self._dirty and self._bm25 is not None:

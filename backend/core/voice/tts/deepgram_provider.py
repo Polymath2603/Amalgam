@@ -24,7 +24,7 @@ class DeepgramProvider (TTSProvider ):
         if not text .strip ()or not self ._api_key :
             if not self ._api_key :
                 logger .warning ("Deepgram API key not configured")
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
         url =f"https://api.deepgram.com/v1/speak"
         headers ={
@@ -39,15 +39,20 @@ class DeepgramProvider (TTSProvider ):
                 if resp .status_code !=200 :
                     error_text =await resp .aread ()
                     logger .error (f"Deepgram TTS error {resp .status_code }: {error_text [:200 ]}")
-                    return np .zeros (0 ,dtype =np .float32 ),[],24000 
+                    return np .zeros (0 ,dtype =np .float32 ),None ,24000 
                 audio_bytes =await resp .aread ()
 
             audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32767.0 
-            visemes =["A"]*(len (text )//2 )
-            return audio_np ,visemes ,24000 
+            return audio_np ,None ,24000 
+        except httpx .HTTPStatusError as e :
+            logger .error (f"Deepgram TTS HTTP error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
+        except httpx .RequestError as e :
+            logger .error (f"Deepgram TTS request error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
         except Exception as e :
             logger .error (f"Deepgram TTS error: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
     async def close (self ):
         await self ._client .aclose ()

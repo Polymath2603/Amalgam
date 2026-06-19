@@ -6,14 +6,26 @@ for server-initiated notifications.
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["push"])
 
 PUSH_TOKENS_PATH = Path("data/push_tokens.json")
+
+
+class PushRegisterRequest(BaseModel):
+    token: str
+    platform: str = "unknown"
+    device_id: str = ""
+
+
+class PushUnregisterRequest(BaseModel):
+    token: str = ""
 
 
 def _load_tokens() -> dict[str, dict]:
@@ -31,11 +43,10 @@ def _save_tokens(tokens: dict[str, dict]):
 
 
 @router.post("/api/push/register")
-async def register_token(data: dict = None):
-    data = data or {}
-    token = (data.get("token") or "").strip()
-    platform = data.get("platform", "unknown")
-    device_id = data.get("device_id", "")
+async def register_token(body: PushRegisterRequest):
+    token = body.token.strip()
+    platform = body.platform
+    device_id = body.device_id
 
     if not token:
         from fastapi.responses import JSONResponse
@@ -49,9 +60,8 @@ async def register_token(data: dict = None):
 
 
 @router.post("/api/push/unregister")
-async def unregister_token(data: dict = None):
-    data = data or {}
-    token = (data.get("token") or "").strip()
+async def unregister_token(body: PushUnregisterRequest):
+    token = body.token.strip()
     tokens = _load_tokens()
     tokens.pop(token, None)
     _save_tokens(tokens)

@@ -5,11 +5,20 @@ import os
 import logging 
 
 from fastapi import APIRouter 
+from pydantic import BaseModel
 from backend .api .deps import settings ,vault ,llm 
 from backend .core .paths import VAULT_DIR 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["vault"])
+
+
+class RulesSaveRequest(BaseModel):
+    content: str = ""
+
+
+class VaultFileWriteRequest(BaseModel):
+    content: str = ""
 
 
 @router .get ("/api/rules")
@@ -19,8 +28,8 @@ async def get_rules ():
 
 
 @router .post ("/api/rules")
-async def save_rules (body :dict ):
-    vault ().write ("rules.md",body .get ("content",""))
+async def save_rules (body :RulesSaveRequest ):
+    vault ().write ("rules.md",body .content)
     return {"status":"ok"}
 
 
@@ -38,8 +47,8 @@ async def read_vault_file (filename :str ):
 
 
 @router .post ("/api/vault/files/{filename}")
-async def write_vault_file (filename :str ,body :dict ):
-    ok =vault ().write (filename ,body .get ("content",""))
+async def write_vault_file (filename :str ,body :VaultFileWriteRequest ):
+    ok =vault ().write (filename ,body .content)
     return {"status":"ok"if ok else "error"}
 
 

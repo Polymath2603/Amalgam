@@ -25,7 +25,7 @@ class OpenVoiceProvider (TTSProvider ):
         ov ._ensure_loaded ()
         return True 
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,**kwargs )->tuple :
         if not text .strip ():
             return np .zeros (0 ,dtype =np .float32 ),[],22050 
         if not ref_audio :
@@ -42,8 +42,7 @@ class OpenVoiceProvider (TTSProvider ):
             audio_np ,sr =result 
             if not isinstance (audio_np ,np .ndarray ):
                 audio_np =np .array (audio_np ,dtype =np .float32 )if audio_np is not None else np .zeros (0 ,dtype =np .float32 )
-            visemes =["A"]*(len (text )//2 )
-            return audio_np ,visemes 
+            return audio_np ,None 
         except Exception as e :
             logger .error (f"OpenVoice TTS Error: {type (e ).__name__ }: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[]
+            return np .zeros (0 ,dtype =np .float32 ),None

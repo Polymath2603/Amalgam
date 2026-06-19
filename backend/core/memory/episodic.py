@@ -35,10 +35,14 @@ class EpisodicMemory:
         return eid
 
     def search(self, query: str, k: int = 5) -> List[Dict]:
-        """Query episodes by semantic similarity."""
+        """Query episodes by semantic similarity, scoped to this session."""
         if self._collection is None:
             return []
-        results = self._collection.query(query_texts=[query], n_results=k)
+        results = self._collection.query(
+            query_texts=[query],
+            n_results=k,
+            where={"session_id": self._session_id},
+        )
         episodes = []
         for i, doc in enumerate(results.get("documents", [[]])[0]):
             episodes.append({

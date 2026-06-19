@@ -21,3 +21,4 @@ dialogue_examples:
 quirks: []
 memory_bias: []
 forbidden: []
+greeting: Hello! I'm your AI assistant. How can I help you today?

@@ -3,7 +3,7 @@ import logging
 import numpy as np 
 import httpx 
 
-from .base import TTSProvider 
+from .base import TTSProvider, decode_wav, retry_http 
 
 logger =logging .getLogger (__name__ )
 
@@ -20,29 +20,28 @@ class CoquiLocalProvider (TTSProvider ):
             self ._url =url .rstrip ("/")
         self ._speaker_id =speaker_id 
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         url =f"{self ._url .rstrip ('/')}/api/tts"
         headers ={"text":text }
         if self ._speaker_id :
             headers ["speaker-id"]=self ._speaker_id 
         try :
-            response =await self ._client .post (url ,headers =headers )
-            if response .status_code !=200 :
-                logger .error (f"Coqui TTS error {response .status_code }")
-                return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            response =await retry_http (self ._client ,"POST",url ,headers =headers )
+            if response is None or response .status_code !=200 :
+                logger .error ("Coqui TTS error or request failed")
+                return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
-            audio_bytes =response .content 
-            import io 
-            import wave 
-            with io .BytesIO (audio_bytes )as buf :
-                with wave .open (buf ,"rb")as wf :
-                    sr =wf .getframerate ()
-                    frames =wf .readframes (wf .getnframes ())
-                    audio_np =np .frombuffer (frames ,dtype =np .int16 ).astype (np .float32 )/32767.0 
-            return audio_np ,[],sr 
+            audio_np ,sr =decode_wav (response .content )
+            return audio_np ,None ,sr 
+        except httpx .HTTPStatusError as e :
+            logger .error (f"Coqui TTS HTTP error: {e }")
+
+        except httpx .RequestError as e :
+            logger .error (f"Coqui TTS request error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
         except Exception as e :
             logger .error (f"Coqui TTS error: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
     async def close (self ):
         await self ._client .aclose ()

@@ -10,20 +10,28 @@ This is the "meta-learning" loop: improve the learning system itself.
 
 import json
 import logging
+import os
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+import yaml
 
 from backend.core.paths import SKILLS_DIR
 
 logger = logging.getLogger(__name__)
 
 # Minimum usage count before a skill is considered "used"
-MIN_USAGE_COUNT = 2
+# Configurable via AMALGAM_SKILL_MIN_USAGE env var
+_MIN_USAGE_COUNT_ENV = "AMALGAM_SKILL_MIN_USAGE"
+MIN_USAGE_COUNT = int(os.environ.get(_MIN_USAGE_COUNT_ENV, "2"))
 
 # Age in days before an unused skill is considered stale
-STALE_AGE_DAYS = 14
+# Configurable via AMALGAM_SKILL_STALE_DAYS env var
+_STALE_AGE_DAYS_ENV = "AMALGAM_SKILL_STALE_DAYS"
+STALE_AGE_DAYS = int(os.environ.get(_STALE_AGE_DAYS_ENV, "14"))
 
 
 class SkillImprover:
@@ -40,20 +48,15 @@ class SkillImprover:
     # Public API
     # ------------------------------------------------------------------
 
-    async def review_skills(self, force: bool = False) -> dict:
+    async def review_skills(self) -> dict:
         """Analyze all skills and return a review report.
-
-        Parameters
-        ----------
-        force : bool
-            If True, skip staleness check and always run.
 
         Returns
         -------
         dict with keys:
             - total: total skill count
             - used: skills used at least MIN_USAGE_COUNT times
-            - unused: skills with zero usage
+            - underused: skills with usage < MIN_USAGE_COUNT (naming reflects actual state)
             - stale: skills unused and older than STALE_AGE_DAYS
             - candidates: skills that could be merged or improved
         """
@@ -64,7 +67,7 @@ class SkillImprover:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "total": len(skills),
             "used": [],
-            "unused": [],
+            "underused": [],
             "stale": [],
             "candidates": [],
         }
@@ -77,7 +80,7 @@ class SkillImprover:
             if count >= MIN_USAGE_COUNT:
                 report["used"].append(skill)
             else:
-                report["unused"].append(skill)
+                report["underused"].append(skill)
                 if self._is_stale(skill):
                     report["stale"].append(skill)
                     skill["reason"] = f"Unused for >{STALE_AGE_DAYS} days"
@@ -90,7 +93,7 @@ class SkillImprover:
         logger.info(
             f"Skill review: {report['total']} total, "
             f"{len(report['used'])} used, "
-            f"{len(report['unused'])} unused, "
+            f"{len(report['underused'])} underused, "
             f"{len(report['stale'])} stale"
         )
         return report
@@ -110,15 +113,16 @@ class SkillImprover:
         for skill in self._last_review.get("stale", []):
             name = skill["name"]
             skill_dir = SKILLS_DIR / name
-            if skill_dir.exists():
+            # Check existence defensively (could race with deletion)
+            if not skill_dir.exists():
+                continue
+            try:
                 pruned.append(name)
                 if not dry_run:
-                    import shutil
-                    try:
-                        shutil.rmtree(str(skill_dir))
-                        logger.info(f"Pruned stale skill: {name}")
-                    except OSError as e:
-                        logger.error(f"Failed to prune skill {name}: {e}")
+                    shutil.rmtree(str(skill_dir))
+                    logger.info(f"Pruned stale skill: {name}")
+            except OSError as e:
+                logger.error(f"Failed to prune skill {name}: {e}")
 
         return pruned
 
@@ -151,20 +155,29 @@ class SkillImprover:
             return {}
 
     def _discover_skills(self) -> list[dict]:
-        """List all skills in the skills directory."""
+        """List all skills in the skills directory.
+
+        Only reads the first ~512 bytes of each SKILL.md to extract
+        the created timestamp, reducing I/O overhead for large skill libraries.
+        """
         if not SKILLS_DIR.exists():
             return []
         skills = []
         for entry in sorted(SKILLS_DIR.iterdir()):
             skill_path = entry / "SKILL.md"
             if skill_path.exists():
-                content = skill_path.read_text(encoding="utf-8")
-                created = self._extract_created(content)
-                skills.append({
-                    "name": entry.name,
-                    "path": str(skill_path),
-                    "created": created,
-                })
+                try:
+                    # Read only frontmatter (first ~512 bytes) instead of full content
+                    head = skill_path.read_bytes()[:512]
+                    created = self._extract_created(head)
+                    skills.append({
+                        "name": entry.name,
+                        "path": str(skill_path),
+                        "created": created,
+                    })
+                except (OSError, PermissionError) as e:
+                    logger.warning(f"Could not read skill {entry.name}: {e}")
+                    continue
         return skills
 
     @staticmethod
@@ -184,10 +197,38 @@ class SkillImprover:
             return False
 
     @staticmethod
-    def _extract_created(content: str) -> Optional[str]:
-        """Extract 'created' field from YAML frontmatter."""
-        match = re.search(r"^created:\s*(.+)$", content, re.MULTILINE)
+    def _extract_created(content: "str | bytes") -> Optional[str]:
+        """Extract 'created' field from YAML frontmatter using safe YAML parsing.
+
+        Reads the frontmatter between '---' delimiters.
+        Falls back to regex if YAML parsing fails.
+        """
+        if isinstance(content, bytes):
+            text = content.decode("utf-8", errors="replace")
+        else:
+            text = content
+        # Find YAML frontmatter between --- markers
+        if not text.startswith("---"):
+            return None
+        end_idx = text.find("---", 3)
+        if end_idx == -1:
+            return None
+        frontmatter = text[3:end_idx].strip()
+        if not frontmatter:
+            return None
+        # Try YAML parsing first
+        try:
+            data = yaml.safe_load(frontmatter)
+            if isinstance(data, dict):
+                created = data.get("created")
+                if created:
+                    if isinstance(created, datetime):
+                        return created.isoformat()
+                    return str(created)
+        except yaml.YAMLError:
+            pass
+        # Fallback to regex
+        match = re.search(r"^created:\s*(.+)$", frontmatter, re.MULTILINE)
         if match:
             return match.group(1).strip().strip('"').strip("'")
-        # Fallback: check file modification time
         return None

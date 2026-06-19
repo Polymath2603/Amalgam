@@ -27,7 +27,7 @@ class PlanningAgent(BaseAgent):
         # Fast path: if simple, skip decomposition entirely
         if not self._is_compound(user_message):
             async for chunk in BasicAgent(
-                self.llm, self.tools, self.memory, self.config
+                self.llm, self.tools, self.memory, self.config, mcp_client=self.mcp_client
             ).run(user_message, context):
                 yield chunk
             return
@@ -61,7 +61,7 @@ class PlanningAgent(BaseAgent):
 
             step_result = []
             async for chunk in BasicAgent(
-                self.llm, self.tools, self.memory, self.config
+                self.llm, self.tools, self.memory, self.config, mcp_client=self.mcp_client
             ).run(instruction, {**context, "is_substep": True}):
                 yield chunk
                 step_result.append(chunk)
@@ -83,7 +83,7 @@ class PlanningAgent(BaseAgent):
             + "\n\nWrite a brief final answer that integrates the above."
         )
         async for chunk in BasicAgent(
-            self.llm, self.tools, self.memory, self.config
+            self.llm, self.tools, self.memory, self.config, mcp_client=self.mcp_client
         ).run(synthesis_prompt, {**context, "is_synthesis": True}):
             yield chunk
 

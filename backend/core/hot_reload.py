@@ -12,6 +12,8 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from backend.core.paths import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,30 +78,33 @@ class HotReloader:
 _reloader = HotReloader()
 
 
-def setup_hot_reload(skill_loader, agent_loader, constitution):
+def get_reloader():
+    """Return the module-level HotReloader singleton."""
+    return _reloader
+
+
+def setup_hot_reload(skill_loader, constitution):
     """
     Wire all hot-reload handlers. Call once at startup.
     skill_loader: MDSkillLoader instance
-    agent_loader: AgentLoader instance
-    constitution: module with reload_constitution() function
+    constitution: module with reload_cache() function
     """
-    from pathlib import Path
 
     # Skills
     _reloader.watch(
-        Path("data/skills"),
+        DATA_DIR / "skills",
         lambda p: _reload_skill(p, skill_loader),
     )
 
     # Constitution
     _reloader.watch(
-        Path("data/constitution.md"),
+        DATA_DIR / "constitution.md",
         lambda p: _reload_constitution(constitution),
     )
 
     # Characters
     _reloader.watch(
-        Path("data/characters"),
+        DATA_DIR / "characters",
         lambda p: _reload_character(p),
     )
 
@@ -115,8 +120,8 @@ def _reload_skill(path: Path, loader):
 
 
 def _reload_constitution(constitution_module):
-    if hasattr(constitution_module, '_cache'):
-        constitution_module._cache = None
+    if hasattr(constitution_module, 'reload_cache'):
+        constitution_module.reload_cache()
     logger.info("[HotReload] Constitution reloaded")
 
 

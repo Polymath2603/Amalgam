@@ -9,34 +9,38 @@ Plugins are discoverable extensions that can:
 - Extend VRM animations and behaviors
 """
 
-from abc import ABC
-from typing import Any, Dict, List, Optional, Callable
-from dataclasses import dataclass
+import asyncio
 import logging
+from abc import ABC
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional
+
+from backend.core.plugin import Plugin
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "PluginMetadata",
+    "PluginTool",
+    "BasePlugin",
+]
 
 
 @dataclass
 class PluginMetadata:
     """Metadata about a plugin."""
+
     name: str
     version: str
     author: str
     description: str
-    requires: List[str] = None  # Required dependencies
-    tags: List[str] = None  # Plugin categories
-    
-    def __post_init__(self):
-        if self.requires is None:
-            self.requires = []
-        if self.tags is None:
-            self.tags = []
+    requires: List[str] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
 
 
 class PluginTool:
     """Wrapper for a tool provided by a plugin."""
-    
+
     def __init__(
         self,
         name: str,
@@ -48,11 +52,17 @@ class PluginTool:
         self.description = description
         self.func = func
         self.parameters = parameters or {}
-    
+
     async def __call__(self, *args, **kwargs):
-        """Execute the tool."""
-        return await self.func(*args, **kwargs)
-    
+        """Execute the tool, wrapping sync callables transparently."""
+        if asyncio.iscoroutinefunction(self.func):
+            return await self.func(*args, **kwargs)
+        # Wrap sync function in a thread executor to avoid blocking
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.func(*args, **kwargs)
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for LLM context."""
         return {
@@ -62,141 +72,215 @@ class PluginTool:
         }
 
 
-class BasePlugin(ABC):
-    """Base class for all plugins."""
-    
-    def __init__(self, metadata: PluginMetadata):
+# Exceptions that should *always* propagate through hook dispatch
+_SYSTEM_EXITS = (KeyboardInterrupt, SystemExit, GeneratorExit)
+
+
+class BasePlugin(Plugin, ABC):
+    """Base class for all plugins.
+
+    Extends :class:`~backend.core.plugin.Plugin` with a richer tool
+    system, event-based hook registration, enable/disable lifecycle,
+    and the ability to accept configuration on instantiation.
+    """
+
+    def __init__(
+        self,
+        metadata: PluginMetadata,
+        config: Optional[Dict[str, Any]] = None,
+    ):
         """Initialize plugin.
-        
+
         Args:
-            metadata: Plugin metadata
+            metadata: Plugin metadata (name, version, …).
+            config: Optional configuration dict passed by the manager.
         """
-        self.metadata = metadata
-        self.enabled = True
+        # Name is derived from metadata, so set it before super().__init__
+        self._metadata = metadata
+        super().__init__()
+        self._config = config or {}
         self._tools: Dict[str, PluginTool] = {}
         self._hooks: Dict[str, List[Callable]] = {}
-        logger.info(f"Initialized plugin: {metadata.name} v{metadata.version}")
-    
+        logger.info(
+            "Initialized plugin: %s v%s", metadata.name, metadata.version
+        )
+
+    # ---- name override ---------------------------------------------------
     @property
     def name(self) -> str:
-        """Get plugin name."""
         return self.metadata.name
-    
+
+    @name.setter
+    def name(self, value: str) -> None:
+        pass  # suppress the empty-name check in Plugin.__init__
+
+    @property
+    def metadata(self) -> PluginMetadata:
+        return self._metadata
+
+    # ---- configuration ---------------------------------------------------
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        return self._config
+
+    # ---- tools -----------------------------------------------------------
+
     @property
     def tools(self) -> Dict[str, PluginTool]:
         """Get tools provided by this plugin."""
         return self._tools
-    
-    def register_tool(self, tool: PluginTool):
+
+    def register_tool(self, tool: PluginTool) -> None:
         """Register a tool provided by this plugin.
-        
+
         Args:
-            tool: Tool to register
+            tool: Tool to register.
         """
         self._tools[tool.name] = tool
-        logger.debug(f"Registered tool '{tool.name}' from plugin {self.name}")
-    
-    def register_hook(self, event: str, handler: Callable):
+        logger.debug(
+            "Registered tool '%s' from plugin %s", tool.name, self.name
+        )
+
+    # ---- event hooks -----------------------------------------------------
+
+    def register_hook(self, event: str, handler: Callable) -> None:
         """Register a hook handler for an event.
-        
+
         Args:
-            event: Event name (e.g., 'before_response', 'after_memory_save')
-            handler: Async callable to handle the event
+            event: Event name (e.g. ``'before_response'``,
+                ``'after_memory_save'``).
+            handler: Async or sync callable to handle the event.
         """
-        if event not in self._hooks:
-            self._hooks[event] = []
-        self._hooks[event].append(handler)
-        logger.debug(f"Registered hook '{event}' in plugin {self.name}")
-    
-    async def trigger_hooks(self, event: str, *args, **kwargs):
-        """Trigger all hooks for an event.
-        
+        self._hooks.setdefault(event, []).append(handler)
+        logger.debug(
+            "Registered hook '%s' in plugin %s", event, self.name
+        )
+
+    async def trigger_hooks(self, event: str, *args, **kwargs) -> None:
+        """Trigger all handlers registered for *event*.
+
+        System-exiting exceptions (``KeyboardInterrupt``, ``SystemExit``,
+        ``GeneratorExit``) always propagate. Other exceptions are logged
+        and suppressed so one failing handler does not block the others.
+
         Args:
-            event: Event name
-            *args: Arguments to pass to handlers
-            **kwargs: Keyword arguments to pass to handlers
+            event: Event name.
+            *args: Arguments forwarded to every handler.
+            **kwargs: Keyword arguments forwarded to every handler.
         """
-        if event not in self._hooks:
+        handlers = self._hooks.get(event)
+        if not handlers:
             return
-        
-        for handler in self._hooks[event]:
+
+        for handler in handlers:
             try:
-                await handler(*args, **kwargs)
+                if asyncio.iscoroutinefunction(handler):
+                    await handler(*args, **kwargs)
+                else:
+                    handler(*args, **kwargs)
+            except _SYSTEM_EXITS:
+                raise
             except Exception as e:
-                logger.error(f"Error in hook '{event}' from {self.name}: {e}")
-    
-    async def on_initialize(self):
+                logger.error(
+                    "Error in hook '%s' from %s: %s",
+                    event,
+                    self.name,
+                    e,
+                )
+
+    # ---- lifecycle (called by PluginManager) -----------------------------
+
+    async def on_initialize(self) -> None:
         """Called when the plugin is initialized.
-        
-        Override to perform async setup.
+
+        Override to perform async setup (e.g. download models,
+        connect to external services).
         """
         pass
-    
-    async def on_shutdown(self):
+
+    async def on_shutdown(self) -> None:
         """Called when the plugin is shutting down.
-        
+
         Override to perform cleanup.
         """
         pass
-    
-    async def on_character_loaded(self, character):
+
+    async def on_enable(self) -> None:
+        """Called when the plugin is enabled."""
+        pass
+
+    async def on_disable(self) -> None:
+        """Called when the plugin is disabled."""
+        pass
+
+    async def initialize(self) -> None:
+        """Initialize the plugin (backward-compatible entry point).
+
+        The default implementation calls :meth:`on_initialize`.
+        Subclasses may override but **must** call ``await super().initialize()``
+        if they want :meth:`on_initialize` to still fire.
+        """
+        await self.on_initialize()
+
+    # ---- character / context hooks (convenience) -------------------------
+
+    async def on_character_loaded(self, character: Any) -> None:
         """Called when a character is loaded.
-        
+
         Args:
-            character: Character object
+            character: Character object.
         """
         pass
-    
-    async def on_before_response(self, context: Dict[str, Any]) -> Dict[str, Any]:
+
+    async def on_before_response(
+        self, context: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Hook before LLM response generation.
-        
+
         Args:
-            context: Conversation context
-            
+            context: Conversation context.
+
         Returns:
-            Modified context
+            Modified context.
         """
         return context
-    
+
     async def on_after_response(self, response: str) -> str:
         """Hook after LLM response generation.
-        
+
         Args:
-            response: Generated response
-            
+            response: Generated response.
+
         Returns:
-            Modified response
+            Modified response.
         """
         return response
-    
-    async def on_memory_save(self, memory_data: Dict[str, Any]) -> Dict[str, Any]:
+
+    async def on_memory_save(
+        self, memory_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Hook when saving memory.
-        
+
         Args:
-            memory_data: Data being saved
-            
+            memory_data: Data being saved.
+
         Returns:
-            Modified memory data
+            Modified memory data.
         """
         return memory_data
-    
-    async def initialize(self):
-        """Initialize the plugin.
-        
-        Override in subclasses to perform setup.
-        """
-        pass
-    
+
+    # ---- enable / disable -------------------------------------------------
+
     def is_enabled(self) -> bool:
-        """Check if plugin is enabled."""
-        return self.enabled
-    
-    def enable(self):
+        return self._enabled
+
+    def enable(self) -> None:
         """Enable the plugin."""
-        self.enabled = True
-        logger.info(f"Enabled plugin: {self.name}")
-    
-    def disable(self):
+        self._enabled = True
+        logger.info("Enabled plugin: %s", self.name)
+
+    def disable(self) -> None:
         """Disable the plugin."""
-        self.enabled = False
-        logger.info(f"Disabled plugin: {self.name}")
+        self._enabled = False
+        logger.info("Disabled plugin: %s", self.name)

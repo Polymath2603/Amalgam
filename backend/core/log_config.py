@@ -7,8 +7,9 @@ import sys
 import logging 
 import structlog 
 
-os .environ .setdefault ("HF_HUB_DISABLE_SYMLINKS_WARNING","1")
-os .environ ["HF_TOKEN"]=""
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+if "HF_TOKEN" not in os.environ:
+    os.environ["HF_TOKEN"] = ""
 
 LOG_LEVELS ={
 "DEBUG":logging .DEBUG ,

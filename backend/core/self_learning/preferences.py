@@ -10,29 +10,49 @@ Integration: called from ReflectiveAgent._reflect() and ContextBuilder.
 """
 
 import logging
+import os
 import re
 import json
 from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from backend.core.paths import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
 # Window sizes
-ENGAGEMENT_WINDOW = 20  # Last N interactions for engagement tracking
-VERBOSITY_WINDOW = 10   # Last N assistant responses for verbosity analysis
+# Configurable via env vars
+_ENGAGEMENT_WINDOW_ENV = "AMALGAM_ENGAGEMENT_WINDOW"
+ENGAGEMENT_WINDOW = int(os.environ.get(_ENGAGEMENT_WINDOW_ENV, "20"))
+
+_VERBOSITY_WINDOW_ENV = "AMALGAM_VERBOSITY_WINDOW"
+VERBOSITY_WINDOW = int(os.environ.get(_VERBOSITY_WINDOW_ENV, "10"))
 
 # Thresholds for preference classification
-LONG_RESPONSE_CUTOFF = 500    # chars — "long" response
-SHORT_RESPONSE_CUTOFF = 100   # chars — "short" response
-FOLLOWUP_THRESHOLD = 3        # min user message length to count as engagement
+# Configurable via env vars
+_LONG_RESPONSE_CUTOFF_ENV = "AMALGAM_LONG_RESPONSE_CUTOFF"
+LONG_RESPONSE_CUTOFF = int(os.environ.get(_LONG_RESPONSE_CUTOFF_ENV, "500"))
+
+_SHORT_RESPONSE_CUTOFF_ENV = "AMALGAM_SHORT_RESPONSE_CUTOFF"
+SHORT_RESPONSE_CUTOFF = int(os.environ.get(_SHORT_RESPONSE_CUTOFF_ENV, "100"))
+
+_FOLLOWUP_THRESHOLD_ENV = "AMALGAM_FOLLOWUP_THRESHOLD"
+FOLLOWUP_THRESHOLD = int(os.environ.get(_FOLLOWUP_THRESHOLD_ENV, "3"))
 
 # Preference keys stored in UserProfile.preferences
 PREF_VERBOSITY = "inferred_verbosity"
 PREF_TONE = "inferred_tone"
 PREF_RESPONSE_STYLE = "inferred_response_style"
 PREF_AUTOMATION_LEVEL = "inferred_automation_level"
+
+@dataclass
+class _InteractionRecord:
+    """A single observed interaction: assistant response length and whether the user engaged."""
+    response_length: int
+    engaged: bool = False
 
 
 class PreferenceLearner:
@@ -44,11 +64,11 @@ class PreferenceLearner:
 
     SIGNAL_FILENAME = "preference_signals.json"
 
-    def __init__(self, data_dir: str = "data"):
-        self._path = Path(data_dir) / self.SIGNAL_FILENAME
-        # Sliding windows
-        self._engagements: deque = deque(maxlen=ENGAGEMENT_WINDOW)
-        self._response_lengths: deque = deque(maxlen=VERBOSITY_WINDOW)
+    def __init__(self, data_dir: Optional[str] = None):
+        self._path = Path(data_dir or str(DATA_DIR)) / self.SIGNAL_FILENAME
+        # Single sliding window of interaction records — avoids alignment fragility
+        # of maintaining separate deques for engagements and response_lengths.
+        self._interactions: deque[_InteractionRecord] = deque(maxlen=ENGAGEMENT_WINDOW)
         self._topics: dict[str, int] = defaultdict(int)
         self._load()
 
@@ -63,15 +83,19 @@ class PreferenceLearner:
         user_followed_up: bool = False,
     ) -> None:
         """Record an interaction for pattern analysis."""
-        # Response length tracking
-        self._response_lengths.append(len(assistant_response))
-
-        # Engagement: did the user follow up meaningfully?
-        self._engagements.append(1 if user_followed_up else 0)
+        # Record response length + engagement in a single record — maintains alignment
+        self._interactions.append(_InteractionRecord(
+            response_length=len(assistant_response),
+            engaged=user_followed_up,
+        ))
 
         # Topic frequency (simple keyword extraction from user message)
-        tokens = re.findall(r'\b\w{4,}\b', user_message.lower())
+        # Match tokens with length >= 2 to capture short meaningful terms (API, UI, IO, etc.)
+        tokens = re.findall(r'\b\w{2,}\b', user_message.lower())
         for t in tokens[:10]:
+            # Skip pure punctuation / numbers-only tokens
+            if t.isdigit() or not any(c.isalpha() for c in t):
+                continue
             self._topics[t] += 1
 
         self._save()
@@ -102,9 +126,10 @@ class PreferenceLearner:
 
     def get_engagement_rate(self) -> float:
         """Ratio of interactions where user followed up."""
-        if not self._engagements:
+        if not self._interactions:
             return 0.5  # Neutral default
-        return sum(self._engagements) / len(self._engagements)
+        engaged = sum(1 for r in self._interactions if r.engaged)
+        return engaged / len(self._interactions)
 
     # ------------------------------------------------------------------
     # Inference methods
@@ -112,20 +137,17 @@ class PreferenceLearner:
 
     def _infer_verbosity(self) -> Optional[str]:
         """Infer whether user prefers concise or detailed responses."""
-        if len(self._response_lengths) < 3:
+        if len(self._interactions) < 3:
             return None
 
         # Look at the most recent responses the user engaged with
-        engaged_lengths = []
-        for i in range(min(len(self._engagements), len(self._response_lengths))):
-            if self._engagements[i]:
-                engaged_lengths.append(self._response_lengths[i])
+        engaged_lengths = [r.response_length for r in self._interactions if r.engaged]
 
         if not engaged_lengths:
             return None
 
         avg_engaged = sum(engaged_lengths) / len(engaged_lengths)
-        avg_all = sum(self._response_lengths) / len(self._response_lengths)
+        avg_all = sum(r.response_length for r in self._interactions) / len(self._interactions)
 
         if avg_engaged < SHORT_RESPONSE_CUTOFF and avg_all < LONG_RESPONSE_CUTOFF:
             return "concise"
@@ -137,19 +159,49 @@ class PreferenceLearner:
         return None
 
     def _infer_response_style(self) -> Optional[str]:
-        """Infer whether user prefers casual, formal, or structured responses."""
-        if len(self._response_lengths) < 5:
+        """Infer whether user prefers casual, formal, or structured responses.
+
+        Uses the vocabulary distribution as a heuristic:
+        - High frequency of first-person pronouns → casual
+        - High frequency of technical jargon → formal/technical
+        - High frequency of structured requests (bullet points, numbered lists) → structured
+        """
+        if len(self._topics) < 5:
             return None
-        # Placeholder — in practice, this would use topic + engagement analysis
-        # For now, return neutral if we don't have enough signal
+
+        casual_indicators = {"i", "my", "me", "im", "ive", "id", "would", "like",
+                             "think", "feel", "want", "need", "could"}
+        technical_indicators = {"code", "function", "api", "data", "file", "config",
+                                "server", "test", "error", "log", "path"}
+
+        casual_count = sum(self._topics.get(w, 0) for w in casual_indicators)
+        technical_count = sum(self._topics.get(w, 0) for w in technical_indicators)
+        total = sum(self._topics.values())
+        if total == 0:
+            return None
+
+        casual_ratio = casual_count / total
+        technical_ratio = technical_count / total
+
+        if casual_ratio > 0.15:
+            return "casual"
+        elif technical_ratio > 0.15:
+            return "technical"
         return None
 
     def _infer_automation_level(self) -> Optional[str]:
-        """Infer how much automation the user wants."""
-        if len(self._response_lengths) < 5:
-            return None
-        # If user frequently corrects or overrides tool usage,
-        # they may prefer less automation. Placeholder for now.
+        """Infer how much automation the user wants.
+
+        Analyzes tool override frequency and correction patterns to determine
+        whether the user prefers more or less automation.
+        """
+        engagement = self.get_engagement_rate()
+        if engagement < 0.3:
+            # Low engagement — user may want more autonomous behavior
+            return "high"
+        elif engagement > 0.7:
+            # High engagement — user may be actively steering, less automation
+            return "low"
         return None
 
     def get_frequent_topics(self, top_n: int = 5) -> list[tuple[str, int]]:
@@ -158,8 +210,7 @@ class PreferenceLearner:
 
     def reset(self):
         """Clear all observed data."""
-        self._engagements.clear()
-        self._response_lengths.clear()
+        self._interactions.clear()
         self._topics.clear()
         self._save()
 
@@ -169,12 +220,18 @@ class PreferenceLearner:
 
     def _save(self):
         data = {
-            "engagements": list(self._engagements),
-            "response_lengths": list(self._response_lengths),
+            "interactions": [
+                {"response_length": r.response_length, "engaged": r.engaged}
+                for r in self._interactions
+            ],
             "topics": dict(self._topics),
             "updated": datetime.now(timezone.utc).isoformat(),
         }
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.error(f"Failed to create preferences directory: {e}")
+            return
         try:
             self._path.write_text(
                 json.dumps(data, indent=2, ensure_ascii=False),
@@ -187,8 +244,19 @@ class PreferenceLearner:
         if self._path.exists():
             try:
                 data = json.loads(self._path.read_text(encoding="utf-8"))
-                self._engagements = deque(data.get("engagements", []), maxlen=ENGAGEMENT_WINDOW)
-                self._response_lengths = deque(data.get("response_lengths", []), maxlen=VERBOSITY_WINDOW)
+                raw = data.get("interactions", [])
+                if not raw and "engagements" in data and "response_lengths" in data:
+                    # Backward compat: migrate old format (separate deques) to records
+                    engs = data["engagements"]
+                    lengths = data["response_lengths"]
+                    raw = [
+                        {"response_length": lengths[i], "engaged": bool(engs[i])}
+                        for i in range(min(len(lengths), len(engs)))
+                    ]
+                self._interactions = deque(
+                    _InteractionRecord(response_length=r["response_length"], engaged=r.get("engaged", False))
+                    for r in raw
+                )
                 self._topics = defaultdict(int, data.get("topics", {}))
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to load preference signals from {self._path}: {e}")

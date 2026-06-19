@@ -7,7 +7,20 @@ document.addEventListener('keydown', e => {
     }
 });
 const BASE_URL = IS_TAURI ? 'http://localhost:8000' : '';
-const WS_BASE = IS_TAURI ? 'ws://localhost:8000' : '';
+function _deriveWsUrl() {
+    if (IS_TAURI) return 'ws://localhost:8000';
+    const loc = window.location;
+    const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    let wsPort = loc.port || (loc.protocol === 'https:' ? '443' : '80');
+    // Dev servers (Vite, etc.) serve the page on a different port than the backend.
+    // Fall back to the backend port so the WebSocket connects to the right process.
+    const DEV_SERVER_PORTS = new Set(['5173', '3000', '5174', '5175', '4173']);
+    if (DEV_SERVER_PORTS.has(wsPort)) {
+        wsPort = '8000';
+    }
+    return `${wsProto}//${loc.hostname}:${wsPort}`;
+}
+const WS_BASE = _deriveWsUrl();
 
 import { initCustomSelects, syncAllCustomSelects } from './custom-select.js';
 import { t, setLanguage, initI18n, getCurrentLang } from './i18n.js';
@@ -19,8 +32,1043 @@ let avatarPreviewRenderer = null;
 let speechBubble = null;
 
 window.addEventListener('error', e => console.error('GLOBAL_ERROR:', e.message, e.filename, e.lineno));
+
+// ============================================================
+// SETTINGS SCHEMA — data-driven settings form definitions
+// ============================================================
+
+const SETTINGS_SCHEMA = {
+    "Provider": {
+        icon: "cloud",
+        fields: {
+            active_provider: {
+                label: "Active Provider",
+                type: "select",
+                key: "provider.active",
+                options: ["gemini", "ollama", "openrouter", "zai", "siliconflow", "groq", "chatgpt", "claude", "llamacpp", "koboldai", "deepseek", "mistral", "together", "azure-openai", "alibaba", "huggingface", "aws", "gcp"],
+                description: "Which LLM provider to use for responses",
+                onChange: "refreshCategory",
+            },
+            api_key: {
+                label: "API Key",
+                type: "password",
+                key_dynamic: true,
+                key_suffix: "api_key",
+                description: "Your API key for the active provider",
+                show_if: { field: "active_provider", not_in: ["ollama", "llamacpp", "koboldai"] },
+            },
+            model: {
+                label: "Model",
+                type: "select",
+                key_dynamic: true,
+                key_suffix: "model",
+                dynamic_options: true,
+                description: "Model to use for the active provider",
+            },
+            base_url: {
+                label: "Base URL",
+                type: "text",
+                key_dynamic: true,
+                key_suffix: "base_url",
+                description: "Custom API endpoint base URL",
+            },
+            // AWS-specific
+            aws_access_key: {
+                label: "AWS Access Key ID",
+                type: "password",
+                key: "provider.aws.access_key",
+                show_if: { field: "active_provider", equals: "aws" },
+                description: "AWS access key for Bedrock",
+            },
+            aws_secret_key: {
+                label: "AWS Secret Access Key",
+                type: "password",
+                key: "provider.aws.secret_key",
+                show_if: { field: "active_provider", equals: "aws" },
+            },
+            aws_region: {
+                label: "AWS Region",
+                type: "text",
+                key: "provider.aws.region",
+                show_if: { field: "active_provider", equals: "aws" },
+            },
+            // GCP-specific
+            gcp_service_account: {
+                label: "GCP Service Account JSON",
+                type: "textarea",
+                key: "provider.gcp.service_account_json",
+                show_if: { field: "active_provider", equals: "gcp" },
+                description: "Paste your service account JSON key",
+            },
+            gcp_project_id: {
+                label: "GCP Project ID",
+                type: "text",
+                key: "provider.gcp.project_id",
+                show_if: { field: "active_provider", equals: "gcp" },
+            },
+            gcp_region: {
+                label: "GCP Region",
+                type: "text",
+                key: "provider.gcp.region",
+                show_if: { field: "active_provider", equals: "gcp" },
+            },
+            // Model spec for AWS/GCP
+            aws_model: {
+                label: "Model",
+                type: "select",
+                key: "provider.aws.model",
+                show_if: { field: "active_provider", equals: "aws" },
+                options: ["anthropic.claude-sonnet-4-20250514", "anthropic.claude-3-5-sonnet-20241022", "meta.llama3-70b-instruct-v1:0"],
+                description: "Bedrock model ID",
+            },
+            gcp_model: {
+                label: "Model",
+                type: "select",
+                key: "provider.gcp.model",
+                show_if: { field: "active_provider", equals: "gcp" },
+                options: ["gemini-2.0-flash-001", "gemini-2.5-flash-001", "gemini-2.5-pro-001"],
+                description: "Vertex AI model name",
+            },
+        }
+    },
+    "Voice": {
+        icon: "record_voice_over",
+        fields: {
+            stt_engine: {
+                label: "Speech-to-Text Engine",
+                type: "select",
+                key: "voice.stt_engine",
+                options: ["browser", "faster-whisper", "openai-whisper", "groq-whisper", "whispercpp"],
+                description: "Engine for converting speech to text",
+                onChange: "refreshCategory",
+            },
+            tts_engine: {
+                label: "Text-to-Speech Engine",
+                type: "select",
+                key: "voice.engine",
+                options: ["edge-tts", "openvoice", "elevenlabs", "openai-tts", "speecht5", "alltalk", "piper", "coqui-local", "kokoro"],
+                description: "Engine for converting text to speech",
+                onChange: "refreshCategory",
+            },
+            voice_input: {
+                label: "Voice Input (Mic)",
+                type: "toggle",
+                key: "voice.input_enabled",
+                description: "Enable microphone input",
+            },
+            voice_output: {
+                label: "Voice Output (Speaker)",
+                type: "toggle",
+                key: "voice.output_enabled",
+                description: "Enable speech output",
+            },
+            lipsync: {
+                label: "Lip-sync",
+                type: "toggle",
+                key: "voice.lipsync_enabled",
+                description: "Animate avatar mouth with speech",
+            },
+            // Faster-Whisper sub-fields
+            fw_model: {
+                label: "Faster-Whisper Model Size",
+                type: "select",
+                key: "voice.faster_whisper.model",
+                options: ["tiny", "base", "small", "medium", "large"],
+                show_if: { field: "stt_engine", equals: "faster-whisper" },
+            },
+            // OpenAI Whisper sub-fields
+            ow_api_key: {
+                label: "OpenAI Whisper API Key",
+                type: "password",
+                key: "voice.openai_whisper.api_key",
+                show_if: { field: "stt_engine", equals: "openai-whisper" },
+            },
+            ow_model: {
+                label: "OpenAI Whisper Model",
+                type: "text",
+                key: "voice.openai_whisper.model",
+                show_if: { field: "stt_engine", equals: "openai-whisper" },
+            },
+            // Groq Whisper sub-fields
+            gw_api_key: {
+                label: "Groq Whisper API Key",
+                type: "password",
+                key: "voice.groq_whisper.api_key",
+                show_if: { field: "stt_engine", equals: "groq-whisper" },
+            },
+            gw_model: {
+                label: "Groq Whisper Model",
+                type: "text",
+                key: "voice.groq_whisper.model",
+                show_if: { field: "stt_engine", equals: "groq-whisper" },
+            },
+            gw_base_url: {
+                label: "Groq Whisper Base URL",
+                type: "text",
+                key: "voice.groq_whisper.base_url",
+                show_if: { field: "stt_engine", equals: "groq-whisper" },
+            },
+            // Whisper.cpp
+            wcpp_url: {
+                label: "Whisper.cpp URL",
+                type: "text",
+                key: "voice.whispercpp.url",
+                show_if: { field: "stt_engine", equals: "whispercpp" },
+            },
+            // ElevenLabs sub-fields
+            el_api_key: {
+                label: "ElevenLabs API Key",
+                type: "password",
+                key: "voice.elevenlabs.api_key",
+                show_if: { field: "tts_engine", equals: "elevenlabs" },
+            },
+            el_voice_id: {
+                label: "ElevenLabs Voice ID",
+                type: "text",
+                key: "voice.elevenlabs.voice_id",
+                show_if: { field: "tts_engine", equals: "elevenlabs" },
+            },
+            // OpenAI TTS sub-fields
+            otts_api_key: {
+                label: "OpenAI TTS API Key",
+                type: "password",
+                key: "voice.openai_tts.api_key",
+                show_if: { field: "tts_engine", equals: "openai-tts" },
+            },
+            otts_model: {
+                label: "OpenAI TTS Model",
+                type: "text",
+                key: "voice.openai_tts.model",
+                show_if: { field: "tts_engine", equals: "openai-tts" },
+            },
+            otts_voice: {
+                label: "OpenAI TTS Voice",
+                type: "select",
+                key: "voice.openai_tts.voice",
+                options: ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+                show_if: { field: "tts_engine", equals: "openai-tts" },
+            },
+            // AllTalk
+            at_url: {
+                label: "AllTalk URL",
+                type: "text",
+                key: "voice.alltalk.url",
+                show_if: { field: "tts_engine", equals: "alltalk" },
+            },
+            at_voice: {
+                label: "AllTalk Voice",
+                type: "text",
+                key: "voice.alltalk.voice",
+                show_if: { field: "tts_engine", equals: "alltalk" },
+            },
+            at_language: {
+                label: "AllTalk Language",
+                type: "text",
+                key: "voice.alltalk.language",
+                show_if: { field: "tts_engine", equals: "alltalk" },
+            },
+            at_version: {
+                label: "AllTalk Version",
+                type: "select",
+                key: "voice.alltalk.version",
+                options: ["v2", "v1"],
+                show_if: { field: "tts_engine", equals: "alltalk" },
+            },
+            at_rvc_voice: {
+                label: "AllTalk RVC Voice",
+                type: "text",
+                key: "voice.alltalk.rvc_voice",
+                show_if: { field: "tts_engine", equals: "alltalk" },
+            },
+            at_rvc_pitch: {
+                label: "AllTalk RVC Pitch",
+                type: "text",
+                key: "voice.alltalk.rvc_pitch",
+                show_if: { field: "tts_engine", equals: "alltalk" },
+            },
+            // Piper
+            piper_url: {
+                label: "Piper URL",
+                type: "text",
+                key: "voice.piper.url",
+                show_if: { field: "tts_engine", equals: "piper" },
+            },
+            // Coqui
+            coqui_url: {
+                label: "Coqui URL",
+                type: "text",
+                key: "voice.coqui_local.url",
+                show_if: { field: "tts_engine", equals: "coqui-local" },
+            },
+            coqui_speaker: {
+                label: "Coqui Speaker ID",
+                type: "text",
+                key: "voice.coqui_local.speaker_id",
+                show_if: { field: "tts_engine", equals: "coqui-local" },
+            },
+            // Kokoro
+            kokoro_url: {
+                label: "Kokoro URL",
+                type: "text",
+                key: "voice.kokoro.url",
+                show_if: { field: "tts_engine", equals: "kokoro" },
+            },
+            kokoro_voice: {
+                label: "Kokoro Voice",
+                type: "text",
+                key: "voice.kokoro.voice",
+                show_if: { field: "tts_engine", equals: "kokoro" },
+            },
+        }
+    },
+    "Character": {
+        icon: "person",
+        fields: {
+            active_character: {
+                label: "Active Character",
+                type: "select",
+                key: "character.active",
+                options: ["default", "frieren", "custom"],
+                description: "Which character personality to use",
+            },
+            companion_mode: {
+                label: "Companion Mode",
+                type: "toggle",
+                key: "behavior.companion_enabled",
+                description: "Enable proactive companion interactions",
+            },
+            thinking: {
+                label: "Show Thinking",
+                type: "toggle",
+                key: "behavior.thinking_enabled",
+                description: "Display reasoning before responses",
+            },
+            system_prompt: {
+                label: "Additional Instructions",
+                type: "textarea",
+                key: "character.system_prompt",
+                description: "Extra instructions appended to every conversation",
+            },
+        }
+    },
+    "Memory": {
+        icon: "memory",
+        fields: {
+            memory_enabled: {
+                label: "Memory Enabled",
+                type: "toggle",
+                key: "memory.enabled",
+                description: "Allow Amalgam to remember context across sessions",
+            },
+            short_term_size: {
+                label: "Context Window",
+                type: "number",
+                key: "memory.context_window",
+                min: 5, max: 200,
+                description: "Number of recent turns to keep in context",
+            },
+            long_term_enabled: {
+                label: "Long-Term Memory",
+                type: "toggle",
+                key: "memory.fact_extraction",
+                description: "Extract and persist important facts across sessions",
+            },
+        }
+    },
+    "Appearance": {
+        icon: "palette",
+        fields: {
+            theme: {
+                label: "Theme",
+                type: "select",
+                key: "ui.theme",
+                options: ["dark", "midnight", "light", "nord"],
+                description: "Color theme for the interface",
+            },
+            accent_color: {
+                label: "Accent Color",
+                type: "color",
+                key: "ui.accent_color",
+                description: "Primary accent color",
+            },
+            font_size: {
+                label: "Font Size",
+                type: "range",
+                key: "ui.font_size",
+                min: 10, max: 24,
+                description: "Interface font size in pixels",
+            },
+            language: {
+                label: "Language",
+                type: "select",
+                key: "ui.language",
+                options: ["en", "zh"],
+                description: "Interface language",
+            },
+        }
+    },
+    "Advanced": {
+        icon: "tune",
+        fields: {
+            profile: {
+                label: "Settings Profile",
+                type: "select",
+                key: "profile",
+                options: ["default", "token-friendly", "quality", "custom"],
+                description: "Profile for presets: token-friendly (lower token usage), quality (higher quality), custom (your tweaks)",
+            },
+            temperature: {
+                label: "LLM Temperature",
+                type: "range",
+                key: "llm.temperature",
+                min: 0, max: 2, step: 0.1,
+                description: "Controls randomness in responses (0=deterministic, 2=creative)",
+            },
+            vault_path: {
+                label: "Vault Path",
+                type: "text",
+                key: "vault.path",
+                description: "Path to the RAG vault knowledge base",
+            },
+            vad_mode: {
+                label: "VAD Mode",
+                type: "select",
+                key: "voice.vad_mode",
+                options: ["0", "1", "2", "3"],
+                description: "Voice Activity Detection aggressiveness",
+            },
+            log_level: {
+                label: "Log Level",
+                type: "select",
+                key: "advanced.debug_log_level",
+                options: ["DEBUG", "INFO", "WARNING", "ERROR"],
+                description: "Verbosity of application logs",
+            },
+        }
+    },
+    "Privacy": {
+        icon: "security",
+        fields: {
+            telemetry: {
+                label: "Metrics Opt-Out",
+                type: "toggle",
+                key: "privacy.metrics_opt_out",
+                description: "Opt out of anonymous usage metrics",
+            },
+            local_only: {
+                label: "Local-Only Mode",
+                type: "toggle",
+                key: "privacy.local_only_mode",
+                description: "Restrict all operations to local machine only",
+            },
+        }
+    },
+};
+
+const PROVIDER_MODELS = {
+    'gemini': ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+    'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1'],
+    'anthropic': ['claude-sonnet-4-20250514', 'claude-haiku-3-5'],
+    'groq': ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'deepseek-r1-distill-llama-70b'],
+    'ollama': [],
+    'openrouter': ['meta-llama/llama-3.1-8b-instruct:free'],
+    'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
+    'siliconflow': ['deepseek-ai/DeepSeek-R1', 'deepseek-ai/DeepSeek-V3'],
+    'zai': ['google/gemma-2-27b-it', 'Qwen/QwQ-32B-Preview'],
+    'mistral': ['mistral-small-latest', 'mistral-large-latest'],
+    'together': ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
+    'chatgpt': ['gpt-4o-mini', 'gpt-4o'],
+    'claude': ['claude-sonnet-4-20250514', 'claude-haiku-3-5'],
+    'huggingface': [],
+    'llamacpp': [],
+    'koboldai': [],
+    'aws': ['anthropic.claude-sonnet-4-20250514', 'anthropic.claude-3-5-sonnet-20241022', 'meta.llama3-70b-instruct-v1:0'],
+    'gcp': ['gemini-2.0-flash-001', 'gemini-2.5-flash-001', 'gemini-2.5-pro-001'],
+    'azure-openai': [],
+    'alibaba': [],
+};
+
+let activeSettingsTab = 'Provider';
+let _settingsCache = null;
+
+function getSettings() { return _settingsCache; }
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _getNestedValue(obj, path) {
+    if (!obj || !path) return undefined;
+    // Try flat key first
+    if (obj[path] !== undefined) return obj[path];
+    // Try nested path
+    const parts = path.split('.');
+    let cur = obj;
+    for (const p of parts) {
+        if (cur === null || cur === undefined) return undefined;
+        cur = cur[p];
+    }
+    return cur;
+}
+
+function _getFieldKey(fieldId, field) {
+    const settings = getSettings() || {};
+    if (field.key_dynamic) {
+        const active = _getNestedValue(settings, 'provider.active') || 'gemini';
+        const suffix = field.key_suffix || fieldId;
+        return `provider.${active}.${suffix}`;
+    }
+    return field.key || fieldId;
+}
+
+function _getFieldValue(fieldId, field) {
+    const settings = getSettings() || {};
+    const key = _getFieldKey(fieldId, field);
+    let val = _getNestedValue(settings, key);
+    // For dynamic model fields, also try without suffix
+    if ((val === undefined || val === null) && field.key_dynamic && field.key_suffix) {
+        const active = _getNestedValue(settings, 'provider.active') || 'gemini';
+        const altKey = `provider.${active}.${fieldId}`;
+        val = _getNestedValue(settings, altKey);
+    }
+    return val ?? '';
+}
+
+function _getFieldOptions(fieldId, field) {
+    if (field.dynamic_options) {
+        const settings = getSettings() || {};
+        const active = _getNestedValue(settings, 'provider.active') || 'gemini';
+        return PROVIDER_MODELS[active] || [];
+    }
+    return field.options || [];
+}
+
+function _shouldShowField(fieldId, field) {
+    if (!field.show_if) return true;
+    const settings = getSettings() || {};
+    const sf = field.show_if;
+    let currentVal;
+    // Resolve the controlling field's value — prefer DOM over cached settings
+    if (sf.field === 'active_provider') {
+        const domEl = document.getElementById('field-active_provider');
+        currentVal = domEl ? domEl.value : (_getNestedValue(settings, 'provider.active') || 'gemini');
+    } else if (sf.field === 'stt_engine') {
+        const domEl = document.getElementById('field-stt_engine');
+        currentVal = domEl ? domEl.value : (_getNestedValue(settings, 'voice.stt_engine') || 'browser');
+    } else if (sf.field === 'tts_engine') {
+        const domEl = document.getElementById('field-tts_engine');
+        currentVal = domEl ? domEl.value : (_getNestedValue(settings, 'voice.engine') || 'edge-tts');
+    } else {
+        // Try to find the key in the schema
+        for (const cat of Object.values(SETTINGS_SCHEMA)) {
+            if (cat.fields[sf.field]) {
+                const domEl = document.getElementById(`field-${sf.field}`);
+                currentVal = domEl ? domEl.value : _getFieldValue(sf.field, cat.fields[sf.field]);
+                break;
+            }
+        }
+    }
+    if (sf.equals) return String(currentVal) === sf.equals;
+    if (sf.not_in) return !sf.not_in.includes(String(currentVal));
+    return true;
+}
+
+function renderSettings() {
+    const container = document.getElementById('settings-body');
+    if (!container) return;
+
+    // Check if settings are loaded — show skeleton if not
+    if (!_settingsCache) {
+        container.innerHTML = `
+            <div class="settings-sidebar">
+                ${['Provider','Voice','Character','Memory','Appearance','Advanced','Privacy'].map(c => `
+                    <div class="skeleton" style="height:36px;margin-bottom:4px;border-radius:8px"></div>
+                `).join('')}
+            </div>
+            <div class="settings-content">
+                <div class="skeleton skeleton-text" style="width:30%"></div>
+                <div class="skeleton skeleton-text"></div>
+                <div class="skeleton skeleton-text"></div>
+                <div class="skeleton skeleton-text" style="width:50%"></div>
+            </div>
+        `;
+        return;
+    }
+
+    const categories = Object.keys(SETTINGS_SCHEMA);
+    let sidebarHtml = categories.map(cat => `
+        <button class="settings-cat-btn ${cat === activeSettingsTab ? 'active' : ''}" 
+                data-category="${cat}"
+                onclick="switchSettingsTab('${cat}')"
+                aria-label="${cat} settings"
+                aria-current="${cat === activeSettingsTab ? 'page' : 'false'}">
+            <span class="material-icons-round" aria-hidden="true">${SETTINGS_SCHEMA[cat].icon}</span>
+            <span>${cat}</span>
+        </button>
+    `).join('');
+
+    const searchHtml = `
+        <div class="settings-search">
+            <span class="material-icons-round">search</span>
+            <input type="text" id="settings-search-input" placeholder="Search settings..." oninput="filterSettings()">
+        </div>
+    `;
+
+    container.innerHTML = `
+        <div class="settings-sidebar">
+            ${sidebarHtml}
+        </div>
+        <div class="settings-content">
+            ${searchHtml}
+            <div id="settings-form-area">
+                ${renderCategory(activeSettingsTab)}
+            </div>
+        </div>
+    `;
+}
+
+function renderCategory(category) {
+    const catData = SETTINGS_SCHEMA[category];
+    if (!catData) return '<p class="settings-no-results">Unknown category</p>';
+
+    const isProvider = category === 'Provider';
+    const activeProv = isProvider ? (_getNestedValue(getSettings(), 'provider.active') || 'gemini') : null;
+
+    let html = `<h3 class="settings-category-title">${category}</h3>`;
+
+    for (const [fieldId, field] of Object.entries(catData.fields)) {
+        if (!_shouldShowField(fieldId, field)) continue;
+        html += renderField(fieldId, field);
+    }
+
+    html += `<button class="save-category-btn" onclick="saveCategory('${category}')">
+        <span class="material-icons-round">save</span> Save ${category} Settings
+    </button>`;
+
+    return html;
+}
+
+function renderField(fieldId, field) {
+    const settings = getSettings() || {};
+    const key = _getFieldKey(fieldId, field);
+    let value = _getFieldValue(fieldId, field);
+    const options = _getFieldOptions(fieldId, field);
+    const desc = field.description ? `<span class="field-desc">${escapeHtml(field.description)}</span>` : '';
+
+    // Common attributes for inputs/selects
+    const commonAttrs = `id="field-${fieldId}" data-key="${escapeHtml(key)}" data-field="${fieldId}"`;
+
+    switch (field.type) {
+        case 'toggle': {
+            const checked = value === true || value === 'true' ? 'checked' : '';
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <div class="field-label-row">
+                        <label for="field-${fieldId}">${field.label}</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" ${commonAttrs} ${checked}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    ${desc}
+                </div>
+            `;
+        }
+        case 'select': {
+            const opts = options.map(opt =>
+                `<option value="${escapeHtml(opt)}" ${String(value) === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`
+            ).join('');
+            let actionBtn = '';
+            if (field.dynamic_options) {
+                const active = _getNestedValue(settings, 'provider.active') || 'gemini';
+                actionBtn = `<button class="icon-btn fetch-models-btn" onclick="fetchModels('${active}')" title="Fetch models from provider">
+                    <span class="material-icons-round">cloud_sync</span>
+                </button>`;
+            }
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <label for="field-${fieldId}">${field.label}</label>
+                    <div class="input-with-action">
+                        <select ${commonAttrs}>
+                            ${opts}
+                        </select>
+                        ${actionBtn}
+                    </div>
+                    ${desc}
+                </div>
+            `;
+        }
+        case 'password': {
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <label for="field-${fieldId}">${field.label}</label>
+                    <div class="input-with-action">
+                        <input type="password" ${commonAttrs} value="${escapeHtml(String(value))}" placeholder="${field.label}">
+                        <button class="icon-btn toggle-vis-btn" onclick="toggleFieldVisibility('field-${fieldId}')" title="Show/hide">
+                            <span class="material-icons-round">visibility</span>
+                        </button>
+                        <button class="icon-btn test-conn-btn" onclick="testConnection('${escapeHtml(key)}')" title="Test connection">
+                            <span class="material-icons-round">wifi_find</span>
+                        </button>
+                    </div>
+                    ${desc}
+                </div>
+            `;
+        }
+        case 'number': {
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <label for="field-${fieldId}">${field.label}</label>
+                    <input type="number" ${commonAttrs} value="${escapeHtml(String(value))}" min="${field.min || 0}" max="${field.max || 999}" step="${field.step || 1}">
+                    ${desc}
+                </div>
+            `;
+        }
+        case 'range': {
+            const val = value || field.min || 0;
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <label for="field-${fieldId}">${field.label}</label>
+                    <div class="range-row">
+                        <input type="range" ${commonAttrs} value="${val}" min="${field.min || 0}" max="${field.max || 100}" step="${field.step || 1}">
+                        <span class="range-val">${val}</span>
+                    </div>
+                    ${desc}
+                </div>
+            `;
+        }
+        case 'color': {
+            const hex = value || '#6c5ce7';
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <label for="field-${fieldId}">${field.label}</label>
+                    <input type="color" ${commonAttrs} value="${hex}" style="width:48px;height:32px;padding:2px;border-radius:6px;cursor:pointer">
+                    ${desc}
+                </div>
+            `;
+        }
+        case 'textarea': {
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <label for="field-${fieldId}">${field.label}</label>
+                    <textarea ${commonAttrs} rows="3" placeholder="${field.label}">${escapeHtml(String(value))}</textarea>
+                    ${desc}
+                </div>
+            `;
+        }
+        case 'text': {
+            // Add test-connection button for provider base_url fields
+            const isProviderField = field.key_dynamic && field.key_suffix === 'base_url';
+            const actionBtn = isProviderField ? `
+                <button class="icon-btn test-conn-btn" onclick="testConnectionFromField('field-${fieldId}')" title="Test connection">
+                    <span class="material-icons-round">wifi_find</span>
+                </button>
+            ` : '';
+            return `
+                <div class="settings-field" data-field="${fieldId}">
+                    <label for="field-${fieldId}">${field.label}</label>
+                    <div class="input-with-action">
+                        <input type="text" ${commonAttrs} value="${escapeHtml(String(value))}" placeholder="${field.label}">
+                        ${actionBtn}
+                    </div>
+                    ${desc}
+                </div>
+            `;
+        }
+    }
+}
+
+function switchSettingsTab(category) {
+    activeSettingsTab = category;
+    renderSettings();
+    _attachSettingsDelegates();
+}
+
+function filterSettings() {
+    const query = document.getElementById('settings-search-input')?.value?.toLowerCase() || '';
+    const area = document.getElementById('settings-form-area');
+    if (!area) return;
+
+    if (!query) {
+        area.innerHTML = renderCategory(activeSettingsTab);
+        _attachSettingsDelegates();
+        return;
+    }
+
+    let html = '<h3 class="settings-category-title">Search Results</h3>';
+    let found = false;
+
+    for (const [catName, catData] of Object.entries(SETTINGS_SCHEMA)) {
+        const matchingFields = Object.entries(catData.fields).filter(
+            ([id, f]) => f.label.toLowerCase().includes(query) || id.toLowerCase().includes(query) || (f.description || '').toLowerCase().includes(query)
+        );
+        if (matchingFields.length > 0) {
+            found = true;
+            html += `<h4 class="settings-result-category">${escapeHtml(catName)}</h4>`;
+            for (const [fieldId, field] of matchingFields) {
+                if (!_shouldShowField(fieldId, field)) continue;
+                html += renderField(fieldId, field);
+            }
+        }
+    }
+
+    if (!found) {
+        html += '<p class="settings-no-results">No settings found matching "' + escapeHtml(query) + '"</p>';
+    }
+
+    area.innerHTML = html;
+    _attachSettingsDelegates();
+}
+
+function saveCategory(category) {
+    const catData = SETTINGS_SCHEMA[category];
+    if (!catData) return;
+
+    const changed = {};
+    for (const [fieldId, field] of Object.entries(catData.fields)) {
+        if (!_shouldShowField(fieldId, field)) continue;
+        const input = document.getElementById(`field-${fieldId}`);
+        if (!input) continue;
+
+        const key = _getFieldKey(fieldId, field);
+        let value;
+        if (field.type === 'toggle') {
+            value = input.checked;
+        } else if (field.type === 'number' || field.type === 'range') {
+            value = Number(input.value);
+        } else {
+            value = input.value;
+        }
+        changed[key] = value;
+    }
+
+    // Also save active_provider for Provider category
+    if (category === 'Provider') {
+        const apInput = document.getElementById('field-active_provider');
+        if (apInput) {
+            changed['provider.active'] = apInput.value;
+        }
+    }
+
+    fetch(`${BASE_URL}/api/settings/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: changed }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'ok') {
+            showToast(`${category} settings saved`, 'success');
+            // Refresh settings cache
+            fetch(`${BASE_URL}/api/settings`).then(r => r.json()).then(s => {
+                _settingsCache = s;
+            }).catch(() => {});
+        } else {
+            showToast(`Failed to save: ${data.error || 'unknown error'}`, 'danger');
+        }
+    })
+    .catch(e => showToast(`Save failed: ${e.message}`, 'danger'));
+}
+
+function toggleFieldVisibility(id) {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    const isPassword = inp.type === 'password';
+    inp.type = isPassword ? 'text' : 'password';
+    // Update the toggle button icon
+    const btn = inp.parentElement?.querySelector('.toggle-vis-btn .material-icons-round');
+    if (btn) btn.textContent = isPassword ? 'visibility_off' : 'visibility';
+}
+
+function testConnection(key) {
+    // Extract provider name from key (e.g. "provider.gemini.api_key" -> "gemini")
+    const match = key.match(/^provider\.([^.]+)\./);
+    const provider = match ? match[1] : null;
+    if (!provider) {
+        showToast('Cannot determine provider for connection test', 'warning');
+        return;
+    }
+    const btn = event?.target?.closest?.('.test-conn-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-icons-round" style="animation:spin 1s linear infinite">sync</span>';
+    }
+    fetch(`${BASE_URL}/api/settings/test/${provider}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(result => {
+            if (result.ok) {
+                if (btn) {
+                    btn.innerHTML = '<span class="material-icons-round" style="color:var(--success)">check_circle</span>';
+                }
+                showToast(`Connected (${result.latency_ms}ms)`, 'success');
+            } else {
+                if (btn) {
+                    btn.innerHTML = '<span class="material-icons-round" style="color:var(--danger)">error</span>';
+                }
+                showToast(`Failed: ${result.error}`, 'danger');
+            }
+        })
+        .catch(e => {
+            if (btn) {
+                btn.innerHTML = '<span class="material-icons-round" style="color:var(--danger)">error</span>';
+            }
+            showToast(`Connection test failed: ${e.message}`, 'danger');
+        })
+        .finally(() => {
+            setTimeout(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="material-icons-round">wifi_find</span>';
+                }
+            }, 3000);
+        });
+}
+
+function fetchModels(provider) {
+    if (!provider) return;
+    const btn = event?.target?.closest?.('.fetch-models-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-icons-round" style="animation:spin 1s linear infinite">sync</span>';
+    }
+    fetch(`${BASE_URL}/api/models/${provider}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data?.models?.length) {
+                // Find the model select and update its options
+                const sel = document.getElementById('field-model');
+                if (sel) {
+                    const current = sel.value;
+                    sel.innerHTML = '<option value="">Select model...</option>';
+                    data.models.forEach(m => {
+                        const o = document.createElement('option');
+                        o.value = m;
+                        o.textContent = m;
+                        sel.appendChild(o);
+                    });
+                    if (current && data.models.includes(current)) sel.value = current;
+                }
+                showToast(`Found ${data.models.length} models`, 'success');
+            } else {
+                showToast('No models found', 'warning');
+            }
+        })
+        .catch(e => showToast(`Failed to fetch models: ${e.message}`, 'danger'))
+        .finally(() => {
+            setTimeout(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="material-icons-round">cloud_sync</span>';
+                }
+            }, 3000);
+        });
+}
+
+function _attachSettingsDelegates() {
+    const body = document.getElementById('settings-body');
+    if (!body) return;
+
+    // Remove old listeners to avoid duplicates — use a flag
+    if (body._delegatesAttached) return;
+    body._delegatesAttached = true;
+
+    // Handle changes for theme, language, font size, temperature, accent color
+    body.addEventListener('change', (e) => {
+        const el = e.target;
+        const fieldId = el.dataset?.field || el.id?.replace('field-', '') || '';
+
+        // Live-apply appearance changes
+        if (fieldId === 'theme') {
+            applyTheme(el.value);
+        }
+        if (fieldId === 'language') {
+            const lang = el.value;
+            if (typeof setLanguage === 'function') {
+                setLanguage(lang);
+            }
+            fetch(`${BASE_URL}/api/settings/set`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: 'ui.language', value: lang })
+            }).catch(() => {});
+        }
+        if (fieldId === 'accent_color') {
+            applyAccentColor(el.value);
+        }
+        if (fieldId === 'font_size') {
+            const val = el.value;
+            const rv = body.querySelector('.range-val');
+            if (rv) rv.textContent = val + 'px';
+            document.documentElement.style.setProperty('--font-size', val + 'px');
+        }
+        if (fieldId === 'temperature') {
+            const rv = body.querySelector('.range-val');
+            if (rv) rv.textContent = el.value;
+        }
+
+        // Refresh category on engine/provider changes
+        if (fieldId === 'stt_engine' || fieldId === 'tts_engine' || fieldId === 'active_provider') {
+            // Re-render current category
+            const area = document.getElementById('settings-form-area');
+            if (area && !document.getElementById('settings-search-input')?.value) {
+                area.innerHTML = renderCategory(activeSettingsTab);
+                body._delegatesAttached = false;
+                _attachSettingsDelegates();
+            }
+        }
+
+        // Handle voice toggle sync with header toggles
+        if (fieldId === 'voice_input') {
+            const headerToggle = document.getElementById('voice-input-toggle');
+            if (headerToggle) {
+                const enabled = el.checked;
+                headerToggle.querySelector('.material-icons-round').textContent = enabled ? 'mic' : 'mic_off';
+                headerToggle.classList.toggle('active', enabled);
+                if (typeof window._toggleVoiceInputState === 'function') {
+                    window._toggleVoiceInputState(enabled);
+                }
+            }
+        }
+        if (fieldId === 'voice_output') {
+            const headerToggle = document.getElementById('voice-output-toggle');
+            if (headerToggle) {
+                const enabled = el.checked;
+                headerToggle.querySelector('.material-icons-round').textContent = enabled ? 'volume_up' : 'volume_off';
+                headerToggle.classList.toggle('active', enabled);
+            }
+        }
+    });
+
+    // Range input live updates
+    body.addEventListener('input', (e) => {
+        if (e.target.type === 'range') {
+            const rv = e.target.parentElement?.querySelector('.range-val');
+            if (rv) {
+                const suffix = e.target.dataset?.field === 'font_size' ? 'px' : '';
+                rv.textContent = e.target.value + suffix;
+            }
+        }
+    });
+}
+
+// Attach to window for onclick handlers
+window.switchSettingsTab = switchSettingsTab;
+window.filterSettings = filterSettings;
+window.saveCategory = saveCategory;
+window.toggleFieldVisibility = toggleFieldVisibility;
+window.testConnection = testConnection;
+window.fetchModels = fetchModels;
+
+// Test connection from a field element (e.g. base_url text input)
+window.testConnectionFromField = function(fieldId) {
+    const inp = document.getElementById(fieldId);
+    if (!inp) return;
+    const key = inp.dataset.key || '';
+    testConnection(key);
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
-    
     let savedLang = null;
     try {
         const r = await fetch(`${BASE_URL}/api/settings/get/ui.language`);
@@ -44,18 +1092,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initMetricsAutoRefresh();
 
     
-    const langSelect = document.getElementById('language-select');
-    if (langSelect) {
-        langSelect.value = getCurrentLang();
-        langSelect.addEventListener('change', async () => {
-            await setLanguage(langSelect.value);
-            fetch(`${BASE_URL}/api/settings/set`, {
-                method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({'ui.language': langSelect.value})
-            });
-        });
-    }
-
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
     const sendBtn = document.getElementById('send-btn');
@@ -165,7 +1201,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     let voiceInputEnabled = false;
     let voiceOutputEnabled = false;
     let mcpServersCache = []; 
-    let _settingsCache = null; 
 
     
     let audioContext = null;
@@ -182,8 +1217,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     function _flushStreamBuffer() {
         _streamBufferTimer = null;
         if (_streamBuffer.size === 0) return;
-        for (const [el, text] of _streamBuffer) {
-            el.textContent += text;
+        for (const [el, newText] of _streamBuffer) {
+            const accumulated = (el.dataset.rawText || '') + newText;
+            el.dataset.rawText = accumulated;
+            el.innerHTML = formatMessage(accumulated);
+            // Add copy buttons to code blocks
+            el.querySelectorAll('pre code').forEach(codeBlock => {
+                if (!codeBlock.parentElement.querySelector('.copy-code-btn')) {
+                    const btn = document.createElement('button');
+                    btn.className = 'copy-code-btn';
+                    btn.setAttribute('aria-label', 'Copy code');
+                    btn.onclick = function() {
+                        const t = this;
+                        const c = t.previousElementSibling;
+                        navigator.clipboard.writeText(c.textContent || c.innerText).then(() => {
+                            t.classList.add('copied');
+                            t.textContent = 'Copied';
+                            setTimeout(() => {
+                                t.classList.remove('copied');
+                                t.textContent = '';
+                            }, 2000);
+                        });
+                    };
+                    codeBlock.parentElement.appendChild(btn);
+                }
+            });
+        }
+        for (const [el] of _streamBuffer) {
+            if (!el.isConnected) {
+                _streamBuffer.delete(el);
+            }
         }
         _streamBuffer.clear();
     }
@@ -204,6 +1267,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         return audioContext;
     }
+    window.addEventListener('beforeunload', () => {
+        if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close();
+        }
+    });
 
     function processTTSQueue() {
         if (ttsQueuePlaying || ttsQueue.length === 0) return;
@@ -289,49 +1357,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     
-    const providerSelect = document.getElementById('provider-select');
-    function showProviderSection(name) {
-        document.querySelectorAll('.provider-section').forEach(s => {
-            const isActive = s.dataset.provider === name;
-            s.classList.toggle('active', isActive);
-            s.style.display = isActive ? '' : 'none';
-        });
-    }
-    providerSelect.addEventListener('change', () => showProviderSection(providerSelect.value));
-    showProviderSection(providerSelect.value);
-
-    
-    const ttsEngine = document.getElementById('tts-engine');
-    const sttEngine = document.getElementById('stt-engine');
-    function showTtsSection(name) {
-        document.querySelectorAll('.tts-section').forEach(s => {
-            const isActive = s.dataset.tts === name;
-            s.classList.toggle('active', isActive);
-            s.style.display = isActive ? '' : 'none';
-        });
-    }
-    function showSttSection(name) {
-        document.querySelectorAll('.stt-section').forEach(s => {
-            const isActive = s.dataset.stt === name;
-            s.classList.toggle('active', isActive);
-            s.style.display = isActive ? '' : 'none';
-        });
-    }
-    ttsEngine.addEventListener('change', () => showTtsSection(ttsEngine.value));
-    sttEngine.addEventListener('change', () => showSttSection(sttEngine.value));
-    showTtsSection(ttsEngine.value);
-    showSttSection(sttEngine.value);
-
-
     let _reconnectAttempts = 0;
     const _reconnectDelays = [500, 1000, 2000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
     let _reconnectTimer = null;
     let _reconnectCountdownTimer = null;
     const _pendingMessages = [];
 
+    // Heartbeat / ping-pong state (per-connection)
+    let _pingInterval = null;
+    let _pongPending = false;
+
+    function _startHeartbeat(wsRef) {
+        _stopHeartbeat();
+        _pongPending = false;
+        // Send a ping every 30 seconds
+        _pingInterval = setInterval(() => {
+            if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+                wsRef.send(JSON.stringify({ type: 'ping' }));
+                _pongPending = true;
+                // If we don't receive a pong within 10 seconds, assume stale
+                setTimeout(() => {
+                    if (_pongPending && wsRef && wsRef.readyState === WebSocket.OPEN) {
+                        console.warn('Heartbeat: pong not received, closing stale connection');
+                        wsRef.close(3000, 'Heartbeat timeout');
+                        _pongPending = false;
+                    }
+                }, 10000);
+            }
+        }, 30000);
+    }
+
+    function _stopHeartbeat() {
+        if (_pingInterval) {
+            clearInterval(_pingInterval);
+            _pingInterval = null;
+        }
+        _pongPending = false;
+    }
+
     function _showReconnecting(attempt, delay) {
         statusDot.className = 'status-dot connecting';
-        statusText.innerHTML = `<span class="reconnect-countdown">Reconnecting (${attempt})...</span>`;
+        statusDot.setAttribute('aria-label', `Reconnecting attempt ${attempt}`);
+        statusText.setAttribute('data-i18n', 'status.reconnecting');
+        statusText.innerHTML = `<span class="reconnect-countdown">${t('status.reconnecting_countdown', { attempt: attempt, seconds: Math.round(delay / 1000) })}</span>`;
+        // Show offline bar for extended disconnection
+        const bar = document.getElementById('offline-bar');
+        if (bar && attempt > 2) {
+            bar.classList.remove('hidden');
+            bar.classList.add('visible');
+        }
         if (delay && delay > 0) {
             let remaining = Math.round(delay / 1000);
             if (_reconnectCountdownTimer) clearInterval(_reconnectCountdownTimer);
@@ -340,9 +1414,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (remaining <= 0) {
                     clearInterval(_reconnectCountdownTimer);
                     _reconnectCountdownTimer = null;
-                    statusText.innerHTML = `<span class="reconnect-countdown">Reconnecting...</span>`;
+                    statusText.setAttribute('data-i18n', 'status.reconnecting');
+                    statusText.innerHTML = `<span class="reconnect-countdown">${t('status.reconnecting')}</span>`;
                 } else {
-                    statusText.innerHTML = `<span class="reconnect-countdown">Reconnecting in ${remaining}s...</span>`;
+                    statusText.setAttribute('data-i18n', 'status.reconnecting_countdown');
+                    statusText.innerHTML = `<span class="reconnect-countdown">${t('status.reconnecting_countdown', { attempt: attempt, seconds: remaining })}</span>`;
                 }
             }, 1000);
         }
@@ -357,16 +1433,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function connectWS() {
         if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+        _stopHeartbeat();
         ws = new WebSocket(`${WS_BASE}/ws/chat`);
 
         ws.onopen = () => {
             _reconnectAttempts = 0;
             _clearReconnecting();
             statusDot.className = 'status-dot online';
-            statusText.innerHTML = 'Connected';
+            statusText.innerHTML = t('status.connected');
+
+            // Start heartbeat (ping every 30s)
+            _startHeartbeat(ws);
 
             if (!_settingsLoaded) {
-                api(BASE_URL + '/api/settings').then(s => { if (s) { applySettings(s); markSettingsClean(); _settingsLoaded = true; }});
+                api(BASE_URL + '/api/settings').then(s => { if (s) { applySettings(s); _settingsLoaded = true; }});
                 loadCharacters();
                 fetchCommands();
                 loadSession('current');
@@ -399,11 +1479,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (ws.readyState === WebSocket.OPEN) ws.send(msg);
             }
         };
-        ws.onclose = () => {
-            if (_reconnectAttempts >= _reconnectDelays.length) {
+        ws.onclose = (event) => {
+            _stopHeartbeat();
+
+            // Graceful closures (1000=normal, 1001=page navigate/refresh) —
+            // reconnect silently without showing the full reconnection UI.
+            if (event.code === 1000 || event.code === 1001) {
                 _clearReconnecting();
-                statusDot.className = 'status-dot error';
-                statusText.innerHTML = 'Disconnected';
+                statusDot.className = 'status-dot connecting';
+                statusText.innerHTML = t('status.reconnecting');
+                _reconnectAttempts = 0;
+                _reconnectTimer = setTimeout(connectWS, 200);
+                return;
+            }
+
+            // Unexpected disconnection — show reconnect UI with backoff
+            if (_reconnectAttempts >= _reconnectDelays.length) {
+                _showReconnecting(_reconnectDelays.length, 5000);
+                _reconnectTimer = setTimeout(connectWS, 5000);
                 return;
             }
             const delay = _reconnectDelays[_reconnectAttempts];
@@ -417,8 +1510,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         ws.onmessage = e => {
             try {
                 const data = JSON.parse(e.data);
-                if (data.type === 'error' && data.message) {
-                    showToast(data.message, 'danger');
+
+                // Heartbeat pong — just mark as received, no further processing
+                if (data.type === 'pong') {
+                    _pongPending = false;
+                    return;
+                }
+
+                if (data.type === 'error') {
+                    const severity = data.recoverable ? 'recoverable' : 'critical';
+                    showToast(data.message || 'Unknown error', severity, {
+                        service: data.service,
+                        suggestion: data.suggestion,
+                    });
                 }
                 handleWSMessage(data);
             } catch (err) {
@@ -478,7 +1582,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 const pending = _streamBuffer.get(body);
                 if (pending) {
-                    body.textContent += pending;
+                    const accumulated = (body.dataset.rawText || '') + pending;
+                    body.dataset.rawText = accumulated;
+                    body.innerHTML = formatMessage(accumulated);
                     _streamBuffer.delete(body);
                 }
                 
@@ -578,19 +1684,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                     thinkEl.textContent = data.text;
                     body.appendChild(thinkEl);
                 }
-            } else if (data.type === 'swarm_update') {
-                if (typeof window.handleSwarmUpdate === 'function') {
-                    window.handleSwarmUpdate(data.data);
-                }
-            } else if (data.type === 'avatar_life_event') {
-                if (data.event === 'bored' && avatarRenderer) {
-                    avatarRenderer.setEmotion('bored');
-                }
-            } else if (data.type === 'interrupt') {
-                if (data.action === 'stop_audio_and_animation') {
-                    if (typeof flushTTSQueue === 'function') flushTTSQueue();
-                    if (avatarRenderer) avatarRenderer.setEmotion('surprised');
-                }
+            }
+        } else if (data.type === 'swarm_update') {
+            if (typeof window.handleSwarmUpdate === 'function') {
+                window.handleSwarmUpdate(data.data);
+            }
+        } else if (data.type === 'avatar_life_event') {
+            if (data.event === 'bored' && avatarRenderer) {
+                avatarRenderer.setEmotion('bored');
+            }
+        } else if (data.type === 'interrupt') {
+            if (data.action === 'stop_audio_and_animation') {
+                if (typeof flushTTSQueue === 'function') flushTTSQueue();
+                if (avatarRenderer) avatarRenderer.setEmotion('surprised');
+            }
+        } else if (data.type === 'service_status') {
+            if (data.services) updateHealthBar(data.services);
+        } else if (data.type === 'tool_call_update') {
+            if (data.tool_call_id) {
+                updateToolCall(data.tool_call_id, data.status, data.result);
             }
         }
     }
@@ -616,19 +1728,157 @@ document.addEventListener('DOMContentLoaded', async () => {
             .replace(/\/\(\(.*?\)\)/g, '');
     }
 
-    function getMessageHtml(role, text) {
-        const escaped = escHtml(text);
-        // Wrap code blocks with copy button
-        const withCopy = escaped.replace(
-            /<pre><code>([\s\S]*?)<\/code><\/pre>/g,
-            '<pre><code>$1</code><button class="copy-code-btn" onclick="' +
-                'var t=this;var c=t.previousElementSibling;' +
-                'navigator.clipboard.writeText(c.textContent||c.innerText).then(function(){' +
-                    't.classList.add(\'copied\');t.textContent=\'Copied\';' +
-                    'setTimeout(function(){t.classList.remove(\'copied\');t.textContent=\'\';},2000);' +
-                '});" aria-label="Copy code"></button></pre>'
+    // ==================== Markdown & Message Formatting ====================
+
+    let _toolCallIdCounter = 0;
+
+    function renderMarkdown(text) {
+        if (!text) return '';
+        let html = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>');
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        html = html.replace(/\n/g, '<br>');
+        return html;
+    }
+
+    function formatMessage(text) {
+        if (!text) return '';
+
+        const toolCards = [];
+        const thinkBlocks = [];
+
+        // 1. Extract tool calls first — replace with placeholders
+        let html = text.replace(
+            /\[TOOL_CALL:\s*(\w+)\s*\(([^)]*)\)\]/g,
+            (match, name, args) => {
+                const id = 'tc-' + (++_toolCallIdCounter);
+                const cardHtml = `
+                        <div class="tool-call-card" data-tool="${name}" data-tool-call-id="${id}">
+                            <div class="tool-call-header">
+                                <span class="material-icons-round tool-call-icon">build</span>
+                                <span class="tool-call-name">${escHtml(name)}</span>
+                                <span class="tool-call-status" data-status="running">
+                                    <span class="material-icons-round">sync</span>
+                                    Running...
+                                </span>
+                            </div>
+                            <div class="tool-call-args"><code>${escHtml(args.trim() || '')}</code></div>
+                        </div>
+                `;
+                toolCards.push(cardHtml);
+                return `%%TC${toolCards.length}%%`;
+            }
         );
-        return `<div class="msg-body">${withCopy}</div>` +
+
+        // 2. Extract thinking blocks — replace with placeholders
+        html = html.replace(
+            /\[THINKING\]([\s\S]*?)\[\/THINKING\]/g,
+            (match, content) => {
+                const escapedContent = content.trim();
+                const lines = escapedContent.split('\n').length;
+                const summary = lines <= 3 ? escapedContent : escapedContent.split('\n').slice(0, 2).join('\n') + '...';
+                const blockHtml = `
+                    <details class="thinking-block" ${lines <= 3 ? 'open' : ''}>
+                        <summary class="thinking-summary">
+                            <span class="material-icons-round thinking-icon">psychology</span>
+                            <span class="thinking-label">Thought <span class="thinking-lines">(${lines} lines)</span></span>
+                            <span class="thinking-preview">${renderMarkdown(summary)}</span>
+                        </summary>
+                        <div class="thinking-content">${renderMarkdown(escapedContent)}</div>
+                    </details>
+                `;
+                thinkBlocks.push(blockHtml);
+                return `%%TB${thinkBlocks.length}%%`;
+            }
+        );
+
+        // 3. Apply markdown to the remaining (placeholder-containing) text
+        html = renderMarkdown(html);
+
+        // 4. Replace placeholders with actual rendered HTML
+        toolCards.forEach((card, i) => {
+            html = html.replace(`%%TC${i + 1}%%`, () => card);
+        });
+        thinkBlocks.forEach((block, i) => {
+            html = html.replace(`%%TB${i + 1}%%`, () => block);
+        });
+
+        return html;
+    }
+
+    function updateToolCall(toolId, status, result) {
+        const card = document.querySelector(`.tool-call-card[data-tool-call-id="${toolId}"]`);
+        if (!card) return;
+
+        const statusEl = card.querySelector('.tool-call-status');
+        const icons = {
+            'running': ['sync', 'Running...'],
+            'completed': ['check_circle', 'Completed'],
+            'errored': ['error', 'Errored'],
+            'retrying': ['refresh', 'Retrying...'],
+        };
+        const [icon, label] = icons[status] || ['help', status];
+
+        statusEl.innerHTML = `<span class="material-icons-round">${icon}</span> ${label}`;
+        statusEl.dataset.status = status;
+
+        if (status === 'completed') {
+            card.classList.add('tool-call-completed');
+        } else if (status === 'errored') {
+            card.classList.add('tool-call-errored');
+            if (result) {
+                const errorEl = document.createElement('div');
+                errorEl.className = 'tool-call-error';
+                errorEl.textContent = result;
+                card.appendChild(errorEl);
+            }
+        }
+    }
+
+    function addToolCallRetry(card, toolName, args) {
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'tool-call-retry icon-btn';
+        retryBtn.innerHTML = '<span class="material-icons-round">refresh</span> Retry';
+        retryBtn.title = 'Retry this tool call';
+        retryBtn.addEventListener('click', async () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'retry_tool',
+                    tool: toolName,
+                    args: args,
+                }));
+            }
+            retryBtn.disabled = true;
+            retryBtn.innerHTML = '<span class="material-icons-round">sync</span> Retrying...';
+        });
+        card.appendChild(retryBtn);
+    }
+
+    function getMessageHtml(role, text) {
+        let bodyHtml;
+        if (role === 'assistant') {
+            bodyHtml = formatMessage(text || '');
+            // Wrap code blocks with copy button
+            bodyHtml = bodyHtml.replace(
+                /<pre><code(?:\s+class="[^"]*")?>([\s\S]*?)<\/code><\/pre>/g,
+                '<pre><code>$1</code><button class="copy-code-btn" onclick="' +
+                    'var t=this;var c=t.previousElementSibling;' +
+                    'navigator.clipboard.writeText(c.textContent||c.innerText).then(function(){' +
+                        't.classList.add(\'copied\');t.textContent=\'Copied\';' +
+                        'setTimeout(function(){t.classList.remove(\'copied\');t.textContent=\'\';},2000);' +
+                    '});" aria-label="Copy code"></button></pre>'
+            );
+        } else {
+            const escaped = escHtml(text || '');
+            bodyHtml = escaped;
+        }
+        return `<div class="msg-body">${bodyHtml}</div>` +
             `<div class="msg-actions">` +
                 `<button class="msg-action" data-action="copy" title="Copy" aria-label="Copy message">` +
                     `<span class="material-icons-round">content_copy</span>` +
@@ -701,16 +1951,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         chatMessages.innerHTML = '';
         const welcome = document.createElement('div');
         welcome.className = 'welcome-message';
+        welcome.setAttribute('role', 'status');
         welcome.innerHTML = `
             <div class="welcome-icon" aria-hidden="true">
                 <span class="material-icons-round" style="font-size:3rem">forum</span>
             </div>
-            <h2>Welcome to Amalgam</h2>
-            <p>Your AI companion is ready. Start a conversation or try one of these prompts:</p>
+            <h2>${t('welcome.title')}</h2>
+            <p>${t('welcome.subtitle')}</p>
             <div class="welcome-hints">
-                <button class="welcome-hint" data-prompt="Tell me about yourself">Tell me about yourself</button>
-                <button class="welcome-hint" data-prompt="What can you do?">What can you do?</button>
-                <button class="welcome-hint" data-prompt="Help me brainstorm ideas">Brainstorm ideas</button>
+                <button class="welcome-hint" data-prompt="${t('welcome.hint_about')}">${t('welcome.hint_about')}</button>
+                <button class="welcome-hint" data-prompt="${t('welcome.hint_capabilities')}">${t('welcome.hint_capabilities')}</button>
+                <button class="welcome-hint" data-prompt="${t('welcome.hint_brainstorm')}">${t('welcome.hint_brainstorm')}</button>
             </div>
         `;
         chatMessages.appendChild(welcome);
@@ -1012,13 +2263,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const avatar = document.getElementById('chat-avatar');
         if (!el || !avatar) return;
         avatar.className = 'chat-avatar';
-        switch (state) {
-            case 'thinking': avatar.classList.add('thinking'); el.textContent = 'Thinking...'; break;
-            case 'speaking': avatar.classList.add('speaking'); el.textContent = 'Speaking...'; break;
-            case 'listening': avatar.classList.add('listening'); el.textContent = 'Listening...'; break;
-            case 'typing': avatar.classList.add('typing'); el.textContent = 'Typing...'; break;
-            case 'error': avatar.classList.add('error'); el.textContent = 'Error'; break;
-            default: el.textContent = 'Ready';
+        const labels = {
+            thinking: 'status.thinking',
+            speaking: 'status.speaking',
+            listening: 'status.listening',
+            typing: 'status.typing',
+            error: 'status.error',
+        };
+        el.textContent = t(labels[state] || 'status.ready');
+        if (state && labels[state]) {
+            avatar.classList.add(state);
         }
     }
 
@@ -1031,7 +2285,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     let browserSpeechRestartTimer = null;
 
     function isBrowserStt() {
-        return document.getElementById('stt-engine')?.value === 'browser';
+        const el = document.getElementById('stt-engine');
+        if (el) return el.value === 'browser';
+        // Fallback to cached settings
+        return (_getNestedValue(getSettings(), 'voice.stt_engine') || 'browser') === 'browser';
     }
 
     function startBrowserSpeechRec() {
@@ -1215,13 +2472,27 @@ document.addEventListener('DOMContentLoaded', async () => {
             const ctx = ensureAudioContext();
 
             
-            const binaryStr = atob(base64Wav);
+            let binaryStr;
+            try {
+                binaryStr = atob(base64Wav);
+            } catch (e) {
+                console.warn('TTS: malformed base64, skipping');
+                if (typeof onComplete === 'function') onComplete();
+                return;
+            }
             const bytes = new Uint8Array(binaryStr.length);
             for (let i = 0; i < binaryStr.length; i++) {
                 bytes[i] = binaryStr.charCodeAt(i);
             }
 
-            const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+            let audioBuffer;
+            try {
+                audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+            } catch (e) {
+                console.warn('TTS: malformed audio data, skipping');
+                if (typeof onComplete === 'function') onComplete();
+                return;
+            }
 
             const source = ctx.createBufferSource();
             source.buffer = audioBuffer;
@@ -1268,29 +2539,73 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     
     async function api(url, opts = {}) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), opts.timeout || 30000);
         try {
-            const r = await fetch(url, opts);
+            const r = await fetch(url, { ...opts, signal: controller.signal });
+            clearTimeout(timeout);
             return await r.json();
         } catch (e) {
+            clearTimeout(timeout);
             console.error(`API error (${url}):`, e);
             return null;
         }
     }
 
-    function showToast(msg, type = 'info') {
-        const c = document.getElementById('toast-container');
-        const t = document.createElement('div');
-        t.className = `toast toast-${type}`;
-        t.textContent = msg;
-        t.setAttribute('role', 'alert');
-        c.appendChild(t);
-        const hide = () => {
-            if (t.classList.contains('toast-hiding')) return;
-            t.classList.add('toast-hiding');
-            setTimeout(() => { if (t.parentNode) t.remove(); }, 300);
+    function showToast(message, type = 'system', options = {}) {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        
+        // Icon based on type
+        const icons = {
+            'success': 'check_circle',
+            'danger': 'error',
+            'critical': 'error',
+            'warning': 'warning',
+            'recoverable': 'warning',
+            'system': 'info',
+            'info': 'info',
         };
-        setTimeout(hide, 3000);
-        t.addEventListener('click', hide);
+        const icon = icons[type] || 'info';
+        
+        // Structured content
+        const service = options.service ? `<span class="toast-service">${options.service}</span>` : '';
+        const suggestion = options.suggestion ? `<span class="toast-suggestion">${options.suggestion}</span>` : '';
+        const dismissBtn = type === 'critical' || type === 'danger' 
+            ? '<button class="toast-dismiss" onclick="this.parentElement.remove()"><span class="material-icons-round">close</span></button>' 
+            : '';
+        
+        toast.innerHTML = `
+            <span class="material-icons-round toast-icon">${icon}</span>
+            <div class="toast-content">
+                ${service}
+                <span class="toast-message">${message}</span>
+                ${suggestion}
+            </div>
+            ${dismissBtn}
+        `;
+        
+        container.appendChild(toast);
+        
+        // Auto-dismiss for non-critical types
+        const autoDismiss = {
+            'success': 3000,
+            'system': 3000,
+            'info': 3000,
+            'warning': 5000,
+            'recoverable': 8000,
+        };
+        
+        const duration = autoDismiss[type];
+        if (duration) {
+            setTimeout(() => {
+                toast.style.animation = 'toast-out 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
     }
 
     
@@ -1389,6 +2704,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                     kbdHint.classList.remove('visible');
                     return;
                 }
+                // Close shell permission overlay
+                const shellOverlay = document.getElementById('shell-permission-overlay');
+                if (shellOverlay && shellOverlay.style.display !== 'none') {
+                    shellOverlay.style.display = 'none';
+                    return;
+                }
+                // Close setup wizard overlay
+                const setupWizard = document.getElementById('setup-wizard-overlay');
+                if (setupWizard && setupWizard.style.display !== 'none') {
+                    setupWizard.style.display = 'none';
+                    if (setupWizard._trapFocusHandler) {
+                        setupWizard.removeEventListener('keydown', setupWizard._trapFocusHandler);
+                        delete setupWizard._trapFocusHandler;
+                    }
+                    return;
+                }
                 return;
             }
             // / to focus chat input
@@ -1403,18 +2734,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
             // ? to show keyboard shortcuts hint
-            if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey) {
-                const kbdHint = document.getElementById('kbd-hint');
-                if (kbdHint) {
-                    kbdHint.classList.toggle('visible');
-                }
-            }
+            // Commented out: #kbd-hint element doesn't exist in the DOM
+            // if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey) {
+            //     const kbdHint = document.getElementById('kbd-hint');
+            //     if (kbdHint) {
+            //         kbdHint.classList.toggle('visible');
+            //     }
+            // }
         });
     }
 
     async function init() {
         const settings = await api(BASE_URL + '/api/settings');
-        if (settings) { await applySettings(settings); markSettingsClean(); _settingsLoaded = true; }
+        if (settings) { await applySettings(settings); _settingsLoaded = true; }
         await loadCharacters();
         await fetchCommands();
         setupKeyboardShortcuts();
@@ -1466,116 +2798,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function applySettings(d) {
         _settingsCache = d;
 
-        
         initIdleManager();
 
-        
-        const active = d.provider?.active || 'gemini';
-        providerSelect.value = active;
-        showProviderSection(active);
-        document.getElementById('gemini-api-key').value = d.provider?.gemini?.api_key || '';
-        document.getElementById('gemini-base-url').value = d.provider?.gemini?.base_url || '';
-        document.getElementById('ollama-url').value = d.provider?.ollama?.base_url || '';
-        setOpt('gemini-model', d.provider?.gemini?.model);
-        setOpt('ollama-model', d.provider?.ollama?.model);
-        
-        document.getElementById('openrouter-api-key').value = d.provider?.openrouter?.api_key || '';
-        setVal('openrouter-base-url', d.provider?.openrouter?.base_url);
-        setOpt('openrouter-model', d.provider?.openrouter?.model);
-        document.getElementById('zai-api-key').value = d.provider?.zai?.api_key || '';
-        setVal('zai-base-url', d.provider?.zai?.base_url);
-        setOpt('zai-model', d.provider?.zai?.model);
-        document.getElementById('siliconflow-api-key').value = d.provider?.siliconflow?.api_key || '';
-        setVal('siliconflow-base-url', d.provider?.siliconflow?.base_url);
-        setOpt('siliconflow-model', d.provider?.siliconflow?.model);
-        document.getElementById('groq-api-key').value = d.provider?.groq?.api_key || '';
-        setVal('groq-base-url', d.provider?.groq?.base_url);
-        setOpt('groq-model', d.provider?.groq?.model);
-        document.getElementById('chatgpt-api-key').value = d.provider?.chatgpt?.api_key || '';
-        setVal('chatgpt-base-url', d.provider?.chatgpt?.base_url);
-        setOpt('chatgpt-model', d.provider?.chatgpt?.model);
-        document.getElementById('claude-api-key').value = d.provider?.claude?.api_key || '';
-        setVal('claude-base-url', d.provider?.claude?.base_url);
-        setOpt('claude-model', d.provider?.claude?.model);
-
-        
-        document.getElementById('deepseek-api-key').value = d.provider?.deepseek?.api_key || '';
-        setVal('deepseek-base-url', d.provider?.deepseek?.base_url);
-        setOpt('deepseek-model', d.provider?.deepseek?.model);
-        document.getElementById('mistral-api-key').value = d.provider?.mistral?.api_key || '';
-        setVal('mistral-base-url', d.provider?.mistral?.base_url);
-        setOpt('mistral-model', d.provider?.mistral?.model);
-        document.getElementById('together-api-key').value = d.provider?.together?.api_key || '';
-        setVal('together-base-url', d.provider?.together?.base_url);
-        setOpt('together-model', d.provider?.together?.model);
-        document.getElementById('azure-openai-api-key').value = d.provider?.['azure-openai']?.api_key || '';
-        setVal('azure-openai-base-url', d.provider?.['azure-openai']?.base_url);
-        setOpt('azure-openai-model', d.provider?.['azure-openai']?.model);
-        document.getElementById('alibaba-api-key').value = d.provider?.alibaba?.api_key || '';
-        setVal('alibaba-base-url', d.provider?.alibaba?.base_url);
-        setOpt('alibaba-model', d.provider?.alibaba?.model);
-        document.getElementById('huggingface-api-key').value = d.provider?.huggingface?.api_key || '';
-        setVal('huggingface-base-url', d.provider?.huggingface?.base_url);
-        setOpt('huggingface-model', d.provider?.huggingface?.model);
-
-        
-        document.getElementById('aws-access-key').value = d.provider?.aws?.access_key || '';
-        document.getElementById('aws-secret-key').value = d.provider?.aws?.secret_key || '';
-        document.getElementById('aws-region').value = d.provider?.aws?.region || '';
-        setOpt('aws-model', d.provider?.aws?.model);
-
-        
-        document.getElementById('gcp-service-account').value = d.provider?.gcp?.service_account_json || '';
-        document.getElementById('gcp-project-id').value = d.provider?.gcp?.project_id || '';
-        document.getElementById('gcp-region').value = d.provider?.gcp?.region || '';
-        setOpt('gcp-model', d.provider?.gcp?.model);
-
-        
-        const temp = d.llm?.temperature ?? 0.7;
-        const tempSlider = document.getElementById('llm-temperature');
-        if (tempSlider) { tempSlider.value = temp; document.getElementById('llm-temperature-val').textContent = temp; }
-        const vadEl = document.getElementById('vad-mode');
-        if (vadEl) vadEl.value = d.voice?.vad_mode ?? 2;
-
-        
-        document.getElementById('custom-system-prompt').value = d.character?.system_prompt || '';
-
-        
-        document.getElementById('lipsync-toggle').checked = d.voice?.lipsync_enabled ?? true;
-        const engineEl = document.getElementById('tts-engine');
-        if (engineEl) { engineEl.value = d.voice?.engine || 'edge-tts'; showTtsSection(engineEl.value); }
-        const sttEngineEl = document.getElementById('stt-engine');
-        if (sttEngineEl) { const v = d.voice?.stt_engine || 'browser'; sttEngineEl.value = v; showSttSection(v); }
-
-        
-        setVal('elevenlabs-api-key', d.voice?.elevenlabs?.api_key);
-        setVal('elevenlabs-model', d.voice?.elevenlabs?.model);
-        setVal('elevenlabs-voice-id', d.voice?.elevenlabs?.voice_id);
-        setVal('openai-tts-api-key', d.voice?.openai_tts?.api_key);
-        setVal('openai-tts-model', d.voice?.openai_tts?.model);
-        setOpt('openai-tts-voice', d.voice?.openai_tts?.voice);
-        setVal('alltalk-url', d.voice?.alltalk?.url);
-        setVal('alltalk-voice', d.voice?.alltalk?.voice);
-        setVal('alltalk-language', d.voice?.alltalk?.language);
-        setVal('alltalk-version', d.voice?.alltalk?.version);
-        setVal('alltalk-rvc-voice', d.voice?.alltalk?.rvc_voice);
-        setVal('alltalk-rvc-pitch', d.voice?.alltalk?.rvc_pitch);
-        setVal('piper-url', d.voice?.piper?.url);
-        setVal('coqui-url', d.voice?.coqui_local?.url);
-        setVal('coqui-speaker-id', d.voice?.coqui_local?.speaker_id);
-        setVal('kokoro-url', d.voice?.kokoro?.url);
-        setVal('kokoro-voice', d.voice?.kokoro?.voice);
-
-        
-        setVal('openai-whisper-api-key', d.voice?.openai_whisper?.api_key);
-        setVal('openai-whisper-model', d.voice?.openai_whisper?.model);
-        setVal('groq-whisper-api-key', d.voice?.groq_whisper?.api_key);
-        setVal('groq-whisper-model', d.voice?.groq_whisper?.model);
-        setVal('groq-whisper-base-url', d.voice?.groq_whisper?.base_url);
-        setVal('whispercpp-url', d.voice?.whispercpp?.url);
-        setVal('faster-whisper-model', d.voice?.faster_whisper?.model);
-
-        
+        // Voice I/O state (synced with header toggles)
         voiceInputEnabled = d.ui?.voice_input ?? true;
         voiceOutputEnabled = d.ui?.voice_output ?? true;
         voiceInputToggle.querySelector('.material-icons-round').textContent = voiceInputEnabled ? 'mic' : 'mic_off';
@@ -1603,92 +2828,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         
-        const thinkingEnabled = d.ui?.thinking_enabled ?? true;
-        document.getElementById('thinking-toggle').checked = thinkingEnabled;
-        document.getElementById('thinking-toggle').onchange = async function() {
-            await fetch(BASE_URL + '/api/settings/set', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ key: 'ui.thinking_enabled', value: this.checked })
-            });
-        };
-
-        
-        const theme = d.ui?.theme || 'dark';
-        document.getElementById('theme-select').value = theme;
-        applyTheme(theme);
-        const fsEl = document.getElementById('font-size-range');
-        if (fsEl) {
-            const fs = d.ui?.font_size || 14;
-            fsEl.value = fs;
-            document.getElementById('font-size-val').textContent = `${fs}px`;
-            document.documentElement.style.setProperty('--font-size', fs + 'px');
+        // Thinking toggle (header element)
+        const thinkingToggle = document.getElementById('thinking-toggle');
+        if (thinkingToggle) {
+            const thinkingEnabled = d.ui?.thinking_enabled ?? true;
+            thinkingToggle.checked = thinkingEnabled;
+            thinkingToggle.onchange = async function() {
+                await fetch(BASE_URL + '/api/settings/set', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ key: 'ui.thinking_enabled', value: this.checked })
+                });
+            };
         }
 
-        document.getElementById('vault-path').value = d.vault?.path || 'data/vault';
+        // Theme (affects the whole page)
+        const theme = d.ui?.theme || 'dark';
+        applyTheme(theme);
+        const fs = d.ui?.font_size || 14;
+        document.documentElement.style.setProperty('--font-size', fs + 'px');
 
-        syncAllCustomSelects();
-
-        
+        // Character avatar
         const charId = d.character?.active || 'amalgam';
         
         const chars = await api(BASE_URL + '/api/characters');
         const charName = chars?.[charId]?.name || (charId.charAt(0).toUpperCase() + charId.slice(1));
         setCharacterAvatar(charName);
-        addTestConnectionButtons();
-    }
-
-    function addTestConnectionButtons() {
-        const providers = ['gemini', 'openrouter', 'zai', 'siliconflow', 'groq', 
-                           'chatgpt', 'claude', 'deepseek', 'mistral', 'together',
-                           'azure-openai', 'alibaba', 'huggingface'];
-        
-        for (const provider of providers) {
-            const keyInput = document.getElementById(`${provider}-api-key`);
-            if (!keyInput) continue;
-            
-            const container = keyInput.closest('.input-with-action');
-            if (!container) continue;
-            
-            // Skip if already added
-            if (container.querySelector('.test-conn-btn')) continue;
-            
-            const testBtn = document.createElement('button');
-            testBtn.className = 'icon-btn test-conn-btn';
-            testBtn.innerHTML = '<span class="material-icons-round">wifi_find</span>';
-            testBtn.title = 'Test connection';
-            testBtn.dataset.provider = provider;
-            
-            testBtn.addEventListener('click', async () => {
-                testBtn.disabled = true;
-                testBtn.innerHTML = '<span class="material-icons-round" style="animation: spin 1s linear infinite">sync</span>';
-                
-                try {
-                    const resp = await fetch(`${BASE_URL}/api/settings/test/${provider}`, {
-                        method: 'POST',
-                    });
-                    const result = await resp.json();
-                    
-                    if (result.ok) {
-                        testBtn.innerHTML = '<span class="material-icons-round" style="color: var(--success)">check_circle</span>';
-                        showToast(`Connected (${result.latency_ms}ms)`, 'success');
-                    } else {
-                        testBtn.innerHTML = '<span class="material-icons-round" style="color: var(--danger)">error</span>';
-                        showToast(`Failed: ${result.error}`, 'danger');
-                    }
-                } catch (e) {
-                    testBtn.innerHTML = '<span class="material-icons-round" style="color: var(--danger)">error</span>';
-                    showToast(`Connection test failed: ${e.message}`, 'danger');
-                }
-                
-                setTimeout(() => {
-                    testBtn.disabled = false;
-                    testBtn.innerHTML = '<span class="material-icons-round">wifi_find</span>';
-                }, 3000);
-            });
-            
-            container.appendChild(testBtn);
-        }
     }
 
     function setVal(id, val) {
@@ -1718,12 +2883,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     async function loadCharacters() {
+        const grid = document.getElementById('characters-grid');
+        if (!grid) return;
+        // Show skeleton loading
+        grid.innerHTML = Array(3).fill('').map(() => `
+            <div class="char-card" aria-hidden="true">
+                <div class="skeleton skeleton-circle"></div>
+                <div class="char-info">
+                    <div class="skeleton skeleton-text" style="width:40%"></div>
+                    <div class="skeleton skeleton-text"></div>
+                </div>
+            </div>
+        `).join('');
+        grid.setAttribute('aria-busy', 'true');
+
         const chars = await api(BASE_URL + '/api/characters');
-        if (!chars) return;
+        if (!chars) {
+            grid.innerHTML = `<p class="muted" style="padding:1rem">${t('characters.no_characters') || 'No characters found'}</p>`;
+            grid.removeAttribute('aria-busy');
+            return;
+        }
         const s = await api(BASE_URL + '/api/settings');
         const active = s?.character?.active || 'amalgam';
-        const grid = document.getElementById('characters-grid');
         grid.innerHTML = '';
+        grid.removeAttribute('aria-busy');
 
         for (const [id, c] of Object.entries(chars)) {
             const card = document.createElement('div');
@@ -1733,7 +2916,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const searchText = [id, c.name, c.description, c.personality, c.voice].filter(Boolean).join(' ').toLowerCase();
             card.dataset.search = searchText;
             card.innerHTML = `
-                <img src="${iconUrl}" alt="" class="char-avatar" onerror="this.src='./icons/logo.png'">
+                <img src="${iconUrl}" alt="${c.name} avatar" class="char-avatar" onerror="this.src='./icons/logo.png'">
                 <div class="char-info">
                     <h3>${escHtml(c.name || id)}</h3>
                     <p>${escHtml(c.description || '')}</p>
@@ -1814,7 +2997,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     item.classList.toggle('disabled', !isEnabled);
                     const server = mcpServersCache.find(srv => srv.name === s.name);
                     if (server) server.enabled = isEnabled;
-                    markSettingsDirty();
+                    // Persist MCP state
+                    const payload = { settings: { 'mcp.servers': mcpServersCache } };
+                    fetch(`${BASE_URL}/api/settings/batch`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    }).catch(() => {});
                 });
                 list.appendChild(item);
             });
@@ -1842,226 +3031,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 grid.appendChild(card);
             });
         }
-    }
-
-    
-    let _settingsSnapshot = {};
-    let _mcpSnapshot = '';
-    function _settingsFields() {
-        return Array.from(document.querySelectorAll('#tab-settings input, #tab-settings select, #tab-settings textarea')).filter(el => el.id);
-    }
-    function captureSettingsSnapshot() {
-        _settingsSnapshot = {};
-        _settingsFields().forEach(el => {
-            _settingsSnapshot[el.id] = el.type === 'checkbox' ? el.checked : el.value;
-        });
-    }
-    function _mcpState() {
-        return (mcpServersCache || []).map(s => `${s.name}:${s.enabled !== false}`).join('|');
-    }
-    function isSettingsDirty() {
-        const fieldsDirty = _settingsFields().some(el => {
-            const cur = el.type === 'checkbox' ? el.checked : el.value;
-            return cur !== _settingsSnapshot[el.id];
-        });
-        const mcpDirty = _mcpSnapshot !== _mcpState();
-        return fieldsDirty || mcpDirty;
-    }
-    function markSettingsDirty() { document.getElementById('save-all-settings').disabled = !isSettingsDirty(); }
-    function markSettingsClean() {
-        captureSettingsSnapshot();
-        _mcpSnapshot = _mcpState();
-        document.getElementById('save-all-settings').disabled = true;
-    }
-    document.querySelectorAll('#tab-settings input, #tab-settings select, #tab-settings textarea').forEach(el => {
-        el.addEventListener('change', markSettingsDirty);
-        el.addEventListener('input', markSettingsDirty);
-    });
-
-    
-    function validateSettings() {
-        const errors = [];
-        const activeProvider = providerSelect.value;
-        const cloudKeys = { gemini: 'gemini-api-key', openrouter: 'openrouter-api-key', zai: 'zai-api-key', siliconflow: 'siliconflow-api-key', groq: 'groq-api-key', chatgpt: 'chatgpt-api-key', claude: 'claude-api-key', deepseek: 'deepseek-api-key', mistral: 'mistral-api-key', together: 'together-api-key', 'azure-openai': 'azure-openai-api-key', alibaba: 'alibaba-api-key', huggingface: 'huggingface-api-key' };
-        if (cloudKeys[activeProvider]) {
-            const val = document.getElementById(cloudKeys[activeProvider]).value.trim();
-            if (!val) errors.push(`${activeProvider} requires an API key`);
-        }
-        if (activeProvider === 'ollama') {
-            if (!document.getElementById('ollama-url').value.trim()) errors.push('Ollama requires a Base URL');
-        }
-        if (activeProvider === 'llamacpp') {
-            if (!document.getElementById('llamacpp-url').value.trim()) errors.push('LlamaCpp requires a Base URL');
-        }
-        if (activeProvider === 'koboldai') {
-            if (!document.getElementById('koboldai-url').value.trim()) errors.push('KoboldAI requires a Base URL');
-        }
-        if (activeProvider === 'aws') {
-            if (!document.getElementById('aws-access-key').value.trim()) errors.push('AWS requires an Access Key');
-            if (!document.getElementById('aws-secret-key').value.trim()) errors.push('AWS requires a Secret Key');
-        }
-        if (activeProvider === 'gcp') {
-            if (!document.getElementById('gcp-project-id').value.trim()) errors.push('GCP requires a Project ID');
-        }
-
-        const ttsEngine = document.getElementById('tts-engine').value;
-        if (ttsEngine === 'elevenlabs' && !document.getElementById('elevenlabs-api-key').value.trim()) errors.push('ElevenLabs requires an API Key');
-        if (ttsEngine === 'openai-tts' && !document.getElementById('openai-tts-api-key').value.trim()) errors.push('OpenAI TTS requires an API Key');
-        if ((ttsEngine === 'alltalk') && !document.getElementById('alltalk-url').value.trim()) errors.push('AllTalk requires a URL');
-        if (ttsEngine === 'piper' && !document.getElementById('piper-url').value.trim()) errors.push('Piper requires a URL');
-        if (ttsEngine === 'coqui-local' && !document.getElementById('coqui-url').value.trim()) errors.push('Coqui requires a URL');
-        if (ttsEngine === 'kokoro' && !document.getElementById('kokoro-url').value.trim()) errors.push('Kokoro requires a URL');
-
-        const sttEngine = document.getElementById('stt-engine')?.value;
-        if (sttEngine === 'openai-whisper' && !document.getElementById('openai-whisper-api-key').value.trim()) errors.push('OpenAI Whisper requires an API Key');
-        if (sttEngine === 'groq-whisper' && !document.getElementById('groq-whisper-api-key').value.trim()) errors.push('Groq Whisper requires an API Key');
-        if (sttEngine === 'whispercpp' && !document.getElementById('whispercpp-url').value.trim()) errors.push('Whisper.cpp requires a URL');
-
-        return errors;
-    }
-
-    
-    const SETTINGS_FIELDS = {
-        'tts-engine': 'voice.engine',
-        'stt-engine': 'voice.stt_engine',
-        'lipsync-toggle': 'voice.lipsync_enabled',
-        'vad-mode': 'voice.vad_mode',
-        'elevenlabs-api-key': 'voice.elevenlabs.api_key',
-        'elevenlabs-model': 'voice.elevenlabs.model',
-        'elevenlabs-voice-id': 'voice.elevenlabs.voice_id',
-        'openai-tts-api-key': 'voice.openai_tts.api_key',
-        'openai-tts-model': 'voice.openai_tts.model',
-        'openai-tts-voice': 'voice.openai_tts.voice',
-        'alltalk-url': 'voice.alltalk.url',
-        'alltalk-voice': 'voice.alltalk.voice',
-        'alltalk-language': 'voice.alltalk.language',
-        'alltalk-version': 'voice.alltalk.version',
-        'alltalk-rvc-voice': 'voice.alltalk.rvc_voice',
-        'alltalk-rvc-pitch': 'voice.alltalk.rvc_pitch',
-        'piper-url': 'voice.piper.url',
-        'coqui-url': 'voice.coqui_local.url',
-        'coqui-speaker-id': 'voice.coqui_local.speaker_id',
-        'kokoro-url': 'voice.kokoro.url',
-        'kokoro-voice': 'voice.kokoro.voice',
-        'openai-whisper-api-key': 'voice.openai_whisper.api_key',
-        'openai-whisper-model': 'voice.openai_whisper.model',
-        'groq-whisper-api-key': 'voice.groq_whisper.api_key',
-        'groq-whisper-model': 'voice.groq_whisper.model',
-        'groq-whisper-base-url': 'voice.groq_whisper.base_url',
-        'whispercpp-url': 'voice.whispercpp.url',
-        'faster-whisper-model': 'voice.faster_whisper.model',
-        'llm-temperature': 'llm.temperature',
-        'theme-select': 'ui.theme',
-        'font-size-range': 'ui.font_size',
-        'vault-path': 'vault.path',
-        'custom-system-prompt': 'character.system_prompt',
-        'gemini-api-key': 'provider.gemini.api_key',
-        'gemini-model': 'provider.gemini.model',
-        'gemini-base-url': 'provider.gemini.base_url',
-        'ollama-url': 'provider.ollama.base_url',
-        'ollama-model': 'provider.ollama.model',
-        'openrouter-api-key': 'provider.openrouter.api_key',
-        'openrouter-model': 'provider.openrouter.model',
-        'openrouter-base-url': 'provider.openrouter.base_url',
-        'zai-api-key': 'provider.zai.api_key',
-        'zai-model': 'provider.zai.model',
-        'zai-base-url': 'provider.zai.base_url',
-        'siliconflow-api-key': 'provider.siliconflow.api_key',
-        'siliconflow-model': 'provider.siliconflow.model',
-        'siliconflow-base-url': 'provider.siliconflow.base_url',
-        'groq-api-key': 'provider.groq.api_key',
-        'groq-model': 'provider.groq.model',
-        'groq-base-url': 'provider.groq.base_url',
-        'chatgpt-api-key': 'provider.chatgpt.api_key',
-        'chatgpt-model': 'provider.chatgpt.model',
-        'chatgpt-base-url': 'provider.chatgpt.base_url',
-        'claude-api-key': 'provider.claude.api_key',
-        'claude-model': 'provider.claude.model',
-        'claude-base-url': 'provider.claude.base_url',
-        'llamacpp-url': 'provider.llamacpp.base_url',
-        'koboldai-url': 'provider.koboldai.base_url',
-        'deepseek-api-key': 'provider.deepseek.api_key',
-        'deepseek-model': 'provider.deepseek.model',
-        'deepseek-base-url': 'provider.deepseek.base_url',
-        'mistral-api-key': 'provider.mistral.api_key',
-        'mistral-model': 'provider.mistral.model',
-        'mistral-base-url': 'provider.mistral.base_url',
-        'together-api-key': 'provider.together.api_key',
-        'together-model': 'provider.together.model',
-        'together-base-url': 'provider.together.base_url',
-        'azure-openai-api-key': 'provider.azure-openai.api_key',
-        'azure-openai-model': 'provider.azure-openai.model',
-        'azure-openai-base-url': 'provider.azure-openai.base_url',
-        'alibaba-api-key': 'provider.alibaba.api_key',
-        'alibaba-model': 'provider.alibaba.model',
-        'alibaba-base-url': 'provider.alibaba.base_url',
-        'huggingface-api-key': 'provider.huggingface.api_key',
-        'huggingface-model': 'provider.huggingface.model',
-        'huggingface-base-url': 'provider.huggingface.base_url',
-        'aws-access-key': 'provider.aws.access_key',
-        'aws-secret-key': 'provider.aws.secret_key',
-        'aws-region': 'provider.aws.region',
-        'aws-model': 'provider.aws.model',
-        'gcp-service-account': 'provider.gcp.service_account_json',
-        'gcp-project-id': 'provider.gcp.project_id',
-        'gcp-region': 'provider.gcp.region',
-        'gcp-model': 'provider.gcp.model',
-    };
-
-    
-    document.getElementById('save-all-settings').addEventListener('click', async () => {
-        const errors = validateSettings();
-        if (errors.length) {
-            errors.forEach(e => showToast(e, 'danger'));
-            return;
-        }
-
-        
-        document.querySelectorAll('.mcp-item').forEach(item => {
-            const name = item.querySelector('.mcp-enabled').dataset.name;
-            const enabled = item.querySelector('.mcp-enabled').checked;
-            const s = mcpServersCache.find(s => s.name === name);
-            if (s) s.enabled = enabled;
-        });
-
-        const settings = {};
-        for (const [fieldId, dotpath] of Object.entries(SETTINGS_FIELDS)) {
-            const el = document.getElementById(fieldId);
-            if (!el) continue;
-            const val = el.type === 'checkbox' ? el.checked : el.value;
-            if (val !== '' && val !== undefined && val !== null) {
-                settings[dotpath] = val;
-            }
-        }
-        settings['provider.active'] = providerSelect.value;
-        settings['ui.voice_input'] = voiceInputEnabled;
-        settings['ui.voice_output'] = voiceOutputEnabled;
-        settings['mcp.servers'] = mcpServersCache;
-
-        const result = await api(BASE_URL + '/api/settings/batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings })
-        });
-        if (result) {
-            markSettingsClean();
-            showToast('All settings saved', 'success');
-        } else {
-            showToast('Failed to save settings', 'danger');
-        }
-    });
-
-    
-    document.getElementById('theme-select').addEventListener('change', function () {
-        applyTheme(this.value);
-    });
-
-    
-    const tempSlider = document.getElementById('llm-temperature');
-    if (tempSlider) {
-        tempSlider.addEventListener('input', function () {
-            document.getElementById('llm-temperature-val').textContent = this.value;
-        });
     }
 
     
@@ -2120,6 +3089,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (settingsTab) {
         const observer = new MutationObserver(() => {
             if (settingsTab.classList.contains('active')) {
+                renderSettings();
+                _attachSettingsDelegates();
                 loadRelationship();
                 loadSessions();
                 loadHistory(); 
@@ -2128,6 +3099,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         observer.observe(settingsTab, { attributes: true, attributeFilter: ['class'] });
         
         if (settingsTab.classList.contains('active')) {
+            renderSettings();
+            _attachSettingsDelegates();
             loadRelationship();
             loadSessions();
             loadHistory(); 
@@ -2147,7 +3120,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('history-toggle').addEventListener('click', async () => {
         console.log('History toggle clicked');
         historyPanel.classList.toggle('open');
-        console.log('History panel open class:', historyPanel.classList.contains('open'));
+        const isVisible = historyPanel.classList.contains('open');
+        document.getElementById('history-toggle').setAttribute('aria-expanded', isVisible);
+        console.log('History panel open class:', isVisible);
         if (historyPanel.classList.contains('open')) {
             console.log('Loading history...');
             await loadHistory();
@@ -2179,7 +3154,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('history-toggle').style.display = hasSessions ? '' : 'none';
     }
 
+    let _historyLoadInProgress = false;
+
     async function loadHistory() {
+        if (_historyLoadInProgress) return;
+        _historyLoadInProgress = true;
         const container = document.getElementById('history-list');
         if (!container) return;
         try {
@@ -2226,6 +3205,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (e) {
             historyList.innerHTML = '<div style="padding:1rem;color:var(--text-muted)">Failed to load history</div>';
             updateHistoryToggle();
+        } finally {
+            _historyLoadInProgress = false;
         }
     }
 
@@ -2284,132 +3265,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     
-    document.getElementById('fetch-gemini-models').addEventListener('click', async () => {
-        const btn = document.getElementById('fetch-gemini-models');
-        if (!document.getElementById('gemini-api-key').value.trim()) {
-            showToast('Enter API key first', 'danger');
-            return;
-        }
-        btn.disabled = true; btn.textContent = '...';
-        const r = await api(BASE_URL + '/api/models/gemini');
-        if (r?.models?.length) {
-            const sel = document.getElementById('gemini-model');
-            sel.innerHTML = '<option value="">Select model...</option>';
-            r.models.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
-            showToast(`Found ${r.models.length} models`);
-        } else {
-            showToast('No models found. Check API key.', 'danger');
-        }
-        btn.disabled = false; btn.textContent = 'Fetch';
-    });
-
-    document.getElementById('fetch-ollama-models').addEventListener('click', async () => {
-        const btn = document.getElementById('fetch-ollama-models');
-        btn.disabled = true; btn.textContent = '...';
-        const r = await api(BASE_URL + '/api/models/ollama');
-        if (r?.models?.length) {
-            const sel = document.getElementById('ollama-model');
-            sel.innerHTML = '<option value="">Select model...</option>';
-            r.models.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
-            showToast(`Found ${r.models.length} models`);
-        } else {
-            showToast('No models found. Is Ollama running?', 'danger');
-        }
-        btn.disabled = false; btn.textContent = 'Fetch';
-    });
-
-    
-    ['openrouter', 'zai', 'siliconflow', 'groq', 'chatgpt', 'claude', 'deepseek', 'mistral', 'together', 'azure-openai', 'alibaba', 'huggingface'].forEach(provider => {
-        const btn = document.getElementById(`fetch-${provider}-models`);
-        if (!btn) return;
-        btn.addEventListener('click', async () => {
-            const keyInput = document.getElementById(`${provider}-api-key`);
-            if (!keyInput?.value.trim()) {
-                showToast('Enter API key first', 'danger');
-                return;
-            }
-            btn.disabled = true; btn.textContent = '...';
-            const r = await api(BASE_URL + `/api/models/${provider}`);
-            if (r?.models?.length) {
-                const sel = document.getElementById(`${provider}-model`);
-                const current = sel.value;
-                sel.innerHTML = '<option value="">Select model...</option>';
-                r.models.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
-                if (current && r.models.includes(current)) sel.value = current;
-                showToast(`Found ${r.models.length} models`);
-            } else {
-                showToast('No models found. Check API key.', 'danger');
-            }
-            btn.disabled = false; btn.textContent = 'Fetch';
-        });
-    });
-
-    
-    document.getElementById('fetch-aws-models')?.addEventListener('click', async () => {
-        const btn = document.getElementById('fetch-aws-models');
-        if (!document.getElementById('aws-access-key').value.trim()) {
-            showToast('Enter AWS Access Key first', 'danger');
-            return;
-        }
-        btn.disabled = true; btn.textContent = '...';
-        const r = await api(BASE_URL + '/api/models/aws');
-        if (r?.models?.length) {
-            const sel = document.getElementById('aws-model');
-            const current = sel.value;
-            sel.innerHTML = '<option value="">Select model...</option>';
-            r.models.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
-            if (current && r.models.includes(current)) sel.value = current;
-            showToast(`Found ${r.models.length} models`);
-        } else {
-            showToast('No models found. Check credentials.', 'danger');
-        }
-        btn.disabled = false; btn.textContent = 'Fetch';
-    });
-
-    
-    document.getElementById('fetch-gcp-models')?.addEventListener('click', async () => {
-        const btn = document.getElementById('fetch-gcp-models');
-        if (!document.getElementById('gcp-project-id').value.trim()) {
-            showToast('Enter GCP Project ID first', 'danger');
-            return;
-        }
-        btn.disabled = true; btn.textContent = '...';
-        const r = await api(BASE_URL + '/api/models/gcp');
-        if (r?.models?.length) {
-            const sel = document.getElementById('gcp-model');
-            const current = sel.value;
-            sel.innerHTML = '<option value="">Select model...</option>';
-            r.models.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
-            if (current && r.models.includes(current)) sel.value = current;
-            showToast(`Found ${r.models.length} models`);
-        } else {
-            showToast('No models found. Check credentials.', 'danger');
-        }
-        btn.disabled = false; btn.textContent = 'Fetch';
-    });
-
-    
-    document.getElementById('toggle-gemini-key').addEventListener('click', function () {
-        const inp = document.getElementById('gemini-api-key');
-        const icon = this.querySelector('.material-icons-round');
-        inp.type = inp.type === 'password' ? 'text' : 'password';
-        icon.textContent = inp.type === 'password' ? 'visibility_off' : 'visibility';
-    });
-    ['openrouter', 'zai', 'siliconflow', 'groq', 'chatgpt', 'claude', 'deepseek', 'mistral', 'together', 'azure-openai', 'alibaba', 'huggingface'].forEach(p => {
-        const btn = document.getElementById(`toggle-${p}-key`);
-        if (btn) btn.addEventListener('click', function () {
-            const inp = document.getElementById(`${p}-api-key`);
-            const icon = this.querySelector('.material-icons-round');
-            inp.type = inp.type === 'password' ? 'text' : 'password';
-            icon.textContent = inp.type === 'password' ? 'visibility_off' : 'visibility';
-        });
-    });
-
-
-    document.getElementById('font-size-range').addEventListener('input', e => {
-        document.getElementById('font-size-val').textContent = `${e.target.value}px`;
-        document.documentElement.style.setProperty('--font-size', e.target.value + 'px');
-    });
 
     
     function hideShellPermission() {
@@ -2479,7 +3334,59 @@ document.addEventListener('DOMContentLoaded', async () => {
         .test-conn-btn .material-icons-round { font-size: 18px; }
     `;
     document.head.appendChild(_styleSheet);
+
+    // Periodic health refresh
+    const _healthInterval = setInterval(refreshHealth, 30000); // every 30s
+    window.addEventListener('beforeunload', () => clearInterval(_healthInterval));
+    refreshHealth(); // initial fetch
+
+    // Online/offline detection
+    window.addEventListener('online', () => {
+        const bar = document.getElementById('offline-bar');
+        if (bar) {
+            bar.classList.add('hidden');
+            bar.classList.remove('visible');
+        }
+        // Reconnect WebSocket if not already connected/connecting
+        if (ws && ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) {
+            connectWS();
+        }
+    });
+
+    window.addEventListener('offline', () => {
+        const bar = document.getElementById('offline-bar');
+        if (bar) {
+            bar.classList.remove('hidden');
+            bar.classList.add('visible');
+        }
+    });
 });
+
+// Health bar management
+function updateHealthBar(services) {
+    for (const [name, state] of Object.entries(services)) {
+        const dot = document.querySelector(`.health-dot[data-service="${name}"]`);
+        if (dot) {
+            dot.dataset.status = state.status;
+            dot.title = `${name.toUpperCase()}: ${state.status}${state.detail ? ' — ' + state.detail : ''}`;
+        }
+    }
+}
+
+// Fetch health status periodically
+async function refreshHealth() {
+    try {
+        const resp = await fetch(`${BASE_URL}/api/health`);
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data.services) {
+                updateHealthBar(data.services);
+            }
+        }
+    } catch (e) {
+        // Silently fail — health bar just stays unknown
+    }
+}
 
 // 6A.5 — GPU capability detection
 function detectGPUCapability() {
@@ -2509,65 +3416,511 @@ const gpuInfo = detectGPUCapability();
 window._gpuTier = gpuInfo.tier;
 console.log(`GPU tier: ${gpuInfo.tier} (${gpuInfo.reason})`);
 
+/* ==================== PWA Polish: Install, Reduced Motion, Focus Management ==================== */
+
+// PWA Install prompt
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const banner = document.getElementById('install-banner');
+    if (banner) {
+        banner.classList.remove('hidden');
+        banner.classList.add('visible');
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    const banner = document.getElementById('install-banner');
+    if (banner) {
+        banner.classList.add('hidden');
+        banner.classList.remove('visible');
+    }
+    deferredInstallPrompt = null;
+});
+
+document.addEventListener('click', async (e) => {
+    const installBtn = e.target.closest('#install-btn');
+    if (installBtn && deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const result = await deferredInstallPrompt.userChoice;
+        if (result.outcome === 'accepted') {
+            console.log('PWA installed');
+        }
+        deferredInstallPrompt = null;
+        const banner = document.getElementById('install-banner');
+        if (banner) {
+            banner.classList.add('hidden');
+            banner.classList.remove('visible');
+        }
+        return;
+    }
+
+    const dismissBtn = e.target.closest('#install-dismiss');
+    if (dismissBtn) {
+        const banner = document.getElementById('install-banner');
+        if (banner) {
+            banner.classList.add('hidden');
+            banner.classList.remove('visible');
+        }
+        deferredInstallPrompt = null;
+    }
+});
+
+// Reduced motion preference detection
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+if (prefersReducedMotion.matches) {
+    document.body.classList.add('reduced-motion');
+}
+prefersReducedMotion.addEventListener('change', (e) => {
+    document.body.classList.toggle('reduced-motion', e.matches);
+});
+
+// Focus management for modal overlays
+function trapFocus(modalElement) {
+    if (!modalElement) return;
+    const focusable = modalElement.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    const handler = (e) => {
+        if (e.key !== 'Tab') return;
+        if (e.shiftKey) {
+            if (document.activeElement === first) {
+                e.preventDefault();
+                last?.focus();
+            }
+        } else {
+            if (document.activeElement === last) {
+                e.preventDefault();
+                first?.focus();
+            }
+        }
+    };
+
+    modalElement.addEventListener('keydown', handler);
+    modalElement._trapFocusHandler = handler;
+
+    if (first) setTimeout(() => first.focus(), 50);
+}
+
+// Settings open/close (tab-based settings panel)
+window.openSettings = function() {
+    const btn = document.querySelector('.nav-item[data-tab="settings"]');
+    if (btn) {
+        btn.click();
+        setTimeout(() => {
+            const body = document.getElementById('settings-body');
+            if (body) {
+                const fb = body.querySelector('button, [href], input, select, textarea');
+                if (fb) fb.focus();
+            }
+        }, 150);
+    }
+};
+
+window.closeSettings = function() {
+    const btn = document.querySelector('.nav-item[data-tab="chat"]');
+    if (btn) {
+        btn.click();
+        setTimeout(() => {
+            const input = document.getElementById('chat-input');
+            if (input) input.focus();
+        }, 100);
+    }
+};
+
 /* ---------- Setup wizard functions ---------- */
-function showSetupWizard() {
+
+let _setupMode = null;        // 'minimal' | 'advanced'
+let _setupProviders = [];     // cached from /api/providers
+let _selectedProvider = null; // current provider id in step 1
+let _setupCurrentStep = 1;    // 1-based (step 0 = welcome)
+
+async function showSetupWizard() {
     const wizard = document.getElementById('setup-wizard-overlay');
     if (wizard) {
         wizard.style.display = 'flex';
-        // Reset to form view
-        document.getElementById('setup-wizard-content').style.display = 'block';
-        document.getElementById('setup-wizard-done').style.display = 'none';
-        document.getElementById('setup-error').style.display = 'none';
+        _showSetupStep('welcome');
+        _setupMode = null;
+        _selectedProvider = null;
+        _setupCurrentStep = 1;
+        trapFocus(wizard);
     }
 }
 
 function hideSetupWizard() {
     const wizard = document.getElementById('setup-wizard-overlay');
-    if (wizard) wizard.style.display = 'none';
+    if (wizard) {
+        wizard.style.display = 'none';
+        if (wizard._trapFocusHandler) {
+            wizard.removeEventListener('keydown', wizard._trapFocusHandler);
+            delete wizard._trapFocusHandler;
+        }
+    }
+}
+
+function _showSetupStep(step) {
+    // Hide all steps
+    document.querySelectorAll('.setup-step').forEach(s => s.style.display = 'none');
+    // Show target
+    const el = document.getElementById('setup-' + step);
+    if (el) {
+        el.style.display = 'flex';
+        // Focus first focusable element
+        const first = el.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        setTimeout(() => first?.focus(), 100);
+    }
+}
+
+function _initSetupWizard() {
+    // ── Mode selection ──
+    const minimalCard = document.getElementById('setup-mode-minimal');
+    const advancedCard = document.getElementById('setup-mode-advanced');
+    if (minimalCard) {
+        minimalCard.addEventListener('click', () => _selectSetupMode('minimal'));
+        minimalCard.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _selectSetupMode('minimal'); } });
+    }
+    if (advancedCard) {
+        advancedCard.addEventListener('click', () => _selectSetupMode('advanced'));
+        advancedCard.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _selectSetupMode('advanced'); } });
+    }
+
+    // ── Back buttons ──
+    document.getElementById('setup-back-step1')?.addEventListener('click', () => _showSetupStep('welcome'));
+    document.getElementById('setup-back-step2')?.addEventListener('click', () => _showSetupStep('step1'));
+    document.getElementById('setup-back-step3')?.addEventListener('click', () => _showSetupStep('step2'));
+
+    // ── Provider selection (delegated) ──
+    document.getElementById('setup-provider-grid')?.addEventListener('click', e => {
+        const option = e.target.closest('.setup-provider-option');
+        if (option) {
+            const pid = option.dataset.providerId;
+            if (pid) _selectSetupProvider(pid);
+        }
+    });
+
+    // ── Test connection ──
+    document.getElementById('setup-test-btn')?.addEventListener('click', testSetupConnection);
+
+    // ── Continue button (step 1 → step 2/step3) ──
+    document.getElementById('setup-continue-btn')?.addEventListener('click', () => _advanceFromStep1());
+
+    // ── Voice continue (step 2 → step 3) ──
+    document.getElementById('setup-voice-continue-btn')?.addEventListener('click', () => _showSetupStep('step3'));
+
+    // ── Save (step 3) ──
+    document.getElementById('setup-save-btn')?.addEventListener('click', saveSetupWizard);
+}
+
+function _selectSetupMode(mode) {
+    _setupMode = mode;
+    // Update card visuals
+    document.querySelectorAll('.setup-mode-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById('setup-mode-' + mode)?.classList.add('selected');
+
+    // Update step indicator
+    const totalSteps = mode === 'minimal' ? '1' : '3';
+    document.getElementById('setup-total-steps').textContent = totalSteps;
+    document.getElementById('setup-total-steps2').textContent = totalSteps;
+    document.getElementById('setup-total-steps3').textContent = totalSteps;
+    if (mode === 'minimal') {
+        document.getElementById('setup-step1-title').textContent = 'Choose Your Provider';
+    } else {
+        document.getElementById('setup-step1-title').textContent = 'Choose Your Provider';
+    }
+
+    // Load providers and move to step 1
+    _loadProviders().then(() => {
+        _setupCurrentStep = 1;
+        _showSetupStep('step1');
+    });
+}
+
+async function _loadProviders() {
+    const loadingEl = document.getElementById('setup-providers-loading');
+    const listEl = document.getElementById('setup-providers-list');
+    const grid = document.getElementById('setup-provider-grid');
+
+    loadingEl.style.display = 'flex';
+    listEl.style.display = 'none';
+
+    try {
+        const resp = await fetch(`${BASE_URL}/api/providers`);
+        const data = await resp.json();
+        _setupProviders = data.providers || [];
+
+        // Render provider grid
+        grid.innerHTML = _setupProviders.map(p => `
+            <div class="setup-provider-option" data-provider-id="${p.id}" role="button" tabindex="0">
+                <span>${escHtml(p.name)}</span>
+                ${p.has_free_tier ? '<span class="provider-badge">Free</span>' : ''}
+            </div>
+        `).join('');
+
+        loadingEl.style.display = 'none';
+        listEl.style.display = 'block';
+    } catch (e) {
+        loadingEl.innerHTML = `<span class="material-icons-round" style="color:var(--danger)">error</span><span>Failed to load providers: ${e.message}</span>`;
+    }
+}
+
+function _selectSetupProvider(pid) {
+    _selectedProvider = pid;
+    // Update grid visuals
+    document.querySelectorAll('.setup-provider-option').forEach(el => {
+        el.classList.toggle('selected', el.dataset.providerId === pid);
+    });
+
+    const provider = _setupProviders.find(p => p.id === pid);
+    if (!provider) return;
+
+    const detailEl = document.getElementById('setup-provider-detail');
+    const apiKeyInput = document.getElementById('setup-api-key');
+    const apiKeyDesc = document.getElementById('setup-api-key-desc');
+    const modelSelect = document.getElementById('setup-model');
+    const continueBtn = document.getElementById('setup-continue-btn');
+
+    // Show/hide API key based on provider
+    if (provider.needs_api_key) {
+        apiKeyInput.style.display = '';
+        apiKeyInput.required = true;
+        apiKeyDesc.textContent = 'Your key stays on this device.';
+    } else {
+        apiKeyInput.style.display = 'none';
+        apiKeyInput.required = false;
+        apiKeyDesc.textContent = 'No API key needed for local providers.';
+    }
+
+    // Populate model dropdown
+    modelSelect.innerHTML = '';
+    if (provider.models && provider.models.length > 0) {
+        provider.models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m;
+            modelSelect.appendChild(opt);
+        });
+        // Pre-select the default model
+        if (provider.default_model) {
+            modelSelect.value = provider.default_model;
+        }
+    } else {
+        // No models list — show a placeholder
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No preset models (type manually)';
+        modelSelect.appendChild(opt);
+        // Allow text input fallback by adding a datalist
+        modelSelect.setAttribute('placeholder', 'Type model name');
+    }
+
+    detailEl.style.display = 'block';
+
+    // Enable continue button (for minimal, or advanced step 1)
+    _updateContinueButton();
+
+    // Focus API key if visible
+    if (provider.needs_api_key) {
+        setTimeout(() => apiKeyInput?.focus(), 150);
+    }
+}
+
+function _updateContinueButton() {
+    const provider = _setupProviders.find(p => p.id === _selectedProvider);
+    const apiKeyInput = document.getElementById('setup-api-key');
+    const continueBtn = document.getElementById('setup-continue-btn');
+
+    if (!provider) {
+        continueBtn.disabled = true;
+        return;
+    }
+
+    // For providers that need an API key, require it
+    if (provider.needs_api_key) {
+        const key = apiKeyInput?.value?.trim() || '';
+        continueBtn.disabled = !key;
+    } else {
+        continueBtn.disabled = false;
+    }
+}
+
+function _advanceFromStep1() {
+    // For minimal mode, save directly (skip voice/character)
+    if (_setupMode === 'minimal') {
+        saveSetupWizard();
+        return;
+    }
+    // For advanced mode, go to step 2 (voice)
+    _showSetupStep('step2');
+}
+
+// Test connection from setup wizard
+async function testSetupConnection() {
+    const provider = _selectedProvider;
+    const apiKey = document.getElementById('setup-api-key').value.trim();
+    const testBtn = document.getElementById('setup-test-btn');
+    const testResult = document.getElementById('setup-test-result');
+
+    if (!provider) {
+        testResult.style.color = 'var(--danger, #ef4444)';
+        testResult.textContent = 'Please select a provider first';
+        testResult.style.display = 'block';
+        return;
+    }
+
+    testBtn.disabled = true;
+    testBtn.textContent = 'Testing...';
+    testResult.style.display = 'none';
+
+    try {
+        // Save key temporarily
+        await fetch(`${BASE_URL}/api/settings/set`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: `provider.${provider}.api_key`, value: apiKey })
+        });
+
+        // Test the connection
+        const resp = await fetch(`${BASE_URL}/api/settings/test/${provider}`, { method: 'POST' });
+        const data = await resp.json();
+
+        if (data.ok) {
+            testResult.style.color = 'var(--success, #22c55e)';
+            testResult.textContent = `✓ Connected (${data.latency_ms || '?'}ms)`;
+            testResult.style.display = 'block';
+        } else {
+            testResult.style.color = 'var(--danger, #ef4444)';
+            testResult.textContent = `✗ ${data.error || 'Connection failed'}`;
+            testResult.style.display = 'block';
+        }
+    } catch (e) {
+        testResult.style.color = 'var(--danger, #ef4444)';
+        testResult.textContent = `✗ Error: ${e.message}`;
+        testResult.style.display = 'block';
+    } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Connection';
+    }
 }
 
 async function saveSetupWizard() {
-    const provider = document.getElementById('setup-provider').value;
-    const apiKey = document.getElementById('setup-api-key').value.trim();
-    const model = document.getElementById('setup-model-override').value.trim();
+    const provider = _selectedProvider;
+    const apiKeyInput = document.getElementById('setup-api-key');
+    const apiKey = apiKeyInput?.value?.trim() || '';
+    const modelSelect = document.getElementById('setup-model');
+    const model = modelSelect?.value?.trim() || '';
     const errorEl = document.getElementById('setup-error');
-    const saveBtn = document.getElementById('setup-save-btn');
 
-    if (!apiKey) {
+    if (!provider) {
+        errorEl.textContent = 'Please select a provider.';
+        errorEl.style.display = 'block';
+        return;
+    }
+
+    const provObj = _setupProviders.find(p => p.id === provider);
+    if (provObj?.needs_api_key && !apiKey) {
         errorEl.textContent = 'Please enter an API key.';
         errorEl.style.display = 'block';
         return;
     }
 
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
+    const saveBtn = document.getElementById('setup-save-btn') || document.getElementById('setup-continue-btn');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+    }
     errorEl.style.display = 'none';
 
     try {
-        const resp = await fetch(`${BASE_URL}/api/setup/save`, {
+        // Use step1 endpoint which validates the connection
+        const resp = await fetch(`${BASE_URL}/api/setup/step1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ provider, api_key: apiKey, model }),
         });
         const data = await resp.json();
-        if (data.status === 'ok') {
-            document.getElementById('setup-wizard-content').style.display = 'none';
-            document.getElementById('setup-wizard-done').style.display = 'block';
+        if (data.ok || !provObj?.needs_api_key) {
+            if (_setupMode === 'advanced') {
+                // Voice step
+                await fetch(`${BASE_URL}/api/setup/step2`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        stt_engine: document.getElementById('setup-stt')?.value || 'browser',
+                        tts_engine: document.getElementById('setup-tts')?.value || 'edge-tts',
+                        voice_input_enabled: document.getElementById('setup-voice-input')?.checked ?? true,
+                        voice_output_enabled: document.getElementById('setup-voice-output')?.checked ?? true,
+                    })
+                });
+                // Character step
+                await fetch(`${BASE_URL}/api/setup/step3`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        character: document.getElementById('setup-character')?.value || 'default',
+                        permission_level: document.getElementById('setup-permission')?.value || 'confirm',
+                        companion_enabled: document.getElementById('setup-companion')?.checked ?? false,
+                        thinking_enabled: document.getElementById('setup-thinking')?.checked ?? true,
+                    })
+                });
+            } else {
+                // Minimal: just mark setup complete with defaults for voice/character
+                await fetch(`${BASE_URL}/api/setup/step2`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                await fetch(`${BASE_URL}/api/setup/step3`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+            }
+
+            // Show done
+            _showSetupStep('wizard-done');
             setTimeout(hideSetupWizard, 2000);
+
+            // Refresh settings
+            fetch(`${BASE_URL}/api/settings`).then(r => r.json()).then(s => {
+                window._settingsCache = s;
+            }).catch(() => {});
         } else {
-            errorEl.textContent = data.message || 'Save failed.';
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save & Start Chatting';
+            }
+            errorEl.textContent = data.error || data.detail || 'Connection failed. Check your API key and try again.';
             errorEl.style.display = 'block';
         }
     } catch (e) {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save & Start Chatting';
+        }
         errorEl.textContent = `Error: ${e.message}`;
         errorEl.style.display = 'block';
-    } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Start Chatting';
     }
 }
 
+// Watch API key input to enable/disable continue button
 document.addEventListener('DOMContentLoaded', () => {
+    // Lazy-init the wizard event listeners
+    _initSetupWizard();
+
+    // Delegate API key changes
+    document.addEventListener('input', e => {
+        if (e.target.id === 'setup-api-key') {
+            _updateContinueButton();
+        }
+    });
+
     const saveBtn = document.getElementById('setup-save-btn');
     if (saveBtn) saveBtn.addEventListener('click', saveSetupWizard);
+    const testBtn = document.getElementById('setup-test-btn');
+    if (testBtn) testBtn.addEventListener('click', testSetupConnection);
 });

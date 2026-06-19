@@ -3,7 +3,7 @@ import logging
 import numpy as np 
 import httpx 
 
-from .base import TTSProvider 
+from .base import TTSProvider, decode_wav, retry_http 
 
 logger =logging .getLogger (__name__ )
 
@@ -28,7 +28,7 @@ class AllTalkProvider (TTSProvider ):
         self ._rvc_voice =rvc_voice 
         self ._rvc_pitch =rvc_pitch 
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         base_url =self ._url .rstrip ("/")
         params ={
         "text_input":text ,
@@ -48,41 +48,39 @@ class AllTalkProvider (TTSProvider ):
             params ["rvccharacter_pitch"]=self ._rvc_pitch 
 
         try :
-            response =await self ._client .post (
-            f"{base_url }/api/tts-generate",
+            response =await retry_http (self ._client ,"POST",f"{base_url }/api/tts-generate",
             data =params ,
             headers ={"Content-Type":"application/x-www-form-urlencoded"},
             )
-            if response .status_code !=200 :
-                logger .error (f"AllTalk TTS error {response .status_code }")
-                return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            if response is None or response .status_code !=200 :
+                logger .error ("AllTalk TTS error or request failed")
+                return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
             data =response .json ()
             audio_url =data .get ("output_file_url","")
             if not audio_url :
                 logger .error ("AllTalk: no output_file_url in response")
-                return np .zeros (0 ,dtype =np .float32 ),[],24000 
+                return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
             if self ._version =="v2":
                 audio_url =f"{base_url }{audio_url }"
 
-            audio_resp =await self ._client .get (audio_url )
-            if audio_resp .status_code !=200 :
+            audio_resp =await retry_http (self ._client ,"GET",audio_url )
+            if audio_resp is None or audio_resp .status_code !=200 :
                 logger .error (f"AllTalk: failed to fetch audio from {audio_url }")
-                return np .zeros (0 ,dtype =np .float32 ),[],24000 
+                return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
-            audio_bytes =audio_resp .content 
-            import io 
-            import wave 
-            with io .BytesIO (audio_bytes )as buf :
-                with wave .open (buf ,"rb")as wf :
-                    sr =wf .getframerate ()
-                    frames =wf .readframes (wf .getnframes ())
-                    audio_np =np .frombuffer (frames ,dtype =np .int16 ).astype (np .float32 )/32767.0 
-            return audio_np ,[],sr 
+            audio_np ,sr =decode_wav (audio_resp .content )
+            return audio_np ,None ,sr 
+        except httpx .HTTPStatusError as e :
+            logger .error (f"AllTalk TTS HTTP error: {e }")
+
+        except httpx .RequestError as e :
+            logger .error (f"AllTalk TTS request error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
         except Exception as e :
             logger .error (f"AllTalk TTS error: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[],24000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
     async def close (self ):
         await self ._client .aclose ()

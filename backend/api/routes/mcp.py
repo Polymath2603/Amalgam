@@ -2,12 +2,23 @@
 MCP (Model Context Protocol) API routes.
 """
 import logging 
+from typing import Any
 
 from fastapi import APIRouter 
-from backend .api .deps import settings ,mcp 
+from pydantic import BaseModel
+from backend.api .deps import settings ,mcp 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["mcp"])
+
+
+class MCPServersUpdate(BaseModel):
+    servers: list[dict[str, Any]]
+
+
+class ShellApproveRequest(BaseModel):
+    cmd: str
+    mode: str = "once"
 
 
 @router .get ("/api/mcp/servers")
@@ -25,9 +36,9 @@ async def get_mcp_servers ():
 
 
 @router .post ("/api/mcp/servers")
-async def update_mcp_servers (body :dict ):
+async def update_mcp_servers (body :MCPServersUpdate ):
     """Update MCP server configuration."""
-    servers =body .get ("servers",[])
+    servers =body .servers
     settings ().set ("mcp.servers",servers )
     return {"status":"ok","message":"MCP settings saved. Restart to apply changes."}
 
@@ -40,7 +51,7 @@ async def get_mcp_tools ():
 
 
 @router .post ("/api/shell/approve")
-async def approve_command (body :dict ):
+async def approve_command (body :ShellApproveRequest ):
     """Approve a previously blocked shell command.
     
     Body:
@@ -50,8 +61,8 @@ async def approve_command (body :dict ):
     Adds the command to the shell server's in-memory allowlist
     via the approve_command MCP tool, and persists to settings.
     """
-    cmd =body .get ("cmd","")
-    mode =body .get ("mode","once")
+    cmd =body .cmd
+    mode =body .mode
     if not cmd :
         return {"status":"error","message":"cmd is required"}
 

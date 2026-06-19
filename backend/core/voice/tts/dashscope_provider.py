@@ -4,7 +4,7 @@ import logging
 import numpy as np 
 import httpx 
 
-from .base import TTSProvider 
+from .base import TTSProvider, retry_http 
 
 logger =logging .getLogger (__name__ )
 
@@ -24,7 +24,7 @@ class DashScopeProvider (TTSProvider ):
         if not text .strip ()or not self ._api_key :
             if not self ._api_key :
                 logger .warning ("DashScope API key not configured")
-            return np .zeros (0 ,dtype =np .float32 ),[],16000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,16000 
 
         url ="https://dashscope.aliyuncs.com/api/v1/services/aigc/text2audio/audio-synthesis"
         headers ={
@@ -38,17 +38,22 @@ class DashScopeProvider (TTSProvider ):
         }
 
         try :
-            response =await self ._client .post (url ,json =body ,headers =headers )
-            if response .status_code !=200 :
-                logger .error (f"DashScope TTS error {response .status_code }: {response .text [:200 ]}")
-                return np .zeros (0 ,dtype =np .float32 ),[],16000 
+            response =await retry_http (self ._client ,"POST",url ,json =body ,headers =headers )
+            if response is None or response .status_code !=200 :
+                logger .error ("DashScope TTS error or request failed")
+                return np .zeros (0 ,dtype =np .float32 ),None ,16000 
 
             audio_np =np .frombuffer (response .content ,dtype =np .int16 ).astype (np .float32 )/32767.0 
-            visemes =["A"]*(len (text )//2 )
-            return audio_np ,visemes ,16000 
+            return audio_np ,None ,16000 
+        except httpx .HTTPStatusError as e :
+            logger .error (f"DashScope TTS HTTP error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,16000 
+        except httpx .RequestError as e :
+            logger .error (f"DashScope TTS request error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,16000 
         except Exception as e :
             logger .error (f"DashScope TTS error: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[],16000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,16000 
 
     async def close (self ):
         await self ._client .aclose ()

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>K Codebase — graphify tree viewer</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      margin: 20px 0 0 24px;
+      font-size: 2.2rem;
+      font-weight: bold;
+      color: #1e3a56;
+    }
+    .controls {
+      margin: 20px 0 15px 24px;
+    }
+    button {
+      margin-right: 10px;
+      padding: 8px 18px;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s ease-in-out;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:active {
+      background: #004085;
+    }
+    #tree-container {
+      width: calc(100vw - 48px); /* Adjust for body margin/padding */
+      height: 85vh;
+      overflow: auto;
+      border-radius: 8px;
+      background: #fff;
+      margin-left: 24px;
+      margin-right: 24px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      border: 1px solid #ddd;
+    }
+    svg {
+      background: #fff;
+      border-radius: 8px;
+      display: block; /* Important for D3 */
+    }
+    .node circle {
+      stroke-width: 2.5px;
+    }
+    .node text { /* Base style for the <text> container */
+      font: 13px 'Segoe UI', sans-serif;
+      paint-order: stroke fill; /* Ensures text is readable over lines */
+      stroke: #fff; /* White halo */
+      stroke-width: 3px; /* Halo thickness */
+      stroke-linejoin: round;
+      stroke-opacity: 0.85; /* Halo opacity */
+    }
+    .link {
+      fill: none;
+      stroke-opacity: 0.7;
+      stroke-width: 2px;
+    }
+  </style>
+</head>
+<body>
+  <h1>K Codebase — Knowledge Graph</h1>
+  <div class="controls">
+    <button onclick="expandAll()">Expand All</button>
+    <button onclick="collapseAll()">Collapse All</button>
+    <button onclick="resetView()">Reset View</button>
+  </div>
+  <div id="tree-container">
+    <svg id="tree-svg" width="6000" height="8000"></svg>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+    const initialJsonData = {"name":"K Codebase","total_count":6936,"children":[{"name":"Amalgam_Nano_Plan.md","total_count":34,"children":[{"name":"A skill used fewer than this many times AND older than STALE_DAYS → archived","total_count":1,"children":[]},{"name":"Add to existing settings.py:","total_count":1,"children":[]},{"name":"Amalgam — Nano-Detailed Overhaul Plan","total_count":1,"children":[]},{"name":"Amalgam_Nano_Plan.md","total_count":1,"children":[]},{"name":"Archived Skills","total_count":1,"children":[]},{"name":"At the top of backend/__main__.py, before server startup:","total_count":1,"children":[]},{"name":"backend/core/hot_reload.py","total_count":1,"children":[]},{"name":"backend/core/metrics.py","total_count":1,"children":[]},{"name":"backend/core/skills/curator.py","total_count":1,"children":[]},{"name":"backend/core/user_profile.py","total_count":1,"children":[]},{"name":"Cost table: provider/model → (input_$/1M, output_$/1M)","total_count":1,"children":[]},{"name":"GROUND TRUTH — What's Actually Done","total_count":1,"children":[]},{"name":"In OrchestratorState, whenever an agent is spawned, completes, or fails:","total_count":1,"children":[]},{"name":"In the message handler, before sending to agent:","total_count":1,"children":[]},{"name":"In the prompt assembly function, add this after the constitution section:","total_count":1,"children":[]},{"name":"Module-level singleton","total_count":1,"children":[]},{"name":"Module-level singleton","total_count":1,"children":[]},{"name":"Next Run","total_count":1,"children":[]},{"name":"Only these keys are allowed — prevents prompt injection via LLM-generated updates","total_count":1,"children":[]},{"name":"Summary","total_count":1,"children":[]},{"name":"TASK 1 — Create backend/core/utils/wav.py","total_count":1,"children":[]},{"name":"TASK 10 — Interrupt / Barge-In for Voice","total_count":1,"children":[]},{"name":"TASK 2 — Commit all on-disk files + delete desktop/","total_count":1,"children":[]},{"name":"TASK 3 — Wire the memory pipeline (cache → hybrid → FTS5)","total_count":1,"children":[]},{"name":"TASK 4 — Split backend/core/agent.py into a typed agent package","total_count":1,"children":[]},{"name":"TASK 5 — Portable SKILL.md format + loader","total_count":1,"children":[]},{"name":"TASK 6 — LLM Cost Router","total_count":1,"children":[]},{"name":"TASK 7 — CONSTITUTION.md + per-agent soul system","total_count":1,"children":[]},{"name":"TASK 8 — Permission system","total_count":1,"children":[]},{"name":"TASK 9 — Avatar: 14-emotion system + life state machine","total_count":1,"children":[]},{"name":"Test deep merge","total_count":1,"children":[]},{"name":"Update when pricing changes.","total_count":1,"children":[]},{"name":"WHAT EACH REFERENCE PROJECT CONTRIBUTES UNIQUELY","total_count":1,"children":[]},{"name":"When session ends:","total_count":1,"children":[]}]},{"name":"ARCHITECTURE.md","total_count":11,"children":[{"name":"Agent Architecture","total_count":1,"children":[]},{"name":"ARCHITECTURE.md","total_count":1,"children":[]},{"name":"Async Consistency","total_count":1,"children":[]},{"name":"Codebase Architecture","total_count":1,"children":[]},{"name":"Communication Protocol","total_count":1,"children":[]},{"name":"Dependency Flow","total_count":1,"children":[]},{"name":"Directory Tree","total_count":1,"children":[]},{"name":"Key Design Decisions","total_count":1,"children":[]},{"name":"Memory System (5-tier hierarchy)","total_count":1,"children":[]},{"name":"Metacognitive Engine","total_count":1,"children":[]},{"name":"Self-Learning Subsystem","total_count":1,"children":[]}]},{"name":"backend","total_count":2570,"children":[{"name":"__main__.py","total_count":29,"children":[{"name":"_c()","total_count":1,"children":[]},{"name":"_check_all_services()","total_count":1,"children":[]},{"name":"_print_version()","total_count":1,"children":[]},{"name":"_run_check()","total_count":1,"children":[]},{"name":"_run_curator()","total_count":1,"children":[]},{"name":"_run_health_loop()","total_count":1,"children":[]},{"name":"_run_setup_wizard()","total_count":1,"children":[]},{"name":"Amalgam CLI — usage: python -m backend <command>  Commands:   stats [--days N]","total_count":1,"children":[]},{"name":"Apply ANSI colour codes, auto-reset. No-op if not a TTY.","total_count":1,"children":[]},{"name":"bold()","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"color()","total_count":1,"children":[]},{"name":"dim()","total_count":1,"children":[]},{"name":"fail()","total_count":1,"children":[]},{"name":"Fg","total_count":1,"children":[]},{"name":"info()","total_count":1,"children":[]},{"name":"Interactive setup wizard in terminal mode.","total_count":1,"children":[]},{"name":"Live-updating health dashboard.","total_count":1,"children":[]},{"name":"main()","total_count":1,"children":[]},{"name":"ok()","total_count":1,"children":[]},{"name":"Print shell completion hints for bash/zsh.","total_count":1,"children":[]},{"name":"print_completion_hints()","total_count":1,"children":[]},{"name":"Run all service checks, print a diagnostic report, return True if all healthy.","total_count":1,"children":[]},{"name":"Run pre-flight diagnostics once and exit.","total_count":1,"children":[]},{"name":"Run the skill curator manually with a real LLM caller.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Style","total_count":1,"children":[]},{"name":"warn()","total_count":1,"children":[]},{"name":"Wrap *text* in ANSI colour (legacy).","total_count":1,"children":[]}]},{"name":"api","total_count":176,"children":[{"name":"deps.py","total_count":1,"children":[{"name":"API-layer dependency injection. Re-exports shared singletons from backend.deps f","total_count":1,"children":[]}]},{"name":"routes","total_count":112,"children":[{"name":"characters.py","total_count":19,"children":[{"name":"_list_anim_files()","total_count":1,"children":[]},{"name":"Character / animation / voice / model API routes.","total_count":1,"children":[]},{"name":"Get a specific character's definition.","total_count":1,"children":[]},{"name":"get_animations()","total_count":1,"children":[]},{"name":"get_character()","total_count":1,"children":[]},{"name":"get_characters()","total_count":1,"children":[]},{"name":"get_emotions()","total_count":1,"children":[]},{"name":"get_expressions()","total_count":1,"children":[]},{"name":"get_gemini_models()","total_count":1,"children":[]},{"name":"get_ollama_models()","total_count":1,"children":[]},{"name":"get_provider_models()","total_count":1,"children":[]},{"name":"get_voices()","total_count":1,"children":[]},{"name":"List .vrma files in an animation directory, or empty list.","total_count":1,"children":[]},{"name":"Path","total_count":1,"children":[]},{"name":"Regenerate character icons. Tries VRM renderer first, then letter-based fallback","total_count":1,"children":[]},{"name":"regenerate_icons()","total_count":1,"children":[]},{"name":"Return all available characters with their full definitions.","total_count":1,"children":[]},{"name":"Return available VRMA animation files.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]},{"name":"commands.py","total_count":2,"children":[{"name":"Commands API route — GET /api/commands returns available slash commands.","total_count":1,"children":[]},{"name":"get_commands()","total_count":1,"children":[]}]},{"name":"mcp.py","total_count":9,"children":[{"name":"Approve a previously blocked shell command.          Body:       cmd: str — the","total_count":1,"children":[]},{"name":"approve_command()","total_count":1,"children":[]},{"name":"Get all available MCP tools.","total_count":1,"children":[]},{"name":"Get configured MCP servers and their status.","total_count":1,"children":[]},{"name":"get_mcp_servers()","total_count":1,"children":[]},{"name":"get_mcp_tools()","total_count":1,"children":[]},{"name":"MCP (Model Context Protocol) API routes.","total_count":1,"children":[]},{"name":"Update MCP server configuration.","total_count":1,"children":[]},{"name":"update_mcp_servers()","total_count":1,"children":[]}]},{"name":"memory.py","total_count":15,"children":[{"name":"activate_session()","total_count":1,"children":[]},{"name":"clear_memory()","total_count":1,"children":[]},{"name":"create_new_session()","total_count":1,"children":[]},{"name":"delete_session()","total_count":1,"children":[]},{"name":"get_current_session_messages()","total_count":1,"children":[]},{"name":"get_session_messages()","total_count":1,"children":[]},{"name":"get_sessions()","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"Memory / session / facts API routes.","total_count":1,"children":[]},{"name":"rename_session()","total_count":1,"children":[]},{"name":"resume_session()","total_count":1,"children":[]},{"name":"search_memory()","total_count":1,"children":[]},{"name":"Semantic search across conversation history.      scope=session: search within c","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Switch the active session to an existing one.","total_count":1,"children":[]}]},{"name":"metrics.py","total_count":14,"children":[{"name":"float","total_count":1,"children":[]},{"name":"get_summary()","total_count":1,"children":[]},{"name":"get_tool_history()","total_count":1,"children":[]},{"name":"get_tool_stats()","total_count":1,"children":[]},{"name":"get_turns()","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"Metrics API route — exposes tool analytics and per-turn metrics.","total_count":1,"children":[]},{"name":"Record one conversation turn. Called by handler after each response.","total_count":1,"children":[]},{"name":"record_turn()","total_count":1,"children":[]},{"name":"Return aggregate summary of all metrics.","total_count":1,"children":[]},{"name":"Return recent conversation turns.","total_count":1,"children":[]},{"name":"Return recent tool call history.","total_count":1,"children":[]},{"name":"Return tool analytics aggregated stats.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]},{"name":"push.py","total_count":8,"children":[{"name":"_load_tokens()","total_count":1,"children":[]},{"name":"_save_tokens()","total_count":1,"children":[]},{"name":"Admin endpoint — list registered tokens (not exposed in production).","total_count":1,"children":[]},{"name":"list_tokens()","total_count":1,"children":[]},{"name":"Push notification token registration endpoint for Capacitor native shell.  6B.3","total_count":1,"children":[]},{"name":"register_token()","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"unregister_token()","total_count":1,"children":[]}]},{"name":"relationship.py","total_count":3,"children":[{"name":"get_relationship()","total_count":1,"children":[]},{"name":"Relationship API routes.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]},{"name":"settings.py","total_count":16,"children":[{"name":"_sync_emotion_tags()","total_count":1,"children":[]},{"name":"batch_set_settings()","total_count":1,"children":[]},{"name":"Get a single setting value by dot-notation key.","total_count":1,"children":[]},{"name":"get_setting()","total_count":1,"children":[]},{"name":"get_settings()","total_count":1,"children":[]},{"name":"No-op — avatar emotion is now controlled via MCP tools, not tags.","total_count":1,"children":[]},{"name":"Save initial provider configuration from the setup wizard.","total_count":1,"children":[]},{"name":"save_setup()","total_count":1,"children":[]},{"name":"Set multiple settings at once via key-value pairs.     Body: {\"settings\": {\"voic","total_count":1,"children":[]},{"name":"set_setting()","total_count":1,"children":[]},{"name":"Settings API routes — /api/settings","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Test connection to a provider using its current settings.     Makes a lightweigh","total_count":1,"children":[]},{"name":"test_provider_connection()","total_count":1,"children":[]},{"name":"TestConnectionResponse","total_count":1,"children":[]},{"name":"update_settings()","total_count":1,"children":[]}]},{"name":"setup.py","total_count":12,"children":[{"name":"Check if setup has been completed and return available providers.","total_count":1,"children":[]},{"name":"Configure character and behavior preferences.","total_count":1,"children":[]},{"name":"Configure the LLM provider. Validates the connection.","total_count":1,"children":[]},{"name":"Configure voice settings. Tests TTS if possible.","total_count":1,"children":[]},{"name":"get_setup_status()","total_count":1,"children":[]},{"name":"Setup wizard API routes. Provides endpoints for the first-time setup flow with h","total_count":1,"children":[]},{"name":"setup_step1()","total_count":1,"children":[]},{"name":"setup_step2()","total_count":1,"children":[]},{"name":"setup_step3()","total_count":1,"children":[]},{"name":"Step1Request","total_count":1,"children":[]},{"name":"Step2Request","total_count":1,"children":[]},{"name":"Step3Request","total_count":1,"children":[]}]},{"name":"tts.py","total_count":2,"children":[{"name":"TTS preview API routes.","total_count":1,"children":[]},{"name":"tts_preview()","total_count":1,"children":[]}]},{"name":"vault.py","total_count":11,"children":[{"name":"delete_vault_file()","total_count":1,"children":[]},{"name":"get_rules()","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"list_vault_files()","total_count":1,"children":[]},{"name":"read_vault_file()","total_count":1,"children":[]},{"name":"save_rules()","total_count":1,"children":[]},{"name":"Search vault files.      mode=keyword: fast text matching (existing behavior)","total_count":1,"children":[]},{"name":"search_vault()","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Vault / rules API routes.","total_count":1,"children":[]},{"name":"write_vault_file()","total_count":1,"children":[]}]},{"name":"__init__.py","total_count":1,"children":[]}]},{"name":"server.py","total_count":1,"children":[{"name":"Backward-compatible re-export of the FastAPI app. The application has been split","total_count":1,"children":[]}]},{"name":"telegram.py","total_count":14,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":"._is_allowed()","total_count":1,"children":[]},{"name":".clear_memory()","total_count":1,"children":[]},{"name":".handle_message()","total_count":1,"children":[]},{"name":".handle_voice()","total_count":1,"children":[]},{"name":".new_session()","total_count":1,"children":[]},{"name":".run()","total_count":1,"children":[]},{"name":".start()","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"DEFAULT_TYPE","total_count":1,"children":[]},{"name":"run_telegram()","total_count":1,"children":[]},{"name":"Telegram bot interface for Amalgam. Provides a remote chat interface with suppor","total_count":1,"children":[]},{"name":"TelegramBot","total_count":1,"children":[]},{"name":"Update","total_count":1,"children":[]}]},{"name":"ws","total_count":47,"children":[{"name":"handler.py","total_count":38,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":"._handle_avatar_signal()","total_count":1,"children":[]},{"name":"._on_task_done()","total_count":1,"children":[]},{"name":"._run_agent_loop()","total_count":1,"children":[]},{"name":"._track_task()","total_count":1,"children":[]},{"name":"._voice_input_off()","total_count":1,"children":[]},{"name":"._voice_input_on()","total_count":1,"children":[]},{"name":"._wake_word_off()","total_count":1,"children":[]},{"name":"._wake_word_on()","total_count":1,"children":[]},{"name":".cancel_assistant()","total_count":1,"children":[]},{"name":".cleanup()","total_count":1,"children":[]},{"name":".handle_client_hello()","total_count":1,"children":[]},{"name":".handle_command()","total_count":1,"children":[]},{"name":".handle_slash_command()","total_count":1,"children":[]},{"name":".process_response()","total_count":1,"children":[]},{"name":".run()","total_count":1,"children":[]},{"name":".send()","total_count":1,"children":[]},{"name":"_animation_dir()","total_count":1,"children":[]},{"name":"_normalize_error()","total_count":1,"children":[]},{"name":"_resolve_animation()","total_count":1,"children":[]},{"name":"Cancel all pending tasks and stop voice/wake word.","total_count":1,"children":[]},{"name":"ChatSession","total_count":1,"children":[]},{"name":"Handle __avatar__ signals for emotion/expression/roleplay.","total_count":1,"children":[]},{"name":"Handle client_hello — acknowledge capabilities from native shell.","total_count":1,"children":[]},{"name":"Handle slash commands (/clear, /new, /help, /settings, etc.).","total_count":1,"children":[]},{"name":"Handle voice/avatar/speak commands.","total_count":1,"children":[]},{"name":"handle_chat()","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"Normalize common error messages to user-friendly versions.","total_count":1,"children":[]},{"name":"Per-WebSocket connection state and message handling.","total_count":1,"children":[]},{"name":"Resolve an animation URL from roleplay/action text by keyword matching.","total_count":1,"children":[]},{"name":"Return the filesystem path to a character's animation directory.","total_count":1,"children":[]},{"name":"Safely remove completed tasks, handling race conditions.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Task","total_count":1,"children":[]},{"name":"Track a task and register safe cleanup on completion.","total_count":1,"children":[]},{"name":"WebSocket","total_count":1,"children":[]},{"name":"WebSocket chat handler — per-connection ChatSession class.","total_count":1,"children":[]}]},{"name":"tts_service.py","total_count":8,"children":[{"name":"int","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Synthesize TTS for text and send audio directly (used by speak button).","total_count":1,"children":[]},{"name":"synthesize_now()","total_count":1,"children":[]},{"name":"synthesize_sentence()","total_count":1,"children":[]},{"name":"TTS a single sentence and send audio over WebSocket.","total_count":1,"children":[]},{"name":"TTS synthesis service — per-connection stream IDs, no global mutable state.","total_count":1,"children":[]},{"name":"WebSocket","total_count":1,"children":[]}]},{"name":"__init__.py","total_count":1,"children":[]}]},{"name":"__init__.py","total_count":1,"children":[]}]},{"name":"app.py","total_count":11,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":".dispatch()","total_count":1,"children":[]},{"name":"_delayed_startup_tasks()","total_count":1,"children":[]},{"name":"_RateLimitMiddleware","total_count":1,"children":[]},{"name":"Create and return the configured FastAPI application.","total_count":1,"children":[]},{"name":"create_app()","total_count":1,"children":[]},{"name":"FastAPI application factory. Creates and configures the main app instance with a","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"Request","total_count":1,"children":[]},{"name":"Run icon generation and hot-reloader 2 seconds after startup so the server is re","total_count":1,"children":[]},{"name":"Simple per-IP sliding-window rate limiter.","total_count":1,"children":[]}]},{"name":"cli","total_count":54,"children":[{"name":"__init__.py","total_count":1,"children":[{"name":"CLI tools — companion mode, stats, curate commands.","total_count":1,"children":[]}]},{"name":"companion.py","total_count":53,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":".__init__()","total_count":1,"children":[]},{"name":"._cmd_approve()","total_count":1,"children":[]},{"name":"._cmd_character()","total_count":1,"children":[]},{"name":"._cmd_clear()","total_count":1,"children":[]},{"name":"._cmd_compact()","total_count":1,"children":[]},{"name":"._cmd_companion()","total_count":1,"children":[]},{"name":"._cmd_export()","total_count":1,"children":[]},{"name":"._cmd_help()","total_count":1,"children":[]},{"name":"._cmd_memory()","total_count":1,"children":[]},{"name":"._cmd_model()","total_count":1,"children":[]},{"name":"._cmd_new()","total_count":1,"children":[]},{"name":"._cmd_permission()","total_count":1,"children":[]},{"name":"._cmd_profile()","total_count":1,"children":[]},{"name":"._cmd_provider()","total_count":1,"children":[]},{"name":"._cmd_rename()","total_count":1,"children":[]},{"name":"._cmd_session()","total_count":1,"children":[]},{"name":"._cmd_sessions()","total_count":1,"children":[]},{"name":"._cmd_settings()","total_count":1,"children":[]},{"name":"._cmd_stats()","total_count":1,"children":[]},{"name":"._cmd_status()","total_count":1,"children":[]},{"name":"._cmd_theme()","total_count":1,"children":[]},{"name":"._cmd_think()","total_count":1,"children":[]},{"name":"._ensure()","total_count":1,"children":[]},{"name":"._get_model()","total_count":1,"children":[]},{"name":"._get_provider()","total_count":1,"children":[]},{"name":"._get_session()","total_count":1,"children":[]},{"name":"._idle_loop()","total_count":1,"children":[]},{"name":"._memory_singleton()","total_count":1,"children":[]},{"name":"._print()","total_count":1,"children":[]},{"name":"._reload_settings()","total_count":1,"children":[]},{"name":"._settings_singleton()","total_count":1,"children":[]},{"name":"._start_idle_loop()","total_count":1,"children":[]},{"name":"._stop_idle_loop()","total_count":1,"children":[]},{"name":".generate_idle_prompt()","total_count":1,"children":[]},{"name":".handle_user_input()","total_count":1,"children":[]},{"name":".run()","total_count":1,"children":[]},{"name":"_AgentProxy","total_count":1,"children":[]},{"name":"_format_settings_table()","total_count":1,"children":[]},{"name":"_print_banner()","total_count":1,"children":[]},{"name":"_yes_no()","total_count":1,"children":[]},{"name":"Ask a yes/no question.","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"Companion mode — terminal-based interactive session with full command set. Usage","total_count":1,"children":[]},{"name":"CompanionREPL","total_count":1,"children":[]},{"name":"Entry point for python -m backend.cli.companion","total_count":1,"children":[]},{"name":"Every 30s of inactivity, generate a proactive idle prompt.","total_count":1,"children":[]},{"name":"Force-sync settings from disk.","total_count":1,"children":[]},{"name":"Full interactive REPL with all slash commands.","total_count":1,"children":[]},{"name":"Lazily-resolved agent from the shared DI container.","total_count":1,"children":[]},{"name":"main()","total_count":1,"children":[]},{"name":"Print a system-formatted message.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]}]},{"name":"cli_stats.py","total_count":11,"children":[{"name":"_format_latency()","total_count":1,"children":[]},{"name":"_format_number()","total_count":1,"children":[]},{"name":"_format_usd()","total_count":1,"children":[]},{"name":"float","total_count":1,"children":[]},{"name":"Format a number with comma separators.","total_count":1,"children":[]},{"name":"Format a USD cost consistently.","total_count":1,"children":[]},{"name":"Format latency in a human-readable way.","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"main()","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Usage: python -m backend stats --days 7        python -m backend stats --days 30","total_count":1,"children":[]}]},{"name":"core","total_count":1405,"children":[{"name":"agent","total_count":150,"children":[{"name":"analytics.py","total_count":22,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":"._format_tool()","total_count":1,"children":[]},{"name":"._load()","total_count":1,"children":[]},{"name":".get_history()","total_count":1,"children":[]},{"name":".get_stats()","total_count":1,"children":[]},{"name":".persist()","total_count":1,"children":[]},{"name":".record_call()","total_count":1,"children":[]},{"name":".reset()","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"Clear all analytics data.","total_count":1,"children":[]},{"name":"float","total_count":1,"children":[]},{"name":"Get aggregated stats for a tool or all tools.","total_count":1,"children":[]},{"name":"Get recent tool call history.","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"Load persisted analytics from disk.","total_count":1,"children":[]},{"name":"Path","total_count":1,"children":[]},{"name":"Record one tool invocation.","total_count":1,"children":[]},{"name":"Save analytics to disk.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Thread-safe analytics collector for tool calls.","total_count":1,"children":[]},{"name":"Tool analytics — track tool usage, error rates, latency.  Stores aggregated metr","total_count":1,"children":[]},{"name":"ToolAnalytics","total_count":1,"children":[]}]},{"name":"base.py","total_count":14,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":".execute_tool()","total_count":1,"children":[]},{"name":".handle_user_input()","total_count":1,"children":[]},{"name":".is_complex()","total_count":1,"children":[]},{"name":".run()","total_count":1,"children":[]},{"name":"AgentTrace","total_count":1,"children":[]},{"name":"BaseAgent","total_count":1,"children":[]},{"name":"BaseAgent — the shared interface for all agent types.  All agents yield text chu","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"Legacy streaming interface — delegates to run() for backward compatibility.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"ToolCall","total_count":1,"children":[]},{"name":"True if this run had enough tool calls to generate a skill from.","total_count":1,"children":[]},{"name":"Yield response chunks. Sets context['last_trace'] when done.","total_count":1,"children":[]}]},{"name":"basic_agent.py","total_count":19,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":"._build_messages()","total_count":1,"children":[]},{"name":"._build_system_prompt()","total_count":1,"children":[]},{"name":"._get_tool_schema()","total_count":1,"children":[]},{"name":".get_response()","total_count":1,"children":[]},{"name":".handle_user_input()","total_count":1,"children":[]},{"name":".load_history()","total_count":1,"children":[]},{"name":".run()","total_count":1,"children":[]},{"name":".update_settings()","total_count":1,"children":[]},{"name":"Any","total_count":1,"children":[]},{"name":"Basic stateless tool-calling agent.","total_count":1,"children":[]},{"name":"BasicAgent","total_count":1,"children":[]},{"name":"Legacy streaming interface — delegates to run().","total_count":1,"children":[]},{"name":"Load prior turns from memory.","total_count":1,"children":[]},{"name":"Simple agent with a tool-calling loop and no meta-cognition.      Implements the","total_count":1,"children":[]},{"name":"Simple synchronous-style response (no streaming).","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Stream a response with tool execution loop.","total_count":1,"children":[]},{"name":"Update settings when they change.","total_count":1,"children":[]}]},{"name":"core.py","total_count":21,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":"._classify_intent()","total_count":1,"children":[]},{"name":"._clean_remaining_tags()","total_count":1,"children":[]},{"name":"._estimate_tokens()","total_count":1,"children":[]},{"name":"._process_tags()","total_count":1,"children":[]},{"name":"._strip_all_tags()","total_count":1,"children":[]},{"name":"._truncate_context()","total_count":1,"children":[]},{"name":".generate_idle_prompt()","total_count":1,"children":[]},{"name":".handle_user_input()","total_count":1,"children":[]},{"name":".spawn_subagent()","total_count":1,"children":[]},{"name":".subconscious_reflect()","total_count":1,"children":[]},{"name":".update_emotion_tags()","total_count":1,"children":[]},{"name":".update_expression_names()","total_count":1,"children":[]},{"name":".update_settings()","total_count":1,"children":[]},{"name":"Agent","total_count":1,"children":[]},{"name":"Execute one tool call safely — catches exceptions so one failure     doesn't sto","total_count":1,"children":[]},{"name":"execute_tool_safe()","total_count":1,"children":[]},{"name":"int","total_count":1,"children":[]},{"name":"Legacy monolithic Agent — kept for backwards compatibility.  Phase 3 new agent t","total_count":1,"children":[]},{"name":"Simple keyword-based intent classification for strategy selection.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]},{"name":"factory.py","total_count":6,"children":[{"name":".create()","total_count":1,"children":[]},{"name":"agent_type: \"basic\" | \"planning\" | \"reflective\" | \"reflective_planning\"","total_count":1,"children":[]},{"name":"AgentFactory","total_count":1,"children":[]},{"name":"AgentFactory — returns the correct agent type based on config. Swap agent type i","total_count":1,"children":[]},{"name":"BaseAgent","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]},{"name":"hooks.py","total_count":19,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":".clear()","total_count":1,"children":[]},{"name":".register_post()","total_count":1,"children":[]},{"name":".register_pre()","total_count":1,"children":[]},{"name":".run_post()","total_count":1,"children":[]},{"name":".run_pre()","total_count":1,"children":[]},{"name":".unregister_post()","total_count":1,"children":[]},{"name":".unregister_pre()","total_count":1,"children":[]},{"name":"HookFunc","total_count":1,"children":[]},{"name":"Pre/post event hook system for tools.  Hooks are callables that are invoked befo","total_count":1,"children":[]},{"name":"Register a post-execution hook.","total_count":1,"children":[]},{"name":"Register a pre-execution hook.","total_count":1,"children":[]},{"name":"Registry of pre/post hooks for tool execution.","total_count":1,"children":[]},{"name":"Remove a post-execution hook.","total_count":1,"children":[]},{"name":"Remove a pre-execution hook.","total_count":1,"children":[]},{"name":"Run all post-hooks (fire-and-forget, errors logged).","total_count":1,"children":[]},{"name":"Run all pre-hooks. Returns first error dict, or None to proceed.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"ToolHooks","total_count":1,"children":[]}]},{"name":"interface.py","total_count":1,"children":[{"name":"Legacy AgentInterface — kept for backwards compatibility.  New code should impor","total_count":1,"children":[]}]},{"name":"permissions.py","total_count":24,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":".__init__()","total_count":1,"children":[]},{"name":".approve_tool_once()","total_count":1,"children":[]},{"name":".check()","total_count":1,"children":[]},{"name":".check_tool_allowed()","total_count":1,"children":[]},{"name":".from_dict()","total_count":1,"children":[]},{"name":".revoke_approval()","total_count":1,"children":[]},{"name":".set_level()","total_count":1,"children":[]},{"name":".to_dict()","total_count":1,"children":[]},{"name":".to_dict()","total_count":1,"children":[]},{"name":"Approve a tool for one-time use at confirm level.","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"Change the permission level.","total_count":1,"children":[]},{"name":"Check if a tool is allowed at the current permission level.          Returns (al","total_count":1,"children":[]},{"name":"Classification of a tool's potential impact level.","total_count":1,"children":[]},{"name":"Interactive permission gate for tool calls.     Wraps ToolPermissions and adds a","total_count":1,"children":[]},{"name":"Per-session tool permission state (simple mode).","total_count":1,"children":[]},{"name":"PermissionGate","total_count":1,"children":[]},{"name":"PermissionLevel","total_count":1,"children":[]},{"name":"PermTier","total_count":1,"children":[]},{"name":"Returns True if the tool call should proceed.         Returns False if denied (c","total_count":1,"children":[]},{"name":"Revoke one-time approval.","total_count":1,"children":[]},{"name":"Tool permission system — categories of tool access per conversation.  Three perm","total_count":1,"children":[]},{"name":"ToolPermissions","total_count":1,"children":[]}]},{"name":"planning_agent.py","total_count":7,"children":[{"name":"._decompose()","total_count":1,"children":[]},{"name":"._is_compound()","total_count":1,"children":[]},{"name":".run()","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"PlanningAgent","total_count":1,"children":[]},{"name":"PlanningAgent — for compound tasks with multiple distinct steps. Classifies the","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]},{"name":"reflective_agent.py","total_count":12,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":"._reflect()","total_count":1,"children":[]},{"name":"._try_create_skill()","total_count":1,"children":[]},{"name":".run()","total_count":1,"children":[]},{"name":"_has_injection()","total_count":1,"children":[]},{"name":"Ask the LLM: 'Is what you just did a reusable pattern?'         If yes, write a","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"Periodic quality check on conversation. Stores result in vault.","total_count":1,"children":[]},{"name":"ReflectiveAgent","total_count":1,"children":[]},{"name":"ReflectiveAgent — wraps any agent and adds background learning. Transparent: yie","total_count":1,"children":[]},{"name":"Scan skill text for prompt injection patterns before saving.     Source: brain d","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]}]},{"name":"stream_processor.py","total_count":4,"children":[{"name":"Emotion tag stream processor — parses [emotion] tags from LLM responses. Source:","total_count":1,"children":[]},{"name":"parse_emotion_stream()","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Wraps a raw LLM stream. Strips emotion tags, fires on_emotion callbacks.      ra","total_count":1,"children":[]}]},{"name":"__init__.py","total_count":1,"children":[]}]},{"name":"config","total_count":176,"children":[{"name":"character_schema.py","total_count":22,"children":[{"name":".ensure_list()","total_count":1,"children":[]},{"name":".to_dict()","total_count":1,"children":[]},{"name":".validate_model_url()","total_count":1,"children":[]},{"name":".validate_system_prompt()","total_count":1,"children":[]},{"name":".with_directory()","total_count":1,"children":[]},{"name":"Any","total_count":1,"children":[]},{"name":"Character schema and validation using Pydantic.  Defines the structure and valid","total_count":1,"children":[]},{"name":"CharacterSchema","total_count":1,"children":[]},{"name":"Complete character definition schema.","total_count":1,"children":[]},{"name":"Config","total_count":1,"children":[]},{"name":"Convert to dictionary, excluding internal fields.","total_count":1,"children":[]},{"name":"Create a copy with directory path set.","total_count":1,"children":[]},{"name":"Ensure fields are lists.","total_count":1,"children":[]},{"name":"Relationship tracking configuration.","total_count":1,"children":[]},{"name":"RelationshipConfig","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"Validate that model_url is a valid VRM path.","total_count":1,"children":[]},{"name":"Validate that system prompt is reasonable length and content.","total_count":1,"children":[]},{"name":"Voice configuration for a character.","total_count":1,"children":[]},{"name":"VoiceConfig","total_count":1,"children":[]},{"name":"VRM model and animation configuration.","total_count":1,"children":[]},{"name":"VRMConfig","total_count":1,"children":[]}]},{"name":"models.py","total_count":104,"children":[{"name":".model_dump_flat()","total_count":1,"children":[]},{"name":"_flatten()","total_count":1,"children":[]},{"name":"_resolve_secrets()","total_count":1,"children":[]},{"name":"Active character selection (settings section, not full character schema).","total_count":1,"children":[]},{"name":"Advanced runtime configuration.","total_count":1,"children":[]},{"name":"AdvancedConfig","total_count":1,"children":[]},{"name":"Agent behavior and autonomy settings.","total_count":1,"children":[]},{"name":"Aggregate voice settings (STT, TTS, VAD, wake‑word).","total_count":1,"children":[]},{"name":"Alibaba DashScope (CosyVoice) TTS configuration.","total_count":1,"children":[]},{"name":"All provider configurations and the active provider selection.","total_count":1,"children":[]},{"name":"Allow extra providers (e.g. ``opencode``, ``openai``) not explicitly listed.","total_count":1,"children":[]},{"name":"AllTalk TTS server configuration.","total_count":1,"children":[]},{"name":"AllTalkConfig","total_count":1,"children":[]},{"name":"Any","total_count":1,"children":[]},{"name":"API authentication configuration.","total_count":1,"children":[]},{"name":"Application logging configuration.","total_count":1,"children":[]},{"name":"AppSettings","total_count":1,"children":[]},{"name":"AuthConfig","total_count":1,"children":[]},{"name":"AvatarConfig","total_count":1,"children":[]},{"name":"AWS Bedrock provider configuration.","total_count":1,"children":[]},{"name":"AWSConfig","total_count":1,"children":[]},{"name":"Azure Cognitive Services TTS configuration.","total_count":1,"children":[]},{"name":"AzureTTSConfig","total_count":1,"children":[]},{"name":"BehaviorConfig","total_count":1,"children":[]},{"name":"CharacterSettings","total_count":1,"children":[]},{"name":"Complete application settings — every section the application uses.      This is","total_count":1,"children":[]},{"name":"Config","total_count":1,"children":[]},{"name":"Convert the nested model to a flat dot‑notation dict.          This is the backw","total_count":1,"children":[]},{"name":"CoquiLocalConfig","total_count":1,"children":[]},{"name":"DashscopeTTSConfig","total_count":1,"children":[]},{"name":"Deepgram STT configuration.","total_count":1,"children":[]},{"name":"Deepgram TTS configuration.","total_count":1,"children":[]},{"name":"DeepgramSTTConfig","total_count":1,"children":[]},{"name":"DeepgramTTSConfig","total_count":1,"children":[]},{"name":"ElevenLabs TTS configuration.","total_count":1,"children":[]},{"name":"ElevenLabsConfig","total_count":1,"children":[]},{"name":"Embedding provider sub‑configs.","total_count":1,"children":[]},{"name":"FasterWhisperConfig","total_count":1,"children":[]},{"name":"GCP Vertex AI provider configuration.","total_count":1,"children":[]},{"name":"GCPConfig","total_count":1,"children":[]},{"name":"Generic OpenAI‑compatible provider configuration.","total_count":1,"children":[]},{"name":"Groq Whisper API STT configuration.","total_count":1,"children":[]},{"name":"GroqWhisperConfig","total_count":1,"children":[]},{"name":"Kokoro TTS server configuration.","total_count":1,"children":[]},{"name":"KokoroConfig","total_count":1,"children":[]},{"name":"LLMConfig","total_count":1,"children":[]},{"name":"LLMProviderConfig","total_count":1,"children":[]},{"name":"Local Coqui TTS configuration.","total_count":1,"children":[]},{"name":"Local faster‑whisper STT configuration.","total_count":1,"children":[]},{"name":"LogConfig","total_count":1,"children":[]},{"name":"MCP (Model Context Protocol) server configuration.","total_count":1,"children":[]},{"name":"MCPConfig","total_count":1,"children":[]},{"name":"Memory and context management configuration.","total_count":1,"children":[]},{"name":"Memory compaction / consolidation settings.","total_count":1,"children":[]},{"name":"Memory retrieval strategy selections.","total_count":1,"children":[]},{"name":"MemoryCompactionConfig","total_count":1,"children":[]},{"name":"MemoryConfig","total_count":1,"children":[]},{"name":"MemoryEmbeddingConfig","total_count":1,"children":[]},{"name":"MemoryStrategiesConfig","total_count":1,"children":[]},{"name":"Ollama local embedding configuration.","total_count":1,"children":[]},{"name":"OllamaEmbeddingConfig","total_count":1,"children":[]},{"name":"OpenAI embedding API configuration.","total_count":1,"children":[]},{"name":"OpenAI TTS API configuration.","total_count":1,"children":[]},{"name":"OpenAI Whisper API STT configuration.","total_count":1,"children":[]},{"name":"OpenAIEmbeddingConfig","total_count":1,"children":[]},{"name":"OpenAITTSConfig","total_count":1,"children":[]},{"name":"OpenAIWhisperConfig","total_count":1,"children":[]},{"name":"Piper TTS server configuration.","total_count":1,"children":[]},{"name":"PiperConfig","total_count":1,"children":[]},{"name":"Privacy and telemetry configuration.","total_count":1,"children":[]},{"name":"PrivacyConfig","total_count":1,"children":[]},{"name":"ProviderConfig","total_count":1,"children":[]},{"name":"Pydantic model configuration.","total_count":1,"children":[]},{"name":"RAG vault / knowledge base configuration.","total_count":1,"children":[]},{"name":"Raw LLM request tuning (separate from AdvancedConfig for granularity).","total_count":1,"children":[]},{"name":"Recursively flatten *d* into dot‑notation keys.      Pydantic's ``model_dump()``","total_count":1,"children":[]},{"name":"Recursively walk *d* and replace ``SecretStr`` instances with their plain value.","total_count":1,"children":[]},{"name":"Retrieval‑based Voice Conversion (RVC) configuration.","total_count":1,"children":[]},{"name":"RVCConfig","total_count":1,"children":[]},{"name":"Shell command execution configuration.","total_count":1,"children":[]},{"name":"ShellConfig","total_count":1,"children":[]},{"name":"Speech‑to‑Text engine selection and sub‑configs.","total_count":1,"children":[]},{"name":"str","total_count":1,"children":[]},{"name":"STTConfig","total_count":1,"children":[]},{"name":"System prompt selection and overrides.","total_count":1,"children":[]},{"name":"SystemPromptConfig","total_count":1,"children":[]},{"name":"Telegram bot integration configuration.","total_count":1,"children":[]},{"name":"TelegramConfig","total_count":1,"children":[]},{"name":"Text‑to‑Speech engine selection and sub‑configs.","total_count":1,"children":[]},{"name":"TTSConfig","total_count":1,"children":[]},{"name":"Typed settings models for Amalgam using Pydantic.  Replaces the flat ``Dict[str,","total_count":1,"children":[]},{"name":"UIConfig","total_count":1,"children":[]},{"name":"User interface configuration.","total_count":1,"children":[]},{"name":"VADConfig","total_count":1,"children":[]},{"name":"VaultConfig","total_count":1,"children":[]},{"name":"Voice Activity Detection configuration.","total_count":1,"children":[]},{"name":"VoiceConfig","total_count":1,"children":[]},{"name":"Volcengine TTS configuration.","total_count":1,"children":[]},{"name":"VolcengineTTSConfig","total_count":1,"children":[]},{"name":"VRM‑based avatar / digital human configuration.","total_count":1,"children":[]},{"name":"WakeWordConfig","total_count":1,"children":[]},{"name":"Wake‑word / hotword detection configuration.","total_count":1,"children":[]},{"name":"whisper.cpp server STT configuration.","total_count":1,"children":[]},{"name":"WhisperCppConfig","total_count":1,"children":[]}]},{"name":"schema.py","total_count":4,"children":[{"name":"AppSettings","total_count":1,"children":[]},{"name":"MemorySettings","total_count":1,"children":[]},{"name":"ProviderSettings","total_count":1,"children":[]},{"name":"VoiceSettings","total_count":1,"children":[]}]},{"name":"settings.py","total_count":45,"children":[{"name":".__init__()","total_count":1,"children":[]},{"name":"._deep_merge()","total_count":1,"children":[]},{"name":"._fire_callbacks()","total_count":1,"children":[]},{"name":"._merge_mcp_servers()","total_count":1,"children":[]},{"name":"._run_migrations()","total_count":1,"children":[]},{"name":"._watch_loop()","total_count":1,"children":[]},{"name":".get()","total_count":1,"children":[]},{"name":".get_active_character()","total_count":1,"children":[]},{"name":".get_all()","total_count":1,"children":[]},{"name":".get_characters()","total_count":1,"children":[]},{"name":".get_mcp_servers()","total_count":1,"children":[]},{"name":".load()","total_count":1,"children":[]},{"name":".on_change()","total_count":1,"children":[]},{"name":".save()","total_count":1,"children":[]},{"name":".set()","total_count":1,"children":[]},{"name":".start_watcher()","total_count":1,"children":[]},{"name":".stop_watcher()","total_count":1,"children":[]},{"name":".update_all()","total_count":1,"children":[]},{"name":"_deep_merge()","total_count":1,"children":[]},{"name":"_scan_characters_in()","total_count":1,"children":[]},{"name":"Any","total_count":1,"children":[]},{"name":"Atomically save settings to disk with proper locking.","total_count":1,"children":[]},{"name":"bool","total_count":1,"children":[]},{"name":"Get a nested value using dot notation: 'provider.active","total_count":1,"children":[]},{"name":"Get all available characters (YAML-defined).","total_count":1,"children":[]},{"name":"Get configured MCP servers.","total_count":1,"children":[]},{"name":"Get the active character's full definition, falling back to default.","total_count":1,"children":[]},{"name":"get_effective_settings()","total_count":1,"children":[]},{"name":"Load a named profile. Returns empty dict if not found.","total_count":1,"children":[]},{"name":"Load all character definitions from a single base directory.","total_count":1,"children":[]},{"name":"Load all character definitions from characters/*/index.yaml.","total_count":1,"children":[]},{"name":"Load base settings.json then overlay the active profile.     Profile values take","total_count":1,"children":[]},{"name":"load_characters_from_yaml()","total_count":1,"children":[]},{"name":"load_profile()","total_count":1,"children":[]},{"name":"Merge DEFAULTS MCP servers into user's list by name.         New default servers","total_count":1,"children":[]},{"name":"Path","total_count":1,"children":[]},{"name":"Persistent settings manager. Reads/writes data/settings.json. All settings have","total_count":1,"children":[]},{"name":"Register a callback invoked on settings change. Callback receives the updated Se","total_count":1,"children":[]},{"name":"Run version-to-version migrations.","total_count":1,"children":[]},{"name":"Set a nested value using dot notation: 'provider.gemini.api_key: "REDACTED","total_count":1,"children":[]},{"name":"WebGLEnvironments()","total_count":1,"children":[]},{"name":"WebGLExtensions()","total_count":1,"children":[]},{"name":"WebGLGeometries()","total_count":1,"children":[]},{"name":"WebGLIndexedBufferRenderer()","total_count":1,"children":[]},{"name":"WebGLInfo()","total_count":1,"children":[]},{"name":"WebGLLights()","total_count":1,"children":[]},{"name":"WebGLMaterials()","total_count":1,"children":[]},{"name":"WebGLMorphtargets()","total_count":1,"children":[]},{"name":"WebGLObjects()","total_count":1,"children":[]},{"name":"WebGLOutput()","total_count":1,"children":[]},{"name":"WebGLProgram()","total_count":1,"children":[]},{"name":"WebGLPrograms()","total_count":1,"children":[]},{"name":"WebGLProperties()","total_count":1,"children":[]},{"name":"WebGLRenderer","total_count":1,"children":[]},{"name":"WebGLRenderList()","total_count":1,"children":[]},{"name":"WebGLRenderLists()","total_count":1,"children":[]},{"name":"WebGLRenderState()","total_count":1,"children":[]},{"name":"WebGLRenderStates()","total_count":1,"children":[]},{"name":"WebGLShader()","total_count":1,"children":[]},{"name":"WebGLShaderCache","total_count":1,"children":[]},{"name":"WebGLShaderStage","total_count":1,"children":[]},{"name":"WebGLShadowMap()","total_count":1,"children":[]},{"name":"WebGLState()","total_count":1,"children":[]},{"name":"WebGLTextures()","total_count":1,"children":[]},{"name":"WebGLUniforms","total_count":1,"children":[]},{"name":"WebGLUniformsGroups()","total_count":1,"children":[]},{"name":"WebGLUtils()","total_count":1,"children":[]},{"name":"WebXRDepthSensing","total_count":1,"children":[]},{"name":"WebXRManager","total_count":1,"children":[]}]},{"name":"utils","total_count":21,"children":[{"name":"BufferGeometryUtils.js","total_count":13,"children":[{"name":"computeMikkTSpaceTangents()","total_count":1,"children":[]},{"name":"computeMorphedAttributes()","total_count":1,"children":[]},{"name":"deepCloneAttribute()","total_count":1,"children":[]},{"name":"deinterleaveAttribute()","total_count":1,"children":[]},{"name":"deinterleaveGeometry()","total_count":1,"children":[]},{"name":"estimateBytesUsed()","total_count":1,"children":[]},{"name":"interleaveAttributes()","total_count":1,"children":[]},{"name":"mergeAttributes()","total_count":1,"children":[]},{"name":"mergeGeometries()","total_count":1,"children":[]},{"name":"mergeGroups()","total_count":1,"children":[]},{"name":"mergeVertices()","total_count":1,"children":[]},{"name":"toCreasedNormals()","total_count":1,"children":[]},{"name":"toTrianglesDrawMode()","total_count":1,"children":[]}]},{"name":"SkeletonUtils.js","total_count":8,"children":[{"name":"clone()","total_count":1,"children":[]},{"name":"getBoneByName()","total_count":1,"children":[]},{"name":"getBoneName()","total_count":1,"children":[]},{"name":"getBones()","total_count":1,"children":[]},{"name":"getHelperFromSkeleton()","total_count":1,"children":[]},{"name":"parallelTraverse()","total_count":1,"children":[]},{"name":"retarget()","total_count":1,"children":[]},{"name":"retargetClip()","total_count":1,"children":[]}]}]}]}]},{"name":"vite.config.js","total_count":1,"children":[]}]};
+
+    function transformData(jsonData) {
+        // Helper function to recursively build the children structure
+        function processNode(node, parentL1StageName) {
+            let displayName = node.name;
+            // Append total_count if it exists and is not already in the name
+            if (node.total_count !== undefined) {
+                if (!/\(Total Count: \d+\)$/.test(displayName)) {
+                    displayName += ` (Total Count: ${node.total_count})`;
+                }
+            }
+
+            const newNode = { name: displayName };
+
+            if (parentL1StageName === "Root") {
+                 newNode.originalStageName = node.name;
+            } else {
+                newNode.originalStageName = parentL1StageName;
+            }
+
+            if (node.children && node.children.length > 0) {
+                const stageNameToPass = (parentL1StageName === "Root") ? node.name : parentL1StageName;
+                newNode.children = node.children.map(child => processNode(child, stageNameToPass));
+            }
+
+            return newNode;
+        }
+
+        let rootDisplayName = jsonData.name;
+        if (jsonData.total_count !== undefined && !/\(Total Count: \d+\)$/.test(rootDisplayName)) {
+            rootDisplayName += ` (Total Count: ${jsonData.total_count})`;
+        }
+
+        return {
+            name: rootDisplayName,
+            originalStageName: "Root",
+            children: (jsonData.children || []).map(child => processNode(child, "Root"))
+        };
+    }
+
+    const treeData = transformData(initialJsonData);
+
+    // Auto-populated phaseColors: every depth-1 child of the root gets
+    // a stable colour from a bigger palette so all top-level dirs are
+    // distinguishable.
+    const PALETTE = [
+      ["#3498DB","#2980B9","#AED6F1"], ["#2ECC71","#27AE60","#A9DFBF"],
+      ["#E74C3C","#C0392B","#F5B7B1"], ["#9B59B6","#8E44AD","#D7BDE2"],
+      ["#F39C12","#D68910","#FAD7A0"], ["#1ABC9C","#117864","#A2D9CE"],
+      ["#34495E","#1B2631","#ABB2B9"], ["#E67E22","#BA4A00","#F5CBA7"],
+      ["#16A085","#0E6655","#A2D9CE"], ["#D35400","#A04000","#EDBB99"],
+      ["#7F8C8D","#566573","#D5DBDB"], ["#C0392B","#7B241C","#F5B7B1"],
+      ["#2E86C1","#1B4F72","#A9CCE3"], ["#28B463","#196F3D","#A9DFBF"],
+      ["#AF7AC5","#6C3483","#D2B4DE"],
+    ];
+    const phaseColors = { "Root": { fill: "#4A4A4A", stroke: "#333333", collapsedFill: "#6C757D" },
+                          "Default": { fill: "#BDC3C7", stroke: "#95A5A6", collapsedFill: "#ECF0F1" } };
+    (initialJsonData.children || []).forEach((c, i) => {
+      const pal = PALETTE[i % PALETTE.length];
+      phaseColors[c.name] = { fill: pal[0], stroke: pal[1], collapsedFill: pal[2] };
+    });
+
+    const levelSpecificPalettes = {
+      0: { fill: "#4A4A4A", stroke: "#333333", collapsedFill: "#6C757D" },
+      2: { fill: "#6ab04c", stroke: "#508a38", collapsedFill: "#a3d391" },
+      3: { fill: "#f0932b", stroke: "#d0730f", collapsedFill: "#f6c07e" },
+      4: { fill: "#be2edd", stroke: "#a01cb3", collapsedFill: "#e08bf2" },
+      5: { fill: "#00a8ff", stroke: "#007ac1", collapsedFill: "#74d2ff" },
+      6: { fill: "#e55039", stroke: "#c23620", collapsedFill: "#f09a8d" },
+      default: { fill: "#747d8c", stroke: "#57606f", collapsedFill: "#a4b0be" }
+    };
+
+    const svgElement = d3.select("#tree-svg");
+    const initialSvgWidth = +svgElement.attr("width");
+    const initialSvgHeight = +svgElement.attr("height");
+    const margin = { top: 40, right: 120, bottom: 80, left: 450 };
+    let width = initialSvgWidth - margin.left - margin.right;
+    let height = initialSvgHeight - margin.top - margin.bottom;
+    const duration = 500;
+    let nodeCounter = 0;
+    const g = svgElement.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+    const treemap = d3.tree().nodeSize([40, 0]);
+    let rootNode = d3.hierarchy(treeData, d => d.children);
+    rootNode.x0 = 0;
+    rootNode.y0 = 0;
+
+    if (rootNode.children) {
+      rootNode.children.forEach(d_child => {
+        if (d_child.children) { collapseBranch(d_child); }
+      });
+    }
+    updateTree(rootNode);
+
+    function collapseBranch(d) { if (d.children) { d._children = d.children; d._children.forEach(collapseBranch); d.children = null; } }
+    function expandBranch(d) { if (d._children) { d.children = d._children; d._children = null; } if (d.children) { d.children.forEach(expandBranch); } }
+    window.expandAll = () => { expandBranch(rootNode); updateTree(rootNode); };
+    window.collapseAll = () => { if (rootNode.children) { rootNode.children.forEach(collapseBranch); } updateTree(rootNode); };
+    window.resetView = () => { if (rootNode.children) { rootNode.children.forEach(d_child => { if (d_child.children || d_child._children) { collapseBranch(d_child); } }); } if (rootNode._children && !rootNode.children) { rootNode.children = rootNode._children; rootNode._children = null; } updateTree(rootNode); };
+
+    function updateTree(source) {
+      const treeLayoutData = treemap(rootNode);
+      let nodes = treeLayoutData.descendants();
+      let links = treeLayoutData.descendants().slice(1);
+
+      let minX = 0;
+      let maxX = 0;
+      if (nodes.length > 0) {
+        minX = d3.min(nodes, d => d.x);
+        maxX = d3.max(nodes, d => d.x);
+      }
+
+      let neededHeight = Math.max(initialSvgHeight, maxX - minX + margin.top + margin.bottom + 100);
+      svgElement.transition().duration(duration / 2).attr("height", neededHeight);
+      g.transition().duration(duration / 2).attr("transform", `translate(${margin.left},${margin.top - minX + 40})`);
+
+      nodes.forEach(d => { d.y = d.depth * 400; }); // Adjust horizontal separation if needed
+
+      const node = g.selectAll('g.node').data(nodes, d => d.id || (d.id = ++nodeCounter));
+      const nodeEnter = node.enter().append('g')
+        .attr('class', d => "node" + (d.children || d._children ? " node--internal" : " node--leaf") + (d._children ? " _children" : ""))
+        .attr('transform', d => `translate(${source.y0},${source.x0})`)
+        .on('click', (event, d) => { if (d.children) { d._children = d.children; d.children = null; } else if (d._children) { d.children = d._children; d._children = null; } updateTree(d); })
+        .style('cursor', d => (d.children || d._children) ? 'pointer' : 'default');
+
+      nodeEnter.append('circle').attr('r', 1e-6);
+
+      nodeEnter.append('text')
+        .attr('dy', '.35em')
+        .attr('x', d => d.children || d._children ? -14 : 14)
+        .attr('text-anchor', d => d.children || d._children ? 'end' : 'start')
+        .style("fill-opacity", 1e-6)
+        .call(wrapText, 380);
+
+      const nodeUpdate = nodeEnter.merge(node);
+      nodeUpdate.transition().duration(duration)
+        .attr('transform', d => `translate(${d.y},${d.x})`)
+        .attr('class', d => "node" + (d.children ? " node--internal" : " node--leaf") + (d._children ? " node--internal _children" : ""));
+
+      nodeUpdate.select('circle').attr('r', 8.5)
+        .style('fill', d => {
+            let palette;
+            if (d.depth === 0) {
+                palette = levelSpecificPalettes[0];
+            } else if (d.depth === 1) {
+                palette = phaseColors[d.data.originalStageName] || phaseColors.Default;
+            } else {
+                palette = levelSpecificPalettes[d.depth] || levelSpecificPalettes.default;
+            }
+            if (d._children) return palette.collapsedFill;
+            if (d.children) return palette.fill;
+            return "#fff";
+        })
+        .style('stroke', d => {
+            let palette;
+            if (d.depth === 0) {
+                palette = levelSpecificPalettes[0];
+            } else if (d.depth === 1) {
+                palette = phaseColors[d.data.originalStageName] || phaseColors.Default;
+            } else {
+                palette = levelSpecificPalettes[d.depth] || levelSpecificPalettes.default;
+            }
+            return palette.stroke;
+        });
+      nodeUpdate.select('text').style("fill-opacity", 1).call(wrapText, 380);
+
+      const nodeExit = node.exit().transition().duration(duration).attr('transform', d => `translate(${source.y},${source.x})`).remove();
+      nodeExit.select('circle').attr('r', 1e-6);
+      nodeExit.select('text').style('fill-opacity', 1e-6);
+
+      const link = g.selectAll('path.link').data(links, d => d.id);
+      const linkEnter = link.enter().insert('path', "g").attr('class', 'link').attr('d', d => { const o = { x: source.x0, y: source.y0 }; return diagonal(o, o); });
+
+      linkEnter.merge(link).transition().duration(duration).attr('d', d => diagonal(d, d.parent))
+        .style('stroke', d => {
+            const sourceNode = d.parent;
+            if (!sourceNode) return phaseColors.Default.stroke;
+            const l1AncestorName = sourceNode.data.originalStageName;
+            const colorPalette = phaseColors[l1AncestorName] || phaseColors.Default;
+            return colorPalette.stroke;
+        });
+      link.exit().transition().duration(duration).attr('d', d => { const o = { x: source.x, y: source.y }; return diagonal(o, o); }).remove();
+      nodes.forEach(d => { d.x0 = d.x; d.y0 = d.y; });
+    }
+
+    function diagonal(s, d) { return `M ${s.y} ${s.x} C ${(s.y + d.y) / 2} ${s.x}, ${(s.y + d.y) / 2} ${d.x}, ${d.y} ${d.x}`; }
+
+    function wrapText(textElements, maxWidth) {
+        const textPartColors = {
+            name: '#343a40',
+            count: '#0056b3'
+        };
+        const countRegex = /(\s\(Total Count: \d+\))$/;
+
+        textElements.each(function () {
+            const textD3 = d3.select(this);
+            const originalNodeText = textD3.datum().data.name;
+            const x = parseFloat(textD3.attr("x") || 0);
+            const initialDy = textD3.attr("dy");
+            const textAnchor = textD3.attr("text-anchor");
+            const lineHeight = 1.1;
+
+            textD3.text(null);
+
+            let namePart = originalNodeText;
+            let countPartText = "";
+
+            const countMatch = originalNodeText.match(countRegex);
+            if (countMatch && originalNodeText.endsWith(countMatch[0])) {
+                namePart = originalNodeText.substring(0, originalNodeText.length - countMatch[0].length).trim();
+                countPartText = countMatch[0].trim();
+            }
+
+            const tokens = [];
+            namePart.split(/\s+/).filter(Boolean).forEach(word => {
+                tokens.push({ text: word, type: 'name' });
+            });
+            if (countPartText) {
+                tokens.push({ text: countPartText, type: 'count' });
+            }
+
+            if (tokens.length === 0 && originalNodeText) {
+                tokens.push({ text: originalNodeText, type: 'name' });
+            }
+
+            let currentTspan = textD3.append("tspan").attr("x", x).attr("dy", initialDy);
+            if (textAnchor === "end") currentTspan.attr("text-anchor", "end");
+
+            let lineTokens = [];
+
+            for (let i = 0; i < tokens.length; i++) {
+                const tokenObj = tokens[i];
+
+                lineTokens.push(tokenObj);
+                currentTspan.text(lineTokens.map(t => t.text).join(" "));
+
+                if (currentTspan.node().getComputedTextLength() > maxWidth && lineTokens.length > 1) {
+                    lineTokens.pop();
+
+                    currentTspan.text(null);
+                    lineTokens.forEach((prevToken, idx) => {
+                        currentTspan.append("tspan")
+                            .text((idx > 0 ? " " : "") + prevToken.text)
+                            .style("fill", textPartColors[prevToken.type] || textPartColors.name)
+                            .style("font-weight", prevToken.type === 'count' ? "bold" : "normal");
+                    });
+
+                    lineTokens = [tokenObj];
+                    currentTspan = textD3.append("tspan").attr("x", x).attr("dy", lineHeight + "em");
+                    if (textAnchor === "end") currentTspan.attr("text-anchor", "end");
+                }
+            }
+
+            currentTspan.text(null);
+            lineTokens.forEach((token, idx) => {
+                currentTspan.append("tspan")
+                    .text((idx > 0 ? " " : "") + token.text)
+                    .style("fill", textPartColors[token.type] || textPartColors.name)
+                    .style("font-weight", token.type === 'count' ? "bold" : "normal");
+            });
+
+            if (textD3.selectAll("tspan > tspan").empty() && textD3.select("tspan").text().length === 0 && originalNodeText) {
+                let t = textD3.select("tspan");
+                let displayText = originalNodeText;
+                t.text(displayText).style("fill", textPartColors.name);
+                if (t.node() && t.node().getComputedTextLength() > maxWidth && displayText.length > 20) {
+                    let estimatedChars = Math.floor(maxWidth / (t.node().getComputedTextLength()/displayText.length) );
+                    displayText = displayText.substring(0, Math.max(0, estimatedChars - 3)) + "...";
+                    t.text(displayText);
+                }
+            }
+        });
+    }
+  </script>
+</body>
+</html>

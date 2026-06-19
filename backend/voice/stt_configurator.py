@@ -24,5 +24,7 @@ def configure_stt_pipeline(pipeline, engine: str, settings) -> None:
         case "whispercpp":
             url = settings.get("voice.whispercpp.url", None)
             pipeline.configure_whispercpp_stt(url)
+        case "faster-whisper":
+            logger.debug("faster-whisper is local-only, no additional configuration needed")
         case _:
-            pass
+            logger.warning(f"Unknown STT engine: {engine}")

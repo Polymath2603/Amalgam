@@ -4,6 +4,7 @@
     "nav.characters": "角色",
     "nav.settings": "设置",
     "nav.metrics": "指标",
+    "nav.swarm": "集群",
 
     "metrics.title": "指标",
     "metrics.loading": "加载中...",
@@ -156,11 +157,22 @@
     "status.thinking": "思考中...",
     "status.speaking": "说话中...",
     "status.listening": "聆听中...",
+    "status.offline": "您已离线",
     "status.typing": "输入中...",
     "status.error": "错误",
     "status.ready": "就绪",
     "status.connected": "已连接",
     "status.disconnected": "已断开",
+    "status.reconnecting": "重新连接中...",
+    "status.reconnecting_countdown": "{seconds}秒后重新连接...（第{attempt}次尝试）",
+
+    "welcome.title": "欢迎使用 Amalgam",
+    "welcome.subtitle": "您的 AI 伴侣已就绪。开始对话或尝试以下提示：",
+    "welcome.hint_about": "介绍一下你自己",
+    "welcome.hint_capabilities": "你能做什么？",
+    "welcome.hint_brainstorm": "帮我头脑风暴",
+
+    "characters.no_characters": "未找到角色",
 
     "toast.settings_saved": "所有设置已保存",
     "toast.settings_failed": "保存设置失败",
@@ -194,7 +206,7 @@
     "toast.failed_server": "连接服务器失败",
     "toast.failed_history": "加载历史失败",
     "toast.command_declined": "命令已拒绝",
-    "toast.command_allowed": "命令{mode}。请重新发送消息以重试。",
+    "toast.command_allowed": "命令 {mode}。请重新发送消息以重试。",
     "toast.speech_not_supported": "此浏览器不支持语音识别。请尝试 Chrome。",
     "toast.mic_denied": "麦克风访问被拒绝。请检查浏览器权限。",
     "toast.speech_error": "语音识别错误：{error}",
@@ -232,6 +244,8 @@
 
     "history.no_conversations": "暂无对话",
     "history.messages": "{count} 条消息",
+
+    "install.prompt": "安装 Amalgam 以便离线使用",
 
     "command.allowed_once": "已允许一次",
     "command.prefix_allowed": "前缀已允许",

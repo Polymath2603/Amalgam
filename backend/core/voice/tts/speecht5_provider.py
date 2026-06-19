@@ -13,6 +13,10 @@ class SpeechT5Provider (TTSProvider ):
         self ._model =None 
         self ._processor =None 
         self ._speaker_embeddings =None 
+        logger .warning (
+            "SpeechT5 will download ~2 GB of model data on first synthesize() call. "
+            "Ensure sufficient disk space and network connectivity."
+        )
 
     def _ensure_model (self ):
         if self ._model is not None :
@@ -36,7 +40,7 @@ class SpeechT5Provider (TTSProvider ):
             logger .error (f"SpeechT5 load error: {e }")
             raise 
 
-    async def synthesize (self ,text :str ,ref_audio :str =None )->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         try :
             import torch 
             import asyncio 
@@ -45,7 +49,7 @@ class SpeechT5Provider (TTSProvider ):
             return result 
         except Exception as e :
             logger .error (f"SpeechT5 synthesis error: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),[],16000 
+            return np .zeros (0 ,dtype =np .float32 ),None ,16000 
 
     def _synthesize_sync (self ,text :str )->tuple :
         self ._ensure_model ()
@@ -58,4 +62,4 @@ class SpeechT5Provider (TTSProvider ):
             vocoder =self ._vocoder ,
             )
         audio_np =speech .squeeze ().numpy ().astype (np .float32 )
-        return audio_np ,[],16000 
+        return audio_np ,None ,16000 

@@ -138,42 +138,62 @@ class TestVAD:
 class TestSTT:
     """Tests for Speech-to-Text transcription."""
 
-    @pytest.mark.asyncio
-    async def test_stt_returns_string(self):
+    def test_stt_returns_string(self):
         """
-        STT should accept WAV bytes and return a string (possibly empty).
-        Tests that the STT function exists and has the right interface.
+        STT should accept a numpy audio array and return a string (possibly empty).
+        Tests that the STT class exists and has the right interface.
         """
         try:
-            from backend.voice.stt.faster_whisper import transcribe
+            from backend.voice.stt.faster_whisper_provider import FasterWhisperProvider
         except ImportError:
             pytest.skip("Faster-Whisper STT not available")
 
-        # Generate a WAV file with a sine wave (not real speech, but tests the interface)
-        audio = make_sine_wave(440.0, 1.0, 16000)
-        wav_bytes = make_wav_bytes(audio, 16000)
+        provider = FasterWhisperProvider(model_size="tiny")
 
-        result = await transcribe(wav_bytes, language="en")
+        # Generate audio with a sine wave
+        audio = make_sine_wave(440.0, 1.0, 16000)
+
+        # transcribe expects float32 numpy array
+        result = provider.transcribe(audio.astype(np.float32))
 
         assert isinstance(result, str), f"Expected str, got {type(result)}"
-        # We don't assert content because it's not real speech
 
-    @pytest.mark.asyncio
-    async def test_stt_handles_silence(self):
+    def test_stt_handles_silence(self):
         """STT should handle silent audio without crashing."""
         try:
-            from backend.voice.stt.faster_whisper import transcribe
+            from backend.voice.stt.faster_whisper_provider import FasterWhisperProvider
         except ImportError:
             pytest.skip("Faster-Whisper STT not available")
 
+        provider = FasterWhisperProvider(model_size="tiny")
         silence = make_silence(1.0, 16000)
-        wav_bytes = make_wav_bytes(silence, 16000)
 
         try:
-            result = await transcribe(wav_bytes, language="en")
+            result = provider.transcribe(silence)
             assert isinstance(result, str)
         except Exception as e:
             pytest.fail(f"STT crashed on silence: {e}")
+
+    def test_stt_router_accepts_all_engines(self):
+        """STTRouter should accept all supported engine names."""
+        from backend.voice.stt.router import STTRouter
+
+        router = STTRouter()
+        for engine in STTRouter.SUPPORTED_ENGINES:
+            try:
+                r = STTRouter(engine=engine)
+                assert r.engine == engine
+            except Exception as e:
+                pytest.fail(f"STTRouter failed for engine '{engine}': {e}")
+
+    def test_stt_browser_returns_empty_string(self):
+        """BrowserSTTProvider.transcribe should return empty string (stub)."""
+        from backend.voice.stt.browser_provider import BrowserSTTProvider
+
+        provider = BrowserSTTProvider()
+        audio = make_silence(1.0, 16000)
+        result = provider.transcribe(audio)
+        assert result == ""
 
 
 # ─── Tests: TTS ──────────────────────────────────────────────────────────────

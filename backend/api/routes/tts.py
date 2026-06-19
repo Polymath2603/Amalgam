@@ -7,6 +7,7 @@ import struct
 import logging 
 
 from fastapi import APIRouter 
+from pydantic import BaseModel
 from backend .api .deps import settings 
 from backend .core .voice .tts import TTS 
 
@@ -14,9 +15,13 @@ logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["tts"])
 
 
+class TTSPreviewRequest(BaseModel):
+    text: str = "Hello, I am your assistant."
+
+
 @router .post ("/api/tts/preview")
-async def tts_preview (body :dict ):
-    text =body .get ("text","Hello, I am your assistant.")
+async def tts_preview (body :TTSPreviewRequest ):
+    text =body .text
     engine =settings ().get ("voice.engine","edge-tts")
     char =settings ().get_active_character ()
 
