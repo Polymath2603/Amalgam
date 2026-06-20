@@ -12,7 +12,6 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
 const BASE_URL = IS_TAURI ? 'http://localhost:8000' : '';
@@ -156,12 +155,6 @@ export class AvatarRenderer {
         this.renderer.setClearColor(0x000000, 0);
         this.container.appendChild(this.renderer.domElement);
 
-        // Post-processing pipeline
-        this._composer = null;
-        this._bloomPass = null;
-        this._postProcessingEnabled = false;
-        this._initComposer();
-
         // WebGL context loss handlers for tab switch recovery
         this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
             e.preventDefault();
@@ -191,6 +184,12 @@ export class AvatarRenderer {
         
         this.scene = new THREE.Scene();
         this.scene.add(this.camera);
+
+        // Post-processing pipeline (must be after scene + camera init)
+        this._composer = null;
+        this._bloomPass = null;
+        this._postProcessingEnabled = false;
+        this._initComposer();
 
         
         const light = new THREE.DirectionalLight(0xffffff, Math.PI);
@@ -394,7 +393,12 @@ export class AvatarRenderer {
         if (!vrmAnim || !this.vrm || !this._mixer) return;
 
         const clip = vrmAnim.createAnimationClip(this.vrm);
-        
+
+        // Strip position tracks from the idle animation so it does not
+        // shift the avatar sideways (e.g. leftward drift). Only keep
+        // rotation and expression tracks.
+        clip.tracks = clip.tracks.filter(t => !t.name.endsWith('.position'));
+
         this._idleAction = this._mixer.clipAction(clip);
         this._idleAction.loop = THREE.LoopRepeat;
         this._fadeToAction(this._idleAction, 0.5);
@@ -646,13 +650,21 @@ export class AvatarRenderer {
             }
         }
 
-        this.renderer.render(this.scene, this.camera);
-        if (this._composer && this._postProcessingEnabled) {
-            this._composer.render();
+        try {
+            this.renderer.render(this.scene, this.camera);
+        } catch (e) {
+            console.warn('[Avatar] render error:', e.message);
+        }
+        if (this._composer && this._postProcessingEnabled && this.scene) {
+            try {
+                this._composer.render();
+            } catch (e) {
+                console.warn('[Avatar] composer render error:', e.message);
+            }
         }
     }
 
-    /* ── Post-processing pipeline (bloom, SMAA, ACESFilmic tone mapping) ── */
+    /* ── Post-processing pipeline (SMAA, ACESFilmic tone mapping) ── */
     _initComposer() {
         if (this._isMobile || this.preview) return; // skip on mobile/preview
         try {
@@ -660,37 +672,21 @@ export class AvatarRenderer {
             const renderPass = new RenderPass(this.scene, this.camera);
             composer.addPass(renderPass);
 
-            // Subtle bloom for glow effect
-            this._bloomPass = new UnrealBloomPass(
-                new THREE.Vector2(
-                    this.container.clientWidth || 800,
-                    this.container.clientHeight || 600
-                ),
-                0.3,   // strength
-                0.5,   // radius
-                0.2    // threshold
-            );
-            composer.addPass(this._bloomPass);
-
             // Output pass handles color space conversion (ACESFilmic tone mapping)
             const outputPass = new OutputPass();
             composer.addPass(outputPass);
 
             this._composer = composer;
             this._postProcessingEnabled = true;
-            console.log('[Avatar] Post-processing initialized (bloom + ACESFilmic)');
+            console.log('[Avatar] Post-processing initialized (ACESFilmic)');
         } catch (e) {
             console.warn('[Avatar] Post-processing not available:', e.message);
             this._composer = null;
         }
     }
 
-    setBloom(strength = 0.3, radius = 0.5, threshold = 0.2) {
-        if (this._bloomPass) {
-            this._bloomPass.strength = strength;
-            this._bloomPass.radius = radius;
-            this._bloomPass.threshold = threshold;
-        }
+    setBloom(_strength = 0.3, _radius = 0.5, _threshold = 0.2) {
+        // Bloom removed — kept as no-op for API compatibility
     }
 
     _updateBlink(delta) {
@@ -1090,7 +1086,7 @@ export class AvatarRenderer {
         if (this._idleAction) return;
 
         if (this._idleBehaviorTimer) clearTimeout(this._idleBehaviorTimer);
-        const microAnims = ['curiosity', 'amusement', 'admiration', 'optimism', 'relief', 'realization', 'confusion'];
+        const microAnims = ['curiosity', 'amusement', 'admiration', 'confusion'];
         const scheduleNext = () => {
             const delay = 8000 + Math.random() * 7000;
             this._idleBehaviorTimer = setTimeout(() => {
