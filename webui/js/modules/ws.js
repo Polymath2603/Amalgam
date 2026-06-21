@@ -12,9 +12,12 @@ import {
     getCurrentSessionId, setCurrentSessionId,
     streamBuffer, getStreamBufferTimer, setStreamBufferTimer,
     getAvatarRenderer, getAvatarPreviewRenderer,
-    getIsPlayingTTS, getTtsQueue, getTtsFlushRequested,
+    getIsPlayingTTS, setIsPlayingTTS,
+    getTtsQueue, setTtsQueue,
+    getTtsQueuePlaying, setTtsQueuePlaying,
+    resetVoiceState,
 } from './state.js';
-import { isBrowserStt, updateVoiceState, stopBrowserSpeechRec, startBrowserSpeechRec } from './voice.js';
+import { isBrowserStt, updateVoiceState, stopBrowserSpeechRec, startBrowserSpeechRec, resetBrowserStt } from './voice.js';
 import { processTTSQueue, flushTTSQueue } from './tts.js';
 import { stripMarkers, formatMessage, updateToolCall } from './markdown.js';
 import { updateHealthBar } from './health.js';
@@ -172,11 +175,15 @@ export function connectWS() {
     wsInst.onclose = (event) => {
         _stopHeartbeat();
 
-        // Reset voice state on disconnect — flush TTS, stop browser STT
+        // Reset voice state on disconnect: flush TTS queue, stop audio, close AudioContext
         flushTTSQueue();
+
+        // Stop browser STT if it was running
         if (getVoiceInputEnabled() && isBrowserStt()) {
-            stopBrowserSpeechRec();
+            resetBrowserStt();
         }
+
+        // Update UI voice state to idle
         updateVoiceState('idle');
 
         if (event.code === 1000 || event.code === 1001) {
@@ -252,6 +259,7 @@ export function handleWSMessage(data) {
             if (avatarView) avatarView.style.display = visible ? 'block' : 'none';
         }
     } else if (data.type === 'chat_start') {
+        // Race condition fix: flush any playing TTS when new message starts
         flushTTSQueue();
         setCurrentAssistantMessage(_addMessage?.('assistant', ''));
         _setStatus?.('thinking');
@@ -269,152 +277,101 @@ export function handleWSMessage(data) {
             const existing = streamBuffer.get(body) || '';
             streamBuffer.set(body, existing + cleanText);
             if (!getStreamBufferTimer()) {
-                setStreamBufferTimer(requestAnimationFrame(_flushStreamBuffer));
+                setStreamBufferTimer(requestAnimationFrame(() => {
+                    streamBuffer.forEach((text, el) => {
+                        if (el) el.innerHTML = formatMessage(text);
+                    });
+                    streamBuffer.clear();
+                    setStreamBufferTimer(null);
+                    // Auto-scroll
+                    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+                }));
             }
-
-
-            if (data.finished && cam?.classList.contains('msg-error')) {
-                _flushStreamBuffer();
-                setCurrentAssistantMessage(null);
-                setLastUserMessage(null);
-                _setStatus?.('ready');
-                showToast('Message failed. You can click edit to retry.', 'danger');
-                return;
-            }
+            // If this append is marked finished, finalize the assistant message
             if (data.finished) {
-                _flushStreamBuffer();
                 setCurrentAssistantMessage(null);
-                setLastUserMessage(null);
-                if (!getIsPlayingTTS()) {
-                    _setStatus?.('ready');
-                    if (avatarRenderer?._idleManager) avatarRenderer._idleManager.deactivate();
+                _setStatus?.('ready');
+                // Flush any remaining stream buffer
+                if (getStreamBufferTimer()) {
+                    cancelAnimationFrame(getStreamBufferTimer());
+                    setStreamBufferTimer(null);
                 }
+                streamBuffer.forEach((text, el) => {
+                    if (el) el.innerHTML = formatMessage(text);
+                });
+                streamBuffer.clear();
             }
-        } else if (data.role === 'system') {
-            if (data.session_id && data.session_id !== getCurrentSessionId()) {
-                setCurrentSessionId(data.session_id);
-                location.hash = 'chat/' + data.session_id;
-                _loadSession?.(data.session_id);
-                return;
-            }
-            _addMessage?.('system', data.text);
         }
-        if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+    } else if (data.type === 'tts_audio') {
+        // Add audio to TTS queue
+        try {
+            const q = getTtsQueue();
+            q.push({
+                idx: data.sentence_idx ?? q.length,
+                audio: data.audio,
+                duration: data.duration,
+                visemeSchedule: data.viseme_schedule ?? null,
+            });
+            setTtsQueue(q);
+            processTTSQueue();
+        } catch (e) {
+            console.error('TTS queue error:', e);
+        }
+    } else if (data.type === 'tts_interrupt') {
+        // Backend requests TTS stop (e.g., user barged in)
+        flushTTSQueue();
+    } else if (data.type === 'tts_error') {
+        // Backend TTS synthesis failed — reset TTS state so UI doesn't hang
+        console.warn('TTS error from backend:', data.message);
+        flushTTSQueue();
+        _setStatus?.('ready');
+        if (data.message) {
+            showToast(`TTS: ${data.message}`, 'warn');
+        }
     } else if (data.type === 'voice_state') {
         updateVoiceState(data.state);
-    } else if (data.type === 'tts_audio') {
-        const q = getTtsQueue();
-        q.push({ audio: data.audio, duration: data.duration, idx: data.sentence_idx || 0, visemeSchedule: data.viseme_schedule || null });
-        processTTSQueue();
-    } else if (data.type === 'tts_error') {
-        console.warn('TTS error:', data.message);
-        showToast(data.message || 'TTS failed', 'danger');
-        // Continue processing any remaining valid TTS items in the queue
-        processTTSQueue();
-    } else if (data.type === 'tts_interrupt') {
-        flushTTSQueue();
     } else if (data.type === 'emotion') {
-        const emotion = (data.emotion || 'neutral').toLowerCase();
-        if (avatarRenderer) avatarRenderer.setEmotion(emotion);
-        if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion(emotion);
+        if (avatarRenderer) avatarRenderer.setExpression?.(data.emotion);
+        if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression?.(data.emotion);
     } else if (data.type === 'expression') {
-        const expr = (data.expression || 'neutral').toLowerCase();
-        if (avatarRenderer) avatarRenderer.setExpression(expr);
-        if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression(expr);
-    } else if (data.type === 'idle_prompt') {
-        if (data.text) {
-            if (avatarRenderer) avatarRenderer.setEmotion('relaxed');
-            if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion('relaxed');
-            setTimeout(() => {
-                if (avatarRenderer) avatarRenderer.setEmotion('neutral');
-                if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion('neutral');
-            }, 6000);
-        }
-    } else if (data.type === 'animation') {
-        if (data.url && avatarRenderer) avatarRenderer.playAnimation(data.url);
-    } else if (data.type === 'roleplay') {
-        if (data.animation_url && avatarRenderer) avatarRenderer.playAnimation(data.animation_url);
-    } else if (data.type === 'typing') {
-        _setStatus?.('typing');
-    } else if (data.type === 'stop_typing') {
-        if (document.querySelector('#chat-avatar-status')?.textContent === 'Typing...') _setStatus?.('ready');
-    } else if (data.type === 'tool_call') {
-        _addMessage?.('tool', data.text || '');
-    } else if (data.type === 'permission_request') {
-        const overlay = document.getElementById('shell-permission-overlay');
-        const cmdDisplay = document.getElementById('shell-pending-cmd');
-        if (overlay && cmdDisplay) { cmdDisplay.textContent = data.command || ''; overlay.style.display = 'flex'; }
+        if (avatarRenderer) avatarRenderer.setExpression?.(data.expression);
+        if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression?.(data.expression);
     } else if (data.type === 'thinking') {
-        const thinkingEnabled = document.getElementById('thinking-toggle')?.checked ?? true;
-        if (thinkingEnabled && data.text) {
-            const cam = getCurrentAssistantMessage();
-            const body = cam?.querySelector('.msg-body');
+        _setStatus?.('thinking');
+    } else if (data.type === 'roleplay') {
+        // Roleplay text display
+        const cam = getCurrentAssistantMessage();
+        if (cam) {
+            const body = cam.querySelector('.msg-body');
             if (body) {
-                const thinkEl = document.createElement('div');
-                thinkEl.className = 'thinking-bubble';
-                thinkEl.textContent = data.text;
-                body.appendChild(thinkEl);
+                const rpDiv = document.createElement('div');
+                rpDiv.className = 'roleplay';
+                rpDiv.textContent = data.text;
+                body.appendChild(rpDiv);
             }
         }
-    } else if (data.type === 'swarm_update') {
-        if (typeof window.handleSwarmUpdate === 'function') window.handleSwarmUpdate(data.data);
-    } else if (data.type === 'avatar_life_event') {
-        if (data.event === 'bored' && avatarRenderer) avatarRenderer.setEmotion('bored');
+    } else if (data.type === 'tool_call') {
+        const cam = getCurrentAssistantMessage();
+        if (cam) updateToolCall(cam, data.text);
+    } else if (data.type === 'permission_request') {
+        showToast(`Permission requested: ${data.command}`, 'info');
+    } else if (data.type === 'theme_change') {
+        applyTheme(data.theme);
+    } else if (data.type === 'session_id') {
+        setCurrentSessionId(data.session_id);
+    } else if (data.type === 'health_update') {
+        updateHealthBar(data);
+    } else if (data.type === 'wake_word_state') {
+        if (data.error) {
+            showToast(data.error, 'danger');
+        }
+    } else if (data.type === 'animation') {
+        // Animation playback
+        if (avatarRenderer && data.url) avatarRenderer.playAnimation?.(data.url);
+        if (avatarPreviewRenderer && data.url) avatarPreviewRenderer.playAnimation?.(data.url);
     } else if (data.type === 'interrupt') {
         if (data.action === 'stop_audio_and_animation') {
             flushTTSQueue();
-            if (avatarRenderer) avatarRenderer.setEmotion('surprised');
         }
-    } else if (data.type === 'service_status') {
-        if (data.services) updateHealthBar(data.services);
-    } else if (data.type === 'tool_call_update') {
-        if (data.tool_call_id) updateToolCall(data.tool_call_id, data.status, data.result);
-    } else if (data.type === 'theme_change') {
-        if (data.theme) applyTheme(data.theme);
-    } else if (data.type === 'settings_change') {
-        if (data.settings) setSettingsCache(data.settings);
-    } else if (data.type === 'companion') {
-        // Companion proactive message from scheduler
-        const companionEnabled = getSettings()?.companion?.enabled ?? false;
-        if (companionEnabled && data.content) {
-            const cam = _addMessage?.('companion', data.content);
-            if (cam && chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-    }
-}
-
-function _flushStreamBuffer() {
-    setStreamBufferTimer(null);
-    try {
-        if (streamBuffer.size === 0) return;
-        for (const [el, newText] of streamBuffer) {
-            const accumulated = (el.dataset.rawText || '') + newText;
-            el.dataset.rawText = accumulated;
-            el.innerHTML = formatMessage(accumulated);
-            el.querySelectorAll('pre code').forEach(codeBlock => {
-                if (!codeBlock.parentElement.querySelector('.copy-code-btn')) {
-                    const btn = document.createElement('button');
-                    btn.className = 'copy-code-btn';
-                    btn.setAttribute('aria-label', 'Copy code');
-                    btn.onclick = function() {
-                        const t = this;
-                        const c = t.previousElementSibling;
-                        navigator.clipboard.writeText(c.textContent || c.innerText).then(() => {
-                            t.classList.add('copied');
-                            t.textContent = 'Copied';
-                            setTimeout(() => { t.classList.remove('copied'); t.textContent = ''; }, 2000);
-                        });
-                    };
-                    codeBlock.parentElement.appendChild(btn);
-                }
-            });
-        }
-        for (const [el] of streamBuffer) {
-            if (!el.isConnected) streamBuffer.delete(el);
-        }
-        streamBuffer.clear();
-    } catch (err) {
-        console.error('Stream buffer flush error:', err);
-        streamBuffer.clear();
     }
 }

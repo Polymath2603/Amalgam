@@ -356,6 +356,8 @@ class ChatSession:
         elif cmd == "speak":
             speak_text = data.get("text", "").strip()
             if speak_text:
+                # Send voice_state to inform frontend that speaking is starting
+                await self.send({"type": "voice_state", "state": "speaking"})
                 t = asyncio.create_task(synthesize_now(speak_text, self.ws))
                 self._track_task(t)
 
@@ -847,6 +849,7 @@ class ChatSession:
 
     async def cleanup(self):
         """Cancel all pending tasks and stop voice/wake word."""
+        logger.info("ChatSession cleanup: cancelling pending tasks...")
         # Cancel all pending tasks
         for t in self.pending_tasks:
             if not t.done():
@@ -854,9 +857,12 @@ class ChatSession:
         # Wait briefly for tasks to finish cancellation
         if self.pending_tasks:
             try:
-                await asyncio.gather(*self.pending_tasks, return_exceptions=True)
-            except Exception:
-                pass
+                await asyncio.wait_for(
+                    asyncio.gather(*self.pending_tasks, return_exceptions=True),
+                    timeout=5.0
+                )
+            except (asyncio.TimeoutError, Exception):
+                logger.debug("Timeout waiting for pending tasks to cancel")
 
         # Stop voice pipeline cleanly
         if self.voice_pipeline:
@@ -868,8 +874,8 @@ class ChatSession:
         if self.voice_task and not self.voice_task.done():
             self.voice_task.cancel()
             try:
-                await self.voice_task
-            except (asyncio.CancelledError, Exception):
+                await asyncio.wait_for(self.voice_task, timeout=3.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                 pass
             self.voice_task = None
 

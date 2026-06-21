@@ -309,12 +309,6 @@ class VoicePipeline:
                     self.sm.transition_sync(VoiceState.IDLE)
                 except VoiceStateError:
                     pass
-        except concurrent.futures.TimeoutError:
-            logger.error("VoicePipeline: STT transcription timed out")
-            try:
-                self.sm.transition_sync(VoiceState.IDLE)
-            except VoiceStateError:
-                pass
         except concurrent.futures.CancelledError:
             pass
         except Exception as e:
@@ -323,6 +317,31 @@ class VoicePipeline:
                 self.sm.transition_sync(VoiceState.IDLE)
             except VoiceStateError:
                 pass
+
+    def _submit_stt_with_timeout(self, audio_data):
+        """Submit STT transcription with a timeout watchdog."""
+        future = self._stt_executor.submit(self._stt.transcribe, audio_data)
+        future.add_done_callback(self._on_stt_done)
+
+        # Watchdog timer: if STT doesn't complete in time, cancel and reset state
+        def _watchdog():
+            if not future.done():
+                logger.warning(f"VoicePipeline: STT watchdog triggered after {self._stt_timeout}s, cancelling")
+                future.cancel()
+                try:
+                    self.sm.transition_sync(VoiceState.IDLE)
+                except VoiceStateError:
+                    pass
+
+        try:
+            import threading
+            timer = threading.Timer(self._stt_timeout, _watchdog)
+            timer.daemon = True
+            timer.start()
+        except Exception as e:
+            logger.debug(f"Failed to start STT watchdog timer: {e}")
+
+        return future
 
     # ── Listen loop (runs in background thread) ────────────────────────
 
@@ -352,18 +371,25 @@ class VoicePipeline:
         def audio_callback(indata, frames, time, status):
             if status:
                 logger.warning(f"Audio input status: {status}")
-            audio_q.put(bytes(indata))
+            try:
+                audio_q.put(bytes(indata))
+            except Exception as e:
+                logger.debug(f"Audio queue put error: {e}")
 
         # Max recording buffer: 30 seconds of 16kHz 16-bit mono audio
         max_recording_bytes = 16000 * 2 * 30  # 960,000 bytes
 
-        self._stream = sd.RawInputStream(
-            samplerate=16000,
-            blocksize=480,
-            dtype="int16",
-            channels=1,
-            callback=audio_callback,
-        )
+        try:
+            self._stream = sd.RawInputStream(
+                samplerate=16000,
+                blocksize=480,
+                dtype="int16",
+                channels=1,
+                callback=audio_callback,
+            )
+        except Exception as e:
+            logger.error(f"VoicePipeline: Failed to open audio stream: {e}")
+            return
 
         # Audio buffering state (local to this loop, not the pipeline's state machine)
         recording = bytearray()
@@ -435,10 +461,7 @@ class VoicePipeline:
                                         np.frombuffer(bytes(recording), dtype=np.int16)
                                         .astype(np.float32) / 32768.0
                                     )
-                                    future = self._stt_executor.submit(
-                                        self._stt.transcribe, audio_data
-                                    )
-                                    future.add_done_callback(self._on_stt_done)
+                                    future = self._submit_stt_with_timeout(audio_data)
                                     recording = bytearray()
                                     silence_frames = 0
                                     continue
@@ -464,10 +487,7 @@ class VoicePipeline:
                                         logger.debug(
                                             f"VoicePipeline: Transcribing {len(audio_data)/16000:.1f}s of audio..."
                                         )
-                                        future = self._stt_executor.submit(
-                                            self._stt.transcribe, audio_data
-                                        )
-                                        future.add_done_callback(self._on_stt_done)
+                                        future = self._submit_stt_with_timeout(audio_data)
                                     else:
                                         # Audio too short — return to IDLE
                                         self.sm.transition_sync(VoiceState.IDLE)

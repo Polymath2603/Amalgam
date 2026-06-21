@@ -12,6 +12,7 @@ import { getSettings } from './state.js';
 
 let browserSpeechRec = null;
 let browserSpeechRestartTimer = null;
+let _voiceToggleListenersAttached = false;
 
 export function isBrowserStt() {
     const el = document.getElementById('stt-engine');
@@ -43,6 +44,7 @@ export function startBrowserSpeechRec() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
         showToast('Speech Recognition not supported in this browser. Try Chrome.', 'danger');
+        console.error('Browser STT: SpeechRecognition API not available');
         return;
     }
     browserSpeechRec = new SpeechRecognition();
@@ -58,6 +60,12 @@ export function startBrowserSpeechRec() {
             }
         }
         if (finalText.trim()) {
+            // Race condition fix: import tts flush inline to stop any playing audio
+            // before the backend processes the new user message
+            import('./tts.js').then(({ flushTTSQueue }) => {
+                flushTTSQueue();
+            }).catch(() => {});
+
             const ws = getWs();
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'user_message', text: finalText.trim() }));
@@ -67,29 +75,27 @@ export function startBrowserSpeechRec() {
 
     browserSpeechRec.onerror = (event) => {
         console.warn('Browser SpeechRecognition error:', event.error);
-        if (event.error === 'not-allowed') {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
             showToast('Microphone access denied. Check browser permissions.', 'danger');
             _destroyBrowserSpeechRec();
         } else if (event.error === 'aborted') {
-            // ignore — normal during stop/restart
+            // Ignore — normal during stop/restart
         } else if (event.error === 'no-speech') {
-            // ignore — user was just silent
+            // Ignore — user was just silent
         } else if (event.error === 'network') {
             showToast('Speech recognition network error. Retrying...', 'danger');
-            // Don't destroy — onend will restart
-        } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-            showToast(`Speech recognition denied: ${event.error}`, 'danger');
-            _destroyBrowserSpeechRec();
+            // Don't destroy — onend will restart via fresh instance
         } else {
-            // For any other error (audio-capture, etc.), destroy and let onend restart
-            showToast(`Speech recognition error: ${event.error}`, 'danger');
-            _destroyBrowserSpeechRec();
+            // For recoverable errors (audio-capture, etc.), don't destroy here.
+            // Let onend handle restart to ensure browser STT recovers after errors.
+            console.warn(`Browser STT recoverable error: ${event.error}`);
         }
     };
 
     browserSpeechRec.onend = () => {
         if (getVoiceInputEnabled() && isBrowserStt()) {
             browserSpeechRestartTimer = setTimeout(() => {
+                browserSpeechRestartTimer = null;
                 if (getVoiceInputEnabled() && isBrowserStt()) {
                     try {
                         // Always create fresh instance for reliability
@@ -118,6 +124,13 @@ export function stopBrowserSpeechRec() {
         browserSpeechRestartTimer = null;
     }
     _destroyBrowserSpeechRec();
+}
+
+/**
+ * Reset browser STT on WS disconnect. Does NOT re-enable voice input.
+ */
+export function resetBrowserStt() {
+    stopBrowserSpeechRec();
 }
 
 export function _applyVoiceInput(enabled, { persist = false, toast = false } = {}) {
@@ -174,6 +187,10 @@ export function _applyVoiceOutput(enabled, { persist = false, toast = false } = 
 
 // Called by orchestrator to wire up toggle event listeners
 export function initVoiceToggles() {
+    // Guard: prevent duplicate listener attachment (memory leak fix)
+    if (_voiceToggleListenersAttached) return;
+    _voiceToggleListenersAttached = true;
+
     const voiceInputToggle = document.getElementById('voice-input-toggle');
     const voiceOutputToggle = document.getElementById('voice-output-toggle');
     const voiceInputToggleSettings = document.getElementById('voice-input-toggle-settings');

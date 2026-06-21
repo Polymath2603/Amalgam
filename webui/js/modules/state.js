@@ -83,8 +83,6 @@ export function setSpeakingMsgId(v) { _speakingMsgId = v; }
 
 /** Reset all voice/TTS state to defaults. Called on WS disconnect or cleanup. */
 export function resetVoiceState() {
-    _voiceInputEnabled = false;
-    _voiceOutputEnabled = false;
     _isPlayingTTS = false;
     _ttsQueue = [];
     _ttsQueuePlaying = false;
@@ -94,10 +92,14 @@ export function resetVoiceState() {
         try { _currentAudioSource.onended = null; _currentAudioSource.stop(); } catch (_) {}
         _currentAudioSource = null;
     }
+    // Close AudioContext to release system audio resources
     if (_audioContext && _audioContext.state !== 'closed') {
         try { _audioContext.close(); } catch (_) {}
     }
     _audioContext = null;
+    // Note: voiceInputEnabled and voiceOutputEnabled are NOT reset here.
+    // They represent the user's *desired* state and persist across reconnections.
+    // The actual voice pipeline is stopped/started separately by WS disconnect handlers.
 }
 
 // --- Avatar ---
