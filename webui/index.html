@@ -124,7 +124,7 @@
                         </div>
                         <div class="history-search">
                             <span class="material-icons-round">search</span>
-                            <input type="text" id="history-search-input" placeholder="Search all conversations..." autocomplete="off">
+                            <input type="text" id="history-search-input" placeholder="Search all conversations..." autocomplete="off" aria-label="Search conversations">
                         </div>
                         <div class="history-list" id="history-list"></div>
                     </div>
@@ -134,7 +134,8 @@
 
                     <!-- Input -->
                     <div class="chat-input-area" style="position: relative;">
-                        <button class="img-btn" id="img-btn" data-i18n-title="title.attach_image" title="Attach image">
+                        <div id="mcp-panel-container"></div>
+                        <button class="img-btn" id="img-btn" data-i18n-title="title.attach_image" title="Attach image" aria-label="Attach image">
                             <span class="material-icons-round">image</span>
                         </button>
                         <input type="file" id="img-input" accept="image/*" hidden>
@@ -148,7 +149,7 @@
                     </div>
                     <div class="img-preview" id="img-preview">
                         <img id="img-preview-src" alt="">
-                        <button class="img-preview-remove" id="img-preview-remove">
+                        <button class="img-preview-remove" id="img-preview-remove" aria-label="Remove image attachment">
                             <span class="material-icons-round">close</span>
                         </button>
                     </div>
@@ -170,7 +171,7 @@
                 </div>
                 <div class="char-search">
                     <span class="material-icons-round">search</span>
-                    <input type="text" id="char-search-input" data-i18n-placeholder="characters.search_placeholder" placeholder="Search characters..." autocomplete="off">
+                    <input type="text" id="char-search-input" data-i18n-placeholder="characters.search_placeholder" placeholder="Search characters..." autocomplete="off" aria-label="Search characters">
                 </div>
                 <div class="characters-grid" id="characters-grid"></div>
             </section>
@@ -198,10 +199,11 @@
         padding:6px 10px; border-radius:6px; font-size:12px; pointer-events:none;
         border:1px solid #374151; z-index:100;
     "></div>
-    <div id="swarm-empty" style="
-        position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-        color:#6b7280; font-size:14px; text-align:center;
-    ">
+    <div id="swarm-empty" role="status" aria-label="No active agents"
+        style="
+            position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+            color:#6b7280; font-size:14px; text-align:center;
+        ">
         No active agents.<br>Start a complex task to see the swarm.
     </div>
 </section>
@@ -226,22 +228,6 @@
             <span class="material-icons-round">hub</span><span data-i18n="nav.swarm">Swarm</span>
         </button>
     </nav>
-
-    <!-- PWA Install Banner -->
-    <div id="install-banner" class="install-banner hidden">
-        <div class="install-banner-content">
-            <span class="material-icons-round">install_mobile</span>
-            <span data-i18n="install.prompt">Install Amalgam for offline use</span>
-        </div>
-        <div class="install-banner-actions">
-            <button id="install-btn" class="btn btn-sm btn-primary">
-                <span class="material-icons-round">download</span> Install
-            </button>
-            <button id="install-dismiss" class="btn btn-sm btn-ghost">
-                <span class="material-icons-round">close</span>
-            </button>
-        </div>
-    </div>
 
     <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
@@ -313,9 +299,11 @@
                         </div>
                         <div id="setup-provider-detail" style="display:none">
                             <label class="form-label" for="setup-api-key">API Key</label>
+                            <form onsubmit="return false" style="margin:0;padding:0;border:none;">
                             <div class="input-with-action">
                                 <input id="setup-api-key" type="password" class="form-input" placeholder="Paste your API key here" autocomplete="off">
                             </div>
+                            </form>
                             <p class="field-desc" id="setup-api-key-desc">Your key stays on this device.</p>
 
                             <label class="form-label" for="setup-model">Model</label>
@@ -431,9 +419,7 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"
-            crossorigin="anonymous"
-            referrerpolicy="no-referrer"></script>
+    <script src="./vendor/d3.min.js"></script>
     <script src="./js/swarm.js"></script>
     <script type="module" src="./js/app.js"></script>
     <noscript><div class="noscript-warning">Amalgam requires JavaScript to run.</div></noscript>

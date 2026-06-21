@@ -878,7 +878,7 @@ html {
     .toast { animation: none; }
     .thinking-block, .tool-call-card { transition: none; }
     .modal-overlay, .modal { transition: none; }
-    .offline-bar, .install-banner { transition: none; }
+    .offline-bar { transition: none; }
 }
 
 /* ==================== Offline Status Bar ==================== */
@@ -901,35 +901,6 @@ html {
 }
 .offline-bar.hidden { transform: translateY(-100%); }
 .offline-bar.visible { transform: translateY(0); }
-
-/* ==================== PWA Install Banner ==================== */
-.install-banner {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 9998;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.75rem 1rem;
-    background: var(--bg-card, #1e1e2e);
-    border-top: 1px solid var(--border, rgba(255,255,255,0.08));
-    transition: transform 0.3s ease;
-}
-.install-banner.hidden { transform: translateY(100%); }
-.install-banner.visible { transform: translateY(0); }
-.install-banner-content {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-}
-.install-banner-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
 
 /* Ghost button variant */
 .btn-ghost {
@@ -1710,6 +1681,34 @@ body::-webkit-scrollbar-thumb {
     font-size: 1rem;
 }
 
+/* Character info preview in settings */
+.char-info-preview {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+.char-info-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+.char-info-label {
+    font-weight: 600;
+    min-width: 80px;
+    color: var(--text-muted);
+}
+.char-info-desc {
+    margin-top: 0.4rem;
+    color: var(--text-muted);
+    font-style: italic;
+    border-top: 1px solid var(--border);
+    padding-top: 0.4rem;
+}
+
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
@@ -1909,6 +1908,11 @@ body::-webkit-scrollbar-thumb {
     color: var(--accent);
     margin-left: auto;
     white-space: nowrap;
+}
+
+.setup-provider-option .provider-badge.configured {
+    background: color-mix(in srgb, #22c55e 15%, transparent);
+    color: #22c55e;
 }
 
 /* Loading */
