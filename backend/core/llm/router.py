@@ -107,6 +107,27 @@ class LLMRouter:
             return sorted(getattr(litellm, attr))
         return []
 
+    async def fetch_opencode_models(self) -> List[str]:
+        import httpx
+
+        base_url = "https://api.opencode.ai/v1"
+        timeout = 10
+        api_key = ""
+        if self.settings:
+            base_url = self.settings.get("provider.opencode.base_url", base_url)
+            timeout = self.settings.get("llm.opencode_timeout", timeout)
+            api_key = self.settings.get("provider.opencode.api_key", "")
+        try:
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return sorted(m["id"] for m in data.get("data", []))
+        except Exception as e:
+            logger.warning("Failed to fetch OpenCode models: %s", e)
+        return []
+
     async def fetch_openai_compat_models(self, provider: str) -> List[str]:
         attr = f"{provider}_models"
         if hasattr(litellm, attr):

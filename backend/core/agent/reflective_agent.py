@@ -21,6 +21,18 @@ class ReflectiveAgent(BaseAgent):
         self.inner = inner
         self._turn_count = 0
 
+    async def generate_idle_prompt(self) -> str:
+        return await self.inner.generate_idle_prompt() if hasattr(self.inner, 'generate_idle_prompt') else ""
+
+    async def subconscious_reflect(self) -> str:
+        if hasattr(self.inner, 'subconscious_reflect'):
+            return await self.inner.subconscious_reflect()
+        return ""
+
+    def update_settings(self, settings):
+        if hasattr(self.inner, 'update_settings'):
+            self.inner.update_settings(settings)
+
     async def run(
         self, user_message: str, context: dict
     ) -> AsyncGenerator[str, None]:

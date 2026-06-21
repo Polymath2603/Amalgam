@@ -117,6 +117,10 @@ class BasicAgent(BaseAgent):
         trace.full_response = full_response
         context["last_trace"] = trace
 
+        # Save assistant response so future turns see it in load_history
+        if full_response.strip():
+            await self.memory.add_turn("assistant", full_response)
+
     async def handle_user_input(self, text: str, images: list = None,
                                 relationship_context: str = "") -> AsyncIterator[Any]:
         """Legacy streaming interface — delegates to run()."""
@@ -146,8 +150,11 @@ class BasicAgent(BaseAgent):
 
     def load_history(self, session_id: str):
         """Load prior turns from memory."""
-        stored = self.memory.get_session_sync(session_id) if hasattr(
-            self.memory, "get_session_sync") else []
+        stored = []
+        if hasattr(self.memory, "get_session_messages"):
+            msgs = self.memory.get_session_messages(session_id)
+            # Include only recent messages (last ~20) to avoid context overflow
+            stored = [{"role": m["role"], "content": m["content"]} for m in msgs[-20:]]
         self._history = stored
 
     async def execute_tool(self, name: str, tool_input: dict) -> ToolCall:

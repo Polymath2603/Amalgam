@@ -114,6 +114,11 @@ async def get_provider_models (provider :str ):
     if provider =="gemini":
         models =await llm ().fetch_gemini_models ()
         return {"models":models }
+    if provider =="opencode":
+        fresh_llm =LLMRouter (settings =settings ())
+        models =await fresh_llm .fetch_opencode_models ()
+        await fresh_llm .close ()
+        return {"models":models }
     if provider in LLMRouter .OPENAI_COMPAT :
         fresh_llm =LLMRouter (settings =settings ())
         models =await fresh_llm .fetch_openai_compat_models (provider )

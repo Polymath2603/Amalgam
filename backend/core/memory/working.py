@@ -10,6 +10,7 @@ class WorkingMemory:
     def __init__(self, capacity: int = 20):
         self._capacity = capacity
         self._turns: OrderedDict[str, Dict] = OrderedDict()
+        self._counter = 0
 
     def add(self, role: str, content: str, metadata: Optional[Dict] = None) -> Dict:
         """Record a turn and evict oldest if over capacity."""
@@ -18,7 +19,8 @@ class WorkingMemory:
             "content": content,
             "metadata": metadata or {},
         }
-        key = f"{len(self._turns)}"
+        key = f"{self._counter}"
+        self._counter += 1
         self._turns[key] = turn
         if len(self._turns) > self._capacity:
             self._turns.popitem(last=False)

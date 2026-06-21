@@ -36,6 +36,7 @@ vault ,
 relationship ,
 tts as tts_route ,
 setup as setup_route ,
+companion as companion_route ,
 )
 from backend .core .paths import DATA_DIR ,CHARACTERS_DIR ,PROJECT_ROOT
 from backend .core .startup import init_application
@@ -153,13 +154,12 @@ def create_app ():
 
     @app.get("/ready")
     async def ready():
-        from backend.core.memory import Memory
-        mem = Memory()
         db_ok = False
         try:
-            from backend.core.memory.fts import FTSMemory
-            fts = FTSMemory()
-            await fts.search("probe")
+            from backend.core.memory.fts import FTSSearch
+            from backend.core.paths import CONVERSATIONS_DIR
+            fts = FTSSearch(CONVERSATIONS_DIR)
+            fts.search("probe")  # synchronous — no await
             db_ok = True
         except Exception:
             pass
@@ -180,6 +180,7 @@ def create_app ():
     app .include_router (tts_route .router )
     app .include_router (setup_route .router )
     app .include_router (setup_route .providers_router )
+    app .include_router (companion_route .router )
 
     DATA_DIR .mkdir (parents =True ,exist_ok =True )
     app .mount ("/data",StaticFiles (directory =str (DATA_DIR )),name ="data")
@@ -200,6 +201,15 @@ def create_app ():
     async def startup ():
         logger .warning ("Starting Amalgam backend...")
         await init_application ()
+        # Start companion scheduler
+        try :
+            from backend .core .deps import companion as companion_fn
+            sched = companion_fn ()
+            if sched :
+                import asyncio
+                asyncio .create_task (sched .start ())
+        except Exception as e :
+            logger .warning (f"Companion scheduler start failed: {e}")
         port =os .environ .get ("AMALGAM_PORT","8000")
         host =os .environ .get ("AMALGAM_HOST","0.0.0.0")
         logger .warning (f"\n  Server ready on http://localhost:{port }\n")
@@ -211,6 +221,14 @@ def create_app ():
     @app .on_event ("shutdown")
     async def shutdown ():
         logger .warning ("Shutting down Amalgam backend...")
+        # Stop companion scheduler
+        try :
+            from backend .core .deps import companion as companion_fn
+            sched = companion_fn ()
+            if sched :
+                await sched .stop ()
+        except Exception :
+            pass
         from backend .core .startup import shutdown_application 
         await shutdown_application ()
 

@@ -22,7 +22,7 @@ PROVIDER_KEY_MAP = {
 VALID_PROVIDERS = {"gemini", "ollama", "openrouter", "zai", "siliconflow", "groq",
                    "chatgpt", "claude", "llamacpp", "koboldai",
                    "deepseek", "mistral", "together", "azure-openai",
-                   "alibaba", "huggingface", "aws", "gcp"}
+                   "alibaba", "huggingface", "aws", "gcp", "opencode", "opendev"}
 
 VALID_TTS_ENGINES = {"edge-tts", "openvoice", "elevenlabs", "openai-tts", "speecht5",
                      "alltalk", "piper", "coqui-local", "kokoro", "azure",
@@ -36,7 +36,19 @@ def _validate_settings_update(body: dict) -> list[str]:
     """Validate settings update body. Returns list of error messages (empty = valid)."""
     errors = []
     
+    # Flatten nested dicts to dot-notation for validation
+    flat = {}
     for key, value in body.items():
+        if isinstance(value, dict):
+            for nested_key, nested_val in value.items():
+                flat[f"{key}.{nested_key}"] = nested_val
+        else:
+            flat[key] = value
+    
+    for key, value in flat.items():
+        if value is None or value == "":
+            continue
+        
         # Validate provider.active
         if key == "provider.active" and value not in VALID_PROVIDERS:
             errors.append(f"Unknown provider: {value}")
@@ -52,6 +64,14 @@ def _validate_settings_update(body: dict) -> list[str]:
         # Validate profile
         if key == "profile" and value not in VALID_PROFILES:
             errors.append(f"Unknown profile: {value}. Valid: {', '.join(sorted(VALID_PROFILES))}")
+        
+        # Validate UI theme
+        if key == "ui.theme" and value not in {"dark", "midnight", "light", "nord"}:
+            errors.append(f"Unknown theme: {value}. Valid: dark, midnight, light, nord")
+        
+        # Validate agent type
+        if key == "agent.type" and value not in {"basic", "reflective", "planning", "reflective_planning"}:
+            errors.append(f"Unknown agent type: {value}. Valid: basic, reflective, planning, reflective_planning")
         
         # Validate API key format (basic sanity)
         if key.endswith("api_key") and value:
@@ -76,6 +96,10 @@ def _validate_settings_update(body: dict) -> list[str]:
                     errors.append(f"{key} must be between 8 and 48")
             except (ValueError, TypeError):
                 errors.append(f"{key} must be a number")
+        
+        # Validate wake word engine
+        if key == "wake_word.engine" and value not in {"openwakeword", "snowboy", "none"}:
+            errors.append(f"Unknown wake word engine: {value}. Valid: openwakeword, snowboy, none")
     
     return errors
 
@@ -356,3 +380,86 @@ async def test_provider_connection (provider :str ):
     except Exception as e :
         elapsed =(time .monotonic ()-start )*1000 
         return TestConnectionResponse (ok =False ,latency_ms =round (elapsed ,1 ),error =str (e ))
+
+
+@router .get ("/api/settings/safe")
+async def get_settings_safe ():
+    """Return settings with API keys masked (first 4 + last 4 chars).
+
+    Used by the frontend to display settings without leaking secrets.
+    """
+    import re as _re
+
+    def _mask(val: str) -> str:
+        if not val or not isinstance(val, str) or len(val) < 12:
+            return "****"
+        return f"{val[:4]}{'*' * (len(val) - 8)}{val[-4:]}"
+
+    raw = settings ().get_all ()
+    safe = {}
+    for k, v in raw.items():
+        if isinstance(v, dict):
+            safe[k] = {}
+            for nk, nv in v.items():
+                if isinstance(nv, dict):
+                    safe[k][nk] = {}
+                    for ik, iv in nv.items():
+                        if ik == "api_key" or (ik.endswith("_key") and isinstance(iv, str) and len(iv) > 10):
+                            safe[k][nk][ik] = _mask(str(iv))
+                        else:
+                            safe[k][nk][ik] = iv
+                elif nk == "api_key" or (nk.endswith("_key") and isinstance(nv, str) and len(nv) > 10):
+                    safe[k][nk] = _mask(str(nv))
+                else:
+                    safe[k][nk] = nv
+        elif k == "api_key" or (k.endswith("_key") and isinstance(v, str) and len(v) > 10):
+            safe[k] = _mask(str(v))
+        else:
+            safe[k] = v
+    return safe
+
+
+@router .post ("/api/settings/reset")
+async def reset_settings (target :str ="voice"):
+    """Reset a settings section to defaults.
+
+    target:
+      "voice"   — reset voice engine settings
+      "agent"   — reset agent type and related settings
+      "ui"      — reset theme, font size, language
+      "all"     — reset everything (dangerous, preserves provider keys)
+    """
+    from backend .core .config .settings import Settings as SettingsClass
+    s = settings ()
+    defaults = SettingsClass .DEFAULTS if hasattr(SettingsClass, 'DEFAULTS') else {}
+    if not defaults:
+        return {"status": "error", "message": "No defaults available"}
+
+    if target == "voice":
+        voice_keys = [k for k in defaults if k.startswith("voice.")]
+        for k in voice_keys:
+            s.set(k, defaults[k])
+    elif target == "agent":
+        agent_keys = [k for k in defaults if k.startswith("agent.")]
+        for k in agent_keys:
+            s.set(k, defaults[k])
+    elif target == "ui":
+        ui_keys = [k for k in defaults if k.startswith("ui.")]
+        for k in ui_keys:
+            s.set(k, defaults[k])
+    elif target == "all":
+        # Preserve provider keys (API keys are sensitive)
+        preserved = {}
+        for k, v in s.get_all().items():
+            if k.startswith("provider.") and "api_key" in str(v).lower():
+                preserved[k] = v
+        for k, v in defaults.items():
+            s.set(k, v)
+        # Restore provider keys
+        for k, v in preserved.items():
+            s.set(k, v)
+    else:
+        return {"status": "error", "message": f"Unknown target: {target}. Use voice, agent, ui, or all"}
+
+    llm().reload_settings()
+    return {"status": "ok", "reset": target}

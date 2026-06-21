@@ -170,13 +170,14 @@ DEFAULTS ={
 },
 "character":{
 "active":"default",
+"greeting":"",
 "system_prompt":"",
 "rules":""
 },
 "voice":{
 "engine":"edge-tts",
-"lipsync_enabled":True ,
 "stt_engine":"browser",
+"lipsync_enabled":True ,
 "vad_mode":2 ,
 "vad_frame_size":960 ,
 "vad_energy_threshold":0.02 ,
@@ -188,9 +189,15 @@ DEFAULTS ={
 "api_key":"",
 "model":"whisper-1"
 },
+"elevenlabs":{
+"api_key":"",
+"voice_id":"",
+"model":"eleven_multilingual_v2"
+},
 "openai_tts":{
 "api_key":"",
 "model":"tts-1",
+"voice":"alloy",
 "base_url":"https://api.openai.com/v1"
 },
 "alltalk":{
@@ -256,6 +263,20 @@ DEFAULTS ={
 "model_path":"",
 "scale":1.0 
 },
+"behavior":{
+"companion_enabled":False 
+},
+"companion":{
+"enabled":False ,
+"idle_check_delay":10 ,
+"proactive_interval":60 ,
+"time_awareness":True ,
+"personality_notes":""
+},
+"privacy":{
+"metrics_opt_out":False ,
+"local_only_mode":False 
+},
 "vault":{
 "path":str (VAULT_DIR )
 },
@@ -281,6 +302,8 @@ DEFAULTS ={
 "voice_input":True ,
 "voice_output":True ,
 "thinking_enabled":True ,
+"accent_color":"#6c5ce7",
+"language":"en"
 },
 "mcp":{
 "servers":[
@@ -371,6 +394,7 @@ DEFAULTS ={
 "sliding_window_size":20
 },
 "memory":{
+"enabled":True ,
 "retrieval_k":3,
 "context_window":50,
 "summarize_threshold":40,

@@ -842,6 +842,7 @@ class CharacterSettings(BaseModel):
     active: str = Field(default="default", description="Active character ID")
     system_prompt: str = Field(default="", description="Character system prompt override")
     rules: str = Field(default="", description="Character behaviour rules")
+    greeting: str = Field(default="", description="Character greeting message")
 
 
 # =============================================================================

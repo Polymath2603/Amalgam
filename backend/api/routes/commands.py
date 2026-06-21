@@ -11,11 +11,9 @@ router =APIRouter (tags =["commands"])
 COMMANDS =[
 {"name":"clear","desc":"Clear history and start fresh"},
 {"name":"new","desc":"Start a new session"},
+{"name":"resume","desc":"Show last 5 turns of current session"},
 {"name":"rename","desc":"Rename current session"},
-{"name":"export","desc":"Export conversation to markdown file"},
-{"name":"sessions","desc":"List all sessions"},
-{"name":"session","desc":"Load or show current session ID"},
-{"name":"status","desc":"Show provider, model, session, profile"},
+{"name":"status","desc":"Show provider, model, session"},
 {"name":"compact","desc":"Force memory compaction"},
 {"name":"help","desc":"Show available slash commands"},
 {"name":"provider","desc":"Switch AI provider (gemini, ollama, openrouter, etc.)"},
@@ -23,12 +21,12 @@ COMMANDS =[
 {"name":"settings","desc":"Show or set configuration values"},
 {"name":"memory","desc":"Show memory stats"},
 {"name":"stats","desc":"Show tool usage analytics"},
+{"name":"health","desc":"Run live service health checks"},
 {"name":"theme","desc":"Switch UI theme (dark, midnight, light, nord)"},
 {"name":"character","desc":"Load a character"},
 {"name":"profile","desc":"Switch settings profile"},
 {"name":"think","desc":"Toggle thinking display on/off"},
 {"name":"companion","desc":"Toggle companion mode on/off"},
-{"name":"approve","desc":"Approve a tool for one use"},
 {"name":"permission","desc":"Set permission level (readonly, confirm, full)"},
 ]
 

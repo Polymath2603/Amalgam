@@ -146,7 +146,6 @@ class TTSRouter :
 
         provider =self ._current ()
 
-
         if self .engine =="openvoice":
             async with self ._lock :
                 return await self ._do_synthesize (provider ,text ,ref_audio ,emotion =emotion )
@@ -154,27 +153,32 @@ class TTSRouter :
             return await self ._do_synthesize (provider ,text ,ref_audio ,emotion =emotion )
 
     async def _do_synthesize (self ,provider ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
-        if self .engine =="openvoice":
-            result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
-            if isinstance (result ,tuple )and len (result )>=3 :
-                audio ,visemes ,*_ =result 
+        try :
+            if self .engine =="openvoice":
+                result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
+                if isinstance (result ,tuple )and len (result )>=3 :
+                    audio ,visemes ,*_ =result 
+                else :
+                    audio ,visemes =result 
+                if len (audio )>0 :
+                    return audio ,visemes ,22050 
+                logger .warning ("OpenVoice failed, falling back to edge-tts")
+                fallback =self ._ensure ("edge-tts")
+                result =await fallback .synthesize (text ,emotion =emotion )
+                if isinstance (result ,tuple )and len (result )>=3 :
+                    audio ,visemes ,*_ =result 
+                else :
+                    audio ,visemes =result 
+                return audio ,visemes ,16000 
             else :
-                audio ,visemes =result 
-            if len (audio )>0 :
-                return audio ,visemes ,22050 
-            logger .warning ("OpenVoice failed, falling back to edge-tts")
-            fallback =self ._ensure ("edge-tts")
-            result =await fallback .synthesize (text ,emotion =emotion )
-            if isinstance (result ,tuple )and len (result )>=3 :
-                audio ,visemes ,*_ =result 
-            else :
-                audio ,visemes =result 
-            return audio ,visemes ,16000 
-        else :
-            result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
-            if isinstance (result ,tuple )and len (result )>=3 :
-                audio ,visemes ,sr =result 
-            else :
-                audio ,visemes =result 
-                sr =self ._SR_MAP .get (self .engine ,16000 )
-            return audio ,visemes ,sr 
+                result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
+                if isinstance (result ,tuple )and len (result )>=3 :
+                    audio ,visemes ,sr =result 
+                else :
+                    audio ,visemes =result 
+                    sr =self ._SR_MAP .get (self .engine ,16000 )
+                return audio ,visemes ,sr 
+        except Exception as e :
+            logger .error (f"TTS synthesis failed for engine '{self .engine }': {type (e ).__name__ }: {e }")
+            # Return empty audio on failure so callers can handle gracefully
+            return np .zeros (0 ,dtype =np .float32 ),[],self ._SR_MAP .get (self .engine ,16000 )

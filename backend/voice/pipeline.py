@@ -251,6 +251,8 @@ class VoicePipeline:
         self._stt_executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="stt"
         )
+        # STT timeout in seconds — prevents hanging transcription
+        self._stt_timeout = 30.0
         self._stream = None
         self._settings = settings or {}
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -296,12 +298,31 @@ class VoicePipeline:
     def _on_stt_done(self, future):
         try:
             result = future.result()
-            if result is not None and result.strip() and self.agent_callback:
-                self.agent_callback(result)
+            if result is not None and result.strip():
+                logger.debug(f"VoicePipeline: STT result: {result[:100]}...")
+                if self.agent_callback:
+                    self.agent_callback(result)
+            else:
+                logger.debug("VoicePipeline: STT returned empty/blank result")
+                # Return to IDLE if transcription was empty
+                try:
+                    self.sm.transition_sync(VoiceState.IDLE)
+                except VoiceStateError:
+                    pass
+        except concurrent.futures.TimeoutError:
+            logger.error("VoicePipeline: STT transcription timed out")
+            try:
+                self.sm.transition_sync(VoiceState.IDLE)
+            except VoiceStateError:
+                pass
         except concurrent.futures.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"STT transcription failed: {e}")
+            logger.error(f"STT transcription failed: {type(e).__name__}: {e}")
+            try:
+                self.sm.transition_sync(VoiceState.IDLE)
+            except VoiceStateError:
+                pass
 
     # ── Listen loop (runs in background thread) ────────────────────────
 
@@ -333,6 +354,9 @@ class VoicePipeline:
                 logger.warning(f"Audio input status: {status}")
             audio_q.put(bytes(indata))
 
+        # Max recording buffer: 30 seconds of 16kHz 16-bit mono audio
+        max_recording_bytes = 16000 * 2 * 30  # 960,000 bytes
+
         self._stream = sd.RawInputStream(
             samplerate=16000,
             blocksize=480,
@@ -360,80 +384,107 @@ class VoicePipeline:
                         continue
 
                     for i in range(0, len(chunk), frame_size):
-                        frame = chunk[i : i + frame_size]
-                        if len(frame) < frame_size:
-                            continue
+                        if self._stop_event.is_set():
+                            break
+                        try:
+                            frame = chunk[i : i + frame_size]
+                            if len(frame) < frame_size:
+                                continue
 
-                        is_speech = self._vad.process(frame)
-                        samples = (
-                            np.frombuffer(frame, dtype=np.int16).astype(np.float32)
-                            / 32768.0
-                        )
-                        energy = np.sqrt(np.mean(samples**2))
-                        speech_detected = is_speech or (energy > energy_threshold)
+                            is_speech = self._vad.process(frame)
+                            samples = (
+                                np.frombuffer(frame, dtype=np.int16).astype(np.float32)
+                                / 32768.0
+                            )
+                            energy = np.sqrt(np.mean(samples**2))
+                            speech_detected = is_speech or (energy > energy_threshold)
 
-                        if speech_detected:
-                            if not self.sm.is_listening():
-                                # VAD speech start: IDLE -> LISTENING or SPEAKING -> INTERRUPTED
-                                if self.sm.is_speaking():
-                                    # User barged in during TTS playback
-                                    self.sm.transition_sync(VoiceState.INTERRUPTED)
-                                    self.sm.transition_sync(VoiceState.LISTENING)
-                                else:
-                                    # Normal start of speech from IDLE
-                                    try:
+                            if speech_detected:
+                                if not self.sm.is_listening():
+                                    # VAD speech start: IDLE -> LISTENING or SPEAKING -> INTERRUPTED
+                                    if self.sm.is_speaking():
+                                        # User barged in during TTS playback
+                                        self.sm.transition_sync(VoiceState.INTERRUPTED)
                                         self.sm.transition_sync(VoiceState.LISTENING)
-                                    except VoiceStateError:
-                                        # Already listening or in another valid state — continue
-                                        pass
+                                    else:
+                                        # Normal start of speech from IDLE
+                                        try:
+                                            self.sm.transition_sync(VoiceState.LISTENING)
+                                        except VoiceStateError:
+                                            # Already listening or in another valid state — continue
+                                            pass
 
-                                recording = bytearray()
-                                silence_frames = 0
-                                logger.debug("VoicePipeline: Speech detected")
+                                    recording = bytearray()
+                                    silence_frames = 0
+                                    logger.debug("VoicePipeline: Speech detected")
 
-                                # Fire the on_speech_start callback
-                                if self.on_speech_start:
-                                    try:
-                                        self.on_speech_start()
-                                    except Exception as e:
-                                        logger.error(
-                                            f"VoicePipeline: on_speech_start error: {e}"
-                                        )
+                                    # Fire the on_speech_start callback
+                                    if self.on_speech_start:
+                                        try:
+                                            self.on_speech_start()
+                                        except Exception as e:
+                                            logger.error(
+                                                f"VoicePipeline: on_speech_start error: {e}"
+                                            )
 
-                            recording.extend(frame)
-                            silence_frames = 0
-
-                        elif self.sm.is_listening():
-                            # Silence during recording — extend and check for timeout
-                            recording.extend(frame)
-                            silence_frames += 1
-
-                            if silence_frames > max_silence_frames:
-                                # VAD end — utterance complete
-                                self.sm.transition_sync(VoiceState.PROCESSING)
-
-                                audio_data = (
-                                    np.frombuffer(bytes(recording), dtype=np.int16)
-                                    .astype(np.float32)
-                                    / 32768.0
-                                )
-                                if len(audio_data) > 8000:
-                                    logger.debug(
-                                        f"VoicePipeline: Transcribing {len(audio_data)/16000:.1f}s of audio..."
+                                # Guard against unbounded buffer growth
+                                if len(recording) >= max_recording_bytes:
+                                    logger.warning("VoicePipeline: Recording buffer full, forcing transcription")
+                                    self.sm.transition_sync(VoiceState.PROCESSING)
+                                    audio_data = (
+                                        np.frombuffer(bytes(recording), dtype=np.int16)
+                                        .astype(np.float32) / 32768.0
                                     )
                                     future = self._stt_executor.submit(
                                         self._stt.transcribe, audio_data
                                     )
                                     future.add_done_callback(self._on_stt_done)
-                                else:
-                                    # Audio too short — return to IDLE
-                                    self.sm.transition_sync(VoiceState.IDLE)
+                                    recording = bytearray()
+                                    silence_frames = 0
+                                    continue
 
-                                recording = bytearray()
+                                recording.extend(frame)
                                 silence_frames = 0
 
+                            elif self.sm.is_listening():
+                                # Silence during recording — extend and check for timeout
+                                recording.extend(frame)
+                                silence_frames += 1
+
+                                if silence_frames > max_silence_frames:
+                                    # VAD end — utterance complete
+                                    self.sm.transition_sync(VoiceState.PROCESSING)
+
+                                    audio_data = (
+                                        np.frombuffer(bytes(recording), dtype=np.int16)
+                                        .astype(np.float32)
+                                        / 32768.0
+                                    )
+                                    if len(audio_data) > 8000:
+                                        logger.debug(
+                                            f"VoicePipeline: Transcribing {len(audio_data)/16000:.1f}s of audio..."
+                                        )
+                                        future = self._stt_executor.submit(
+                                            self._stt.transcribe, audio_data
+                                        )
+                                        future.add_done_callback(self._on_stt_done)
+                                    else:
+                                        # Audio too short — return to IDLE
+                                        self.sm.transition_sync(VoiceState.IDLE)
+
+                                    recording = bytearray()
+                                    silence_frames = 0
+
+                        except VoiceStateError as e:
+                            logger.warning(f"VoicePipeline: State transition error in frame loop: {e}")
+                        except Exception as e:
+                            logger.error(f"VoicePipeline: Error processing audio frame: {e}", exc_info=True)
+                            # Don't crash the entire loop for a single bad frame
+                            recording = bytearray()
+                            silence_frames = 0
+
         except Exception as e:
-            logger.error(f"VoicePipeline error: {e}")
+            logger.error(f"VoicePipeline error: {e}", exc_info=True)
         finally:
             # Ensure we're back to IDLE
             self.sm.reset_sync()
@@ -500,4 +551,8 @@ class VoicePipeline:
             except Exception:
                 pass
         self._stt_executor.shutdown(wait=False)
+        # Create a fresh executor for next use
+        self._stt_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="stt"
+        )
         self.sm.reset_sync()

@@ -43,20 +43,25 @@ def _settings_key(provider_id: str) -> str:
 # endpoint also attempts to enrich from litellm's built-in model lists.
 # ---------------------------------------------------------------------------
 PROVIDER_CATALOG = [
-    {"id": "gemini",           "name": "Google Gemini",                "has_free_tier": True,  "needs_api_key": True,  "default_model": "gemini-2.0-flash",      "models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"]},
-    {"id": "openai",           "name": "OpenAI (ChatGPT)",             "has_free_tier": False, "needs_api_key": True,  "default_model": "gpt-4o-mini",           "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1"]},
-    {"id": "anthropic",        "name": "Anthropic (Claude)",           "has_free_tier": False, "needs_api_key: "REDACTED", "claude-haiku-3-5"]},
-    {"id": "groq",             "name": "Groq",                         "has_free_tier": True,  "needs_api_key: "REDACTED"]},
-    {"id": "ollama",           "name": "Ollama (Local)",               "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": []},
-    {"id": "openrouter",       "name": "OpenRouter",                   "has_free_tier": True,  "needs_api_key": True,  "default_model": "meta-llama/llama-3.1-8b-instruct:free", "models": ["meta-llama/llama-3.1-8b-instruct:free"]},
-    {"id": "deepseek",         "name": "DeepSeek",                     "has_free_tier": False, "needs_api_key": True,  "default_model": "deepseek-chat",         "models": ["deepseek-chat", "deepseek-reasoner"]},
-    {"id": "mistral",          "name": "Mistral",                      "has_free_tier": False, "needs_api_key: "REDACTED"]},
-    {"id": "together",         "name": "Together AI",                  "has_free_tier": False, "needs_api_key": True,  "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "models": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"]},
-    {"id": "siliconflow",      "name": "SiliconFlow",                  "has_free_tier": True,  "needs_api_key": True,  "default_model": "deepseek-ai/DeepSeek-R1", "models": ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"]},
-    {"id": "zai",              "name": "ZAI (Turing/LLM-ZH)",          "has_free_tier": False, "needs_api_key": True,  "default_model": "google/gemma-2-27b-it", "models": ["google/gemma-2-27b-it", "Qwen/QwQ-32B-Preview"]},
-    {"id": "huggingface",      "name": "Hugging Face Inference",       "has_free_tier": True,  "needs_api_key": True,  "default_model": "",                      "models": []},
-    {"id": "llamacpp",         "name": "llama.cpp (Local)",            "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": []},
-    {"id": "koboldai",         "name": "KoboldAI (Local)",             "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": []},
+    {"id": "openai",           "name": "OpenAI (ChatGPT)",             "has_free_tier": False, "needs_api_key": True,  "default_model": "gpt-4o-mini",           "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1"],                         "api_key_hint": "starts with sk- or sk-proj- (51+ chars)"},
+    {"id": "anthropic",        "name": "Anthropic (Claude)",           "has_free_tier": False, "needs_api_key: "REDACTED", "claude-haiku-3-5"],              "api_key_hint": "starts with sk-ant- (108 chars)"},
+    {"id": "gemini",           "name": "Google Gemini",                "has_free_tier": True,  "needs_api_key": True,  "default_model": "gemini-2.0-flash",      "models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],    "api_key_hint": "starts with AIzaSy (39 chars)"},
+    {"id": "openrouter",       "name": "OpenRouter",                   "has_free_tier": True,  "needs_api_key": True,  "default_model": "meta-llama/llama-3.1-8b-instruct:free", "models": ["meta-llama/llama-3.1-8b-instruct:free"],            "api_key_hint": "starts with sk-or-v1- (52+ chars)"},
+    {"id": "groq",             "name": "Groq",                         "has_free_tier": True,  "needs_api_key: "REDACTED"], "api_key_hint": "starts with gsk_ (56 chars)"},
+    {"id": "deepseek",         "name": "DeepSeek",                     "has_free_tier": False, "needs_api_key": True,  "default_model": "deepseek-chat",         "models": ["deepseek-chat", "deepseek-reasoner"],                         "api_key_hint": "starts with sk- (32+ chars)"},
+    {"id": "mistral",          "name": "Mistral",                      "has_free_tier": False, "needs_api_key: "REDACTED"],             "api_key_hint": "starts with Ux... or u... (32 chars)"},
+    {"id": "together",         "name": "Together AI",                  "has_free_tier": False, "needs_api_key": True,  "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "models": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],      "api_key_hint": "starts with t1v... or 8x... (40+ chars)"},
+    {"id": "opencode",         "name": "OpenCode",                      "has_free_tier": False, "needs_api_key: "REDACTED", "models": [],                     "api_key_hint": "starts with sk- (32+ chars)"},
+    {"id": "ollama",           "name": "Ollama (Local)",               "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
+    {"id": "llamacpp",         "name": "llama.cpp (Local)",            "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
+    {"id": "koboldai",         "name": "KoboldAI (Local)",             "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
+    {"id": "azure-openai",     "name": "Azure OpenAI",                  "has_free_tier": False, "needs_api_key": True,  "default_model": "gpt-4o-mini",           "models": ["gpt-4o-mini", "gpt-4o"],                                      "api_key_hint": "paste your Azure API key or set AZURE_OPENAI_API_KEY env"},
+    {"id": "aws",              "name": "AWS Bedrock",                   "has_free_tier": False, "needs_api_key": True,  "default_model": "anthropic.claude-sonnet-4-20250514", "models": [],    "api_key_hint": "set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY env vars"},
+    {"id": "gcp",              "name": "GCP Vertex AI",                 "has_free_tier": False, "needs_api_key": True,  "default_model": "gemini-2.0-flash-001",  "models": [],                     "api_key_hint": "set GCP_SERVICE_ACCOUNT_JSON env var"},
+    {"id": "alibaba",          "name": "Alibaba Cloud (DashScope)",     "has_free_tier": True,  "needs_api_key": True,  "default_model": "qwen-turbo",            "models": ["qwen-turbo", "qwen-plus", "qwen-max"],                       "api_key_hint": "starts with sk- (32+ chars) or set ALIBABA_API_KEY env"},
+    {"id": "siliconflow",      "name": "SiliconFlow",                  "has_free_tier": True,  "needs_api_key": True,  "default_model": "deepseek-ai/DeepSeek-R1", "models": ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"],     "api_key_hint": "starts with sk- (32+ chars)"},
+    {"id": "huggingface",      "name": "Hugging Face Inference",       "has_free_tier": True,  "needs_api_key": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "starts with hf_ (36+ chars)"},
+    {"id": "zai",              "name": "ZAI (Turing/LLM-ZH)",          "has_free_tier": False, "needs_api_key": True,  "default_model": "google/gemma-2-27b-it", "models": ["google/gemma-2-27b-it", "Qwen/QwQ-32B-Preview"],             "api_key_hint": "starts with zsk- (32+ chars)"},
 ]
 
 
@@ -98,39 +103,76 @@ async def list_providers():
 
     This endpoint dynamically tries to enrich model lists from litellm's
     built-in model catalog, falling back to the curated defaults.
+    It also detects which providers have API keys configured in env vars or settings.
     """
+    import os
     try:
         from backend.core.llm.router import LLMRouter
         router_instance = LLMRouter()
+        s = get_settings()
         providers = []
+
+        # Env-var key names per provider ID
+        ENV_KEYS = {
+            "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "openai": ["OPENAI_API_KEY"],
+            "anthropic": ["ANTHROPIC_API_KEY"],
+            "groq": ["GROQ_API_KEY"],
+            "deepseek": ["DEEPSEEK_API_KEY"],
+            "mistral": ["MISTRAL_API_KEY"],
+            "together": ["TOGETHER_API_KEY"],
+            "siliconflow": ["SILICONFLOW_API_KEY"],
+            "zai": ["ZAI_API_KEY"],
+            "huggingface": ["HUGGINGFACE_API_KEY"],
+            "openrouter": ["OPENROUTER_API_KEY"],
+            "azure-openai": ["AZURE_OPENAI_API_KEY"],
+            "alibaba": ["ALIBABA_API_KEY", "DASHSCOPE_API_KEY"],
+            "aws": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+            "gcp": ["GCP_SERVICE_ACCOUNT_JSON"],
+            "opencode": ["OPENCODE_API_KEY"],
+        }
 
         for p in PROVIDER_CATALOG:
             entry = dict(p)  # shallow copy
             pid = p["id"]
 
-            # Try to fetch a richer model list from litellm
+            # Detect if already configured via settings or env vars
+            provider_key = _settings_key(pid)
+            cfg = s.get(f"provider.{provider_key}")
+            has_api_key = False
+            if cfg and isinstance(cfg, dict) and cfg.get("api_key"):
+                has_api_key = True
+            if not has_api_key:
+                env_names = ENV_KEYS.get(pid, [])
+                has_api_key = any(os.environ.get(k) for k in env_names)
+
+            entry["has_api_key"] = has_api_key
+
+            # Only enrich models for the currently active provider
+            active_provider = s.get("provider.active", "")
             litellm_models = None
-            try:
-                if pid == "gemini":
-                    litellm_models = await router_instance.fetch_gemini_models()
-                elif pid in ("openai", "chatgpt"):
-                    litellm_models = await router_instance.fetch_openai_compat_models("chatgpt")
-                elif pid == "anthropic":
-                    litellm_models = await router_instance.fetch_openai_compat_models("anthropic")
-                elif pid == "groq":
-                    litellm_models = await router_instance.fetch_openai_compat_models("groq")
-                elif pid == "ollama":
-                    litellm_models = await router_instance.fetch_ollama_models()
-                elif pid == "openrouter":
-                    litellm_models = await router_instance.fetch_openai_compat_models("openrouter")
-                elif pid == "deepseek":
-                    litellm_models = await router_instance.fetch_openai_compat_models("deepseek")
-                elif pid == "mistral":
-                    litellm_models = await router_instance.fetch_openai_compat_models("mistral")
-                elif pid == "together":
-                    litellm_models = await router_instance.fetch_openai_compat_models("together")
-            except Exception:
-                logger.debug("Could not enrich models for %s from litellm", pid, exc_info=True)
+            if pid == active_provider:
+                try:
+                    if pid == "gemini":
+                        litellm_models = await router_instance.fetch_gemini_models()
+                    elif pid in ("openai", "chatgpt"):
+                        litellm_models = await router_instance.fetch_openai_compat_models("chatgpt")
+                    elif pid == "anthropic":
+                        litellm_models = await router_instance.fetch_openai_compat_models("anthropic")
+                    elif pid == "groq":
+                        litellm_models = await router_instance.fetch_openai_compat_models("groq")
+                    elif pid == "ollama":
+                        litellm_models = await router_instance.fetch_ollama_models()
+                    elif pid == "openrouter":
+                        litellm_models = await router_instance.fetch_openai_compat_models("openrouter")
+                    elif pid == "deepseek":
+                        litellm_models = await router_instance.fetch_openai_compat_models("deepseek")
+                    elif pid == "mistral":
+                        litellm_models = await router_instance.fetch_openai_compat_models("mistral")
+                    elif pid == "together":
+                        litellm_models = await router_instance.fetch_openai_compat_models("together")
+                except Exception:
+                    logger.debug("Could not enrich models for %s from litellm", pid, exc_info=True)
 
             if litellm_models:
                 entry["models"] = litellm_models
@@ -144,7 +186,19 @@ async def list_providers():
 
     except ImportError:
         logger.warning("LLMRouter not available, returning curated provider list")
-        return {"providers": PROVIDER_CATALOG}
+        providers = [dict(p) for p in PROVIDER_CATALOG]
+        for p in providers:
+            pid = p["id"]
+            provider_key = _settings_key(pid)
+            cfg = (get_settings()).get(f"provider.{provider_key}")
+            has_api_key = False
+            if cfg and isinstance(cfg, dict) and cfg.get("api_key"):
+                has_api_key = True
+            if not has_api_key:
+                env_names = ENV_KEYS.get(pid, [])
+                has_api_key = any(os.environ.get(k) for k in env_names) if 'ENV_KEYS' in dir() else False
+            p["has_api_key"] = has_api_key
+        return {"providers": providers}
     except Exception as exc:
         logger.error("Failed to list providers: %s", exc)
         return {"providers": PROVIDER_CATALOG}

@@ -37,6 +37,7 @@ _shared = {
     "wakeword": None,
     "strategy_selector": None,
     "orchestrator": None,
+    "companion": None,
 }
 _init_lock = threading.Lock()
 
@@ -91,6 +92,12 @@ def get_shared():
             _shared["strategy_selector"] = StrategySelector()
         if _shared["orchestrator"] is None:
             _shared["orchestrator"] = Orchestrator(config=_shared["settings"])
+        if _shared["companion"] is None:
+            from backend.core.companion.scheduler import CompanionScheduler
+            _shared["companion"] = CompanionScheduler(
+                settings_provider=lambda: _shared["settings"],
+                llm_provider=lambda: _shared["llm"],
+            )
         if _shared["agent"] is None:
             agent_type = _shared["settings"].get("agent.type", "reflective_planning")
             mcp_client = _shared["mcp"]
@@ -130,3 +137,4 @@ def relationship(): return get_shared()["relationship"]
 def wakeword(): return get_shared()["wakeword"]
 def strategy_selector(): return get_shared()["strategy_selector"]
 def orchestrator(): return get_shared()["orchestrator"]
+def companion(): return get_shared()["companion"]

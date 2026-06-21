@@ -30,11 +30,20 @@ from backend.core.memory.consolidator import Consolidator
 logger = logging.getLogger(__name__)
 
 _LOCAL_EMBEDDING = None
-try:
-    from sentence_transformers import SentenceTransformer
-    _LOCAL_EMBEDDING = SentenceTransformer("all-MiniLM-L6-v2")
-except ImportError:
-    pass
+_LOCAL_EMBEDDING_LOADED = False
+
+
+def _get_local_embedding():
+    """Lazy-load SentenceTransformer on first use (saves ~18s at startup)."""
+    global _LOCAL_EMBEDDING, _LOCAL_EMBEDDING_LOADED
+    if not _LOCAL_EMBEDDING_LOADED:
+        _LOCAL_EMBEDDING_LOADED = True
+        try:
+            from sentence_transformers import SentenceTransformer
+            _LOCAL_EMBEDDING = SentenceTransformer("all-MiniLM-L6-v2")
+        except ImportError:
+            pass
+    return _LOCAL_EMBEDDING
 
 
 class Memory:
@@ -256,9 +265,9 @@ class Memory:
         if backend == "disabled":
             return None
 
-        if backend == "local" and _LOCAL_EMBEDDING is not None:
+        if backend == "local" and _get_local_embedding() is not None:
             try:
-                emb = _LOCAL_EMBEDDING.encode(text)
+                emb = _get_local_embedding().encode(text)
                 result = emb.tolist()
                 self._fact_cache.set(text, result)
                 return result
@@ -274,9 +283,9 @@ class Memory:
             except Exception as e:
                 logger.debug(f"Provider embedding failed: {e}")
 
-        if _LOCAL_EMBEDDING is not None:
+        if _get_local_embedding() is not None:
             try:
-                emb = _LOCAL_EMBEDDING.encode(text)
+                emb = _get_local_embedding().encode(text)
                 result = emb.tolist()
                 self._fact_cache.set(text, result)
                 return result
@@ -570,7 +579,7 @@ class Memory:
     async def get_relevant(self, query: str, top_k: int = None) -> List[Dict[str, str]]:
         if top_k is None:
             top_k = self._setting("memory.retrieval_k", 3)
-        if not self.llm and _LOCAL_EMBEDDING is None:
+        if not self.llm and _get_local_embedding() is None:
             return []
 
         session_id = self.get_current_session()
@@ -647,7 +656,7 @@ class Memory:
 
         Returns list of dicts with session_id, role, content, timestamp, distance.
         """
-        if not self.llm and _LOCAL_EMBEDDING is None:
+        if not self.llm and _get_local_embedding() is None:
             return []
 
         query_emb = await self._get_embedding(query)

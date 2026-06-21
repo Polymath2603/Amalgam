@@ -15,37 +15,44 @@ from backend.core.errors import TTSError
 logger = logging.getLogger(__name__)
 
 
-async def synthesize_sentence (sentence_text :str ,sentence_idx :int ,expected_stream_id :int ,
-current_stream_id :int ,ws :WebSocket ,emotion :str ="neutral"):
+async def synthesize_sentence(sentence_text: str, sentence_idx: int, expected_stream_id: int,
+                               current_stream_id: int, ws: WebSocket, emotion: str = "neutral"):
     """TTS a single sentence and send audio over WebSocket."""
-    try :
-        if expected_stream_id !=current_stream_id :
-            logger .debug (f"TTS sentence {sentence_idx }: skipped (stale stream)")
-            return 
-        char =settings ().get_active_character ()
-        ref_audio =None 
-        if tts ().engine =="openvoice":
-            ref_audio =char .get ("voice_ref")if char else None 
-            if not ref_audio :
-                char_dir =char .get ("_dir","")if char else ""
-                if char_dir :
-                    for name in ("voice.pth","voice.wav"):
-                        candidate =os .path .join (char_dir ,name )
-                        if os .path .exists (candidate ):
-                            ref_audio =candidate 
-                            break 
-            if not ref_audio :
-                logger .warning ("No voice_ref for OpenVoice, skipping TTS")
-                return 
-        result =await asyncio .wait_for (
-        tts ().synthesize (sentence_text ,ref_audio =ref_audio ,emotion =emotion ),
-        timeout =60.0 
+    try:
+        if expected_stream_id != current_stream_id:
+            logger.debug(f"TTS sentence {sentence_idx}: skipped (stale stream)")
+            return
+
+        # Guard: bail out if WS is already closed
+        if ws.client_state.value != 1:  # 1 = CONNECTED
+            logger.warning(f"TTS sentence {sentence_idx}: WebSocket not connected, skipping")
+            return
+
+        char = settings().get_active_character()
+        ref_audio = None
+        if tts().engine == "openvoice":
+            ref_audio = char.get("voice_ref") if char else None
+            if not ref_audio:
+                char_dir = char.get("_dir", "") if char else ""
+                if char_dir:
+                    for name in ("voice.pth", "voice.wav"):
+                        candidate = os.path.join(char_dir, name)
+                        if os.path.exists(candidate):
+                            ref_audio = candidate
+                            break
+            if not ref_audio:
+                logger.warning("No voice_ref for OpenVoice, skipping TTS")
+                return
+
+        result = await asyncio.wait_for(
+            tts().synthesize(sentence_text, ref_audio=ref_audio, emotion=emotion),
+            timeout=60.0
         )
-        audio_np ,viseme_schedule ,sr =result 
-        logger .debug (f"TTS sentence {sentence_idx }: {len (audio_np )} samples, sr={sr }, visemes={len (viseme_schedule )if viseme_schedule else 0 }")
+        audio_np, viseme_schedule, sr = result
+        logger.debug(f"TTS sentence {sentence_idx}: {len(audio_np)} samples, sr={sr}, visemes={len(viseme_schedule) if viseme_schedule else 0}")
         if len(audio_np) > 0:
             if expected_stream_id != current_stream_id:
-                logger.debug(f"TTS sentence {sentence_idx }: skipped (stale stream before send)")
+                logger.debug(f"TTS sentence {sentence_idx}: skipped (stale stream before send)")
                 return
             wav_bytes = numpy_to_wav_bytes(audio_np, sr)
             b64_audio = base64.b64encode(wav_bytes).decode()
@@ -62,34 +69,49 @@ current_stream_id :int ,ws :WebSocket ,emotion :str ="neutral"):
                 msg["viseme_schedule"] = viseme_schedule
             await ws.send_json(msg)
             logger.debug(f"TTS sentence {sentence_idx}: sent {duration:.2f}s audio (emotion={emotion})")
-        else :
-            logger .warning (f"TTS sentence {sentence_idx }: empty audio")
-    except asyncio .TimeoutError :
-        logger .error (f"TTS sentence {sentence_idx }: timed out after 60s")
-    except Exception as tts_err :
-        logger .error (f"TTS error for sentence {sentence_idx }: {type (tts_err ).__name__ }: {tts_err }")
+        else:
+            logger.warning(f"TTS sentence {sentence_idx}: empty audio")
+    except asyncio.TimeoutError:
+        logger.error(f"TTS sentence {sentence_idx}: timed out after 60s")
+        try:
+            if ws.client_state.value == 1:
+                await ws.send_json({"type": "tts_error", "message": "TTS synthesis timed out", "sentence_idx": sentence_idx})
+        except Exception:
+            pass
+    except Exception as tts_err:
+        logger.error(f"TTS error for sentence {sentence_idx}: {type(tts_err).__name__}: {tts_err}")
+        try:
+            if ws.client_state.value == 1:
+                await ws.send_json({"type": "tts_error", "message": f"TTS failed: {tts_err}", "sentence_idx": sentence_idx})
+        except Exception:
+            pass
 
 
-async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
+async def synthesize_now(text: str, ws: WebSocket, emotion: str = "neutral"):
     """Synthesize TTS for text and send audio directly (used by speak button)."""
-    try :
-        char =settings ().get_active_character ()
-        ref_audio =None 
-        if tts ().engine =="openvoice":
-            ref_audio =char .get ("voice_ref")if char else None 
-            if not ref_audio :
-                char_dir =char .get ("_dir","")if char else ""
-                if char_dir :
-                    for name in ("voice.pth","voice.wav"):
-                        candidate =os .path .join (char_dir ,name )
-                        if os .path .exists (candidate ):
-                            ref_audio =candidate 
-                            break 
-            if not ref_audio :
-                logger .warning ("No voice_ref for OpenVoice, skipping speak")
-                return 
-        result =await asyncio .wait_for (tts ().synthesize (text ,ref_audio =ref_audio ,emotion =emotion ),timeout =60.0 )
-        audio_np ,viseme_schedule ,sr =result 
+    try:
+        # Guard: bail out if WS is already closed
+        if ws.client_state.value != 1:  # 1 = CONNECTED
+            logger.warning("Speak TTS: WebSocket not connected, skipping")
+            return
+
+        char = settings().get_active_character()
+        ref_audio = None
+        if tts().engine == "openvoice":
+            ref_audio = char.get("voice_ref") if char else None
+            if not ref_audio:
+                char_dir = char.get("_dir", "") if char else ""
+                if char_dir:
+                    for name in ("voice.pth", "voice.wav"):
+                        candidate = os.path.join(char_dir, name)
+                        if os.path.exists(candidate):
+                            ref_audio = candidate
+                            break
+            if not ref_audio:
+                logger.warning("No voice_ref for OpenVoice, skipping speak")
+                return
+        result = await asyncio.wait_for(tts().synthesize(text, ref_audio=ref_audio, emotion=emotion), timeout=60.0)
+        audio_np, viseme_schedule, sr = result
         if len(audio_np) > 0:
             wav_bytes = numpy_to_wav_bytes(audio_np, sr)
             b64_audio = base64.b64encode(wav_bytes).decode()
@@ -98,13 +120,23 @@ async def synthesize_now (text :str ,ws :WebSocket ,emotion :str ="neutral"):
                 "type": "tts_audio", "audio": b64_audio, "format": "wav",
                 "duration": round(duration, 2), "sentence_idx": 0, "emotion": emotion,
             }
-            if viseme_schedule :
-                msg ["viseme_schedule"]=viseme_schedule 
-            await ws .send_json (msg )
-            logger .debug (f"Speak TTS: sent {duration :.2f}s audio")
-        else :
-            logger .warning ("Speak TTS: empty audio")
-    except asyncio .TimeoutError :
-        logger .error ("Speak TTS: timed out")
-    except Exception as e :
-        logger .error (f"Speak TTS error: {e }")
+            if viseme_schedule:
+                msg["viseme_schedule"] = viseme_schedule
+            await ws.send_json(msg)
+            logger.debug(f"Speak TTS: sent {duration:.2f}s audio")
+        else:
+            logger.warning("Speak TTS: empty audio")
+    except asyncio.TimeoutError:
+        logger.error("Speak TTS: timed out")
+        try:
+            if ws.client_state.value == 1:
+                await ws.send_json({"type": "tts_error", "message": "TTS speak timed out"})
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"Speak TTS error: {e}")
+        try:
+            if ws.client_state.value == 1:
+                await ws.send_json({"type": "tts_error", "message": f"TTS speak failed: {e}"})
+        except Exception:
+            pass

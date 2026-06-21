@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
-from backend.api.deps import settings, memory, tts, agent, relationship, wakeword, mcp, orchestrator
+from backend.api.deps import settings, memory, tts, agent, relationship, wakeword, mcp, orchestrator, llm, companion
 from backend.api.ws.tts_service import synthesize_sentence, synthesize_now
 from backend.core.orchestrator import AgentProtocol
 from pathlib import Path
@@ -143,8 +143,8 @@ class ChatSession:
     async def send(self, payload: dict):
         try:
             await self.ws.send_json(payload)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("WS send failed: %s", e)
 
     async def cancel_assistant(self):
         if self.current_task and not self.current_task.done():
@@ -205,8 +205,12 @@ class ChatSession:
                     elif sig_type == '__thinking__':
                         await self.send({"type": "thinking", "text": sig_val})
                     elif sig_type == '__animation__':
+                        anim_url = f"/characters/{char_id}/anim/{sig_val}.vrma"
+                        anim_path = Path(_animation_dir(char_id)) / f"{sig_val}.vrma"
+                        if not anim_path.is_file():
+                            anim_url = None
                         await self.send({"type": "animation", "name": sig_val,
-                                        "url": f"/characters/{char_id}/anim/{sig_val}.vrma"})
+                                        "url": anim_url})
                     elif sig_type == '__avatar__':
                         await self._handle_avatar_signal(sig_val, current_emotion, full_response, sentence_buffer, char_id)
                         if sig_type == '__avatar__':
@@ -280,18 +284,30 @@ class ChatSession:
             for t in tts_tasks:
                 if not t.done():
                     t.cancel()
+            try:
+                await self.send({"type": "voice_state", "state": "idle"})
+            except Exception:
+                pass
             raise
         except ServiceError as e:
             logger.error(f"Service error in agent loop: {e}")
-            await self.send({"type": "chat_append", "role": "assistant",
-                            "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
-            await self.send(e.to_dict())
+            try:
+                await self.send({"type": "chat_append", "role": "assistant",
+                                "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
+                await self.send(e.to_dict())
+                await self.send({"type": "voice_state", "state": "idle"})
+            except Exception:
+                pass
         except Exception as e:
             logger.error(f"Agent error in loop: {e}")
-            await self.send({"type": "chat_append", "role": "assistant",
-                            "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
-            await self.send({"type": "error", "service": "agent",
-                             "message": str(e), "recoverable": False, "suggestion": "", "details": {}})
+            try:
+                await self.send({"type": "chat_append", "role": "assistant",
+                                "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
+                await self.send({"type": "error", "service": "agent",
+                                 "message": str(e), "recoverable": False, "suggestion": "", "details": {}})
+                await self.send({"type": "voice_state", "state": "idle"})
+            except Exception:
+                pass
         finally:
             # Compact completed tasks to prevent unbounded growth
             done_tasks = [t for t in self.pending_tasks if t.done()]
@@ -353,7 +369,11 @@ class ChatSession:
             _main_loop = asyncio.get_running_loop()
 
             def on_transcription(text):
-                asyncio.run_coroutine_threadsafe(self.process_response(text), _main_loop)
+                logger.info(f"Voice transcription received: {text[:80]}...")
+                try:
+                    asyncio.run_coroutine_threadsafe(self.process_response(text), _main_loop)
+                except Exception as e:
+                    logger.error(f"Voice transcription dispatch failed: {e}")
                 try:
                     asyncio.run_coroutine_threadsafe(
                         self.send({"type": "user_message_from_voice", "text": text}), _main_loop)
@@ -361,7 +381,10 @@ class ChatSession:
                     logger.error(f"Voice transcription send failed: {e}")
 
             def on_speech_start():
-                asyncio.run_coroutine_threadsafe(self.cancel_assistant(), _main_loop)
+                try:
+                    asyncio.run_coroutine_threadsafe(self.cancel_assistant(), _main_loop)
+                except Exception as e:
+                    logger.error(f"Voice speech start callback failed: {e}")
 
             from backend.voice.stt_configurator import configure_stt_pipeline
             voice_cfg = settings()
@@ -433,19 +456,21 @@ class ChatSession:
                 "/clear — clear history\n"
                 "/new — start new session\n"
                 "/rename <title> — rename current session\n"
+                "/resume — show last 5 turns\n"
                 "/provider <name> — switch provider\n"
                 "/model <name> — switch model\n"
-                "/session <id> — show/load session\n"
-                "/status — show current provider, model, session\n"
+                "/status — show provider, model, session\n"
                 "/compact — force memory compaction\n"
-                "/settings — show all settings (use /settings <key> <val> to set)\n"
                 "/memory — show memory stats\n"
                 "/stats — show tool usage statistics\n"
+                "/health — run live service health checks\n"
+                "/settings — show settings (use /settings <key> <val> to set)\n"
                 "/theme <dark|midnight|light|nord> — switch theme\n"
                 "/character <name> — load a character\n"
-                "/approve <tool> — approve a dangerous tool for one use\n"
-                "/permission <readonly|confirm|full> — set permission level\n"
-                "/profile <name> — switch settings profile (token-friendly|default|quality)\n"
+                "/think — toggle thinking display\n"
+                "/companion — toggle companion mode\n"
+                "/permission <level> — set permission (readonly|confirm|full)\n"
+                "/profile <name> — switch settings profile\n"
                 "/help — show this"
             )
             await self.send({"type": "chat_append", "role": "system", "text": help_text, "finished": True})
@@ -453,7 +478,6 @@ class ChatSession:
             if args:
                 # Parse subcommand pattern: /provider [add|set|rm] <name>
                 # or legacy: /provider <name>
-                from cli.provider import KNOWN_PROVIDERS
                 arg_parts = args.split(maxsplit=1)
                 sub = arg_parts[0].lower()
                 if sub in ("add", "set", "rm") and len(arg_parts) > 1:
@@ -461,8 +485,9 @@ class ChatSession:
                 else:
                     provider_name = sub
                 loop = asyncio.get_running_loop()
-                s = settings()
-                await loop.run_in_executor(None, lambda: s.set("provider.active", provider_name))
+                s_obj = settings()
+                await loop.run_in_executor(None, lambda: s_obj.set("provider.active", provider_name))
+                llm().reload_settings()
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Switched to provider: {provider_name}", "finished": True})
             else:
@@ -481,18 +506,6 @@ class ChatSession:
                 model = settings().get(f"provider.{provider}.model", "not set")
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Current model ({provider}): {model}", "finished": True})
-        elif cmd == "session":
-            if args:
-                sid = args.strip()
-                memory().set_current_session(sid)
-                msgs = memory().get_session_messages(sid)
-                await self.send({"type": "chat_append", "role": "system",
-                                "text": f"Loaded session: {sid} ({len(msgs)} messages)",
-                                "finished": True, "session_id": sid})
-            else:
-                sid = memory().get_current_session()
-                await self.send({"type": "chat_append", "role": "system",
-                                "text": f"Current session: {sid}", "finished": True})
         elif cmd == "compact":
             await self.send({"type": "chat_append", "role": "system", "text": "Compacting memory...", "finished": True})
             try:
@@ -587,6 +600,57 @@ class ChatSession:
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": "Usage: /rename <new title>", "finished": True})
 
+        elif cmd == "think":
+            await self.send({"type": "chat_append", "role": "system",
+                            "text": "Thinking display toggled.", "finished": True})
+        elif cmd == "companion":
+            try:
+                voice_on = settings().get("voice.input_enabled", False)
+                settings().set("voice.input_enabled", not voice_on)
+                settings().set("voice.output_enabled", not voice_on)
+                state = "ON" if not voice_on else "OFF"
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Companion mode {state}", "finished": True})
+            except Exception as e:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Companion toggle failed: {e}", "finished": True})
+        elif cmd == "resume":
+            try:
+                sid = memory().get_current_session()
+                turns = memory().get_session_turns(sid, turns=5)
+                if turns:
+                    lines = [f"Last {len(turns)} turns of {sid}:"]
+                    for turn in turns:
+                        role = turn.get("role", "?").upper()
+                        content = turn.get("content", "")[:200]
+                        lines.append(f"{role}: {content}")
+                    text = "\n".join(lines)
+                else:
+                    text = f"No turns found for session {sid}"
+                await self.send({"type": "chat_append", "role": "system", "text": text, "finished": True})
+            except Exception as e:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Resume failed: {e}", "finished": True})
+        elif cmd == "health":
+            try:
+                from backend.core.health import get_registry
+                registry = get_registry()
+                results = await registry.check_all()
+                if results:
+                    lines = ["Service Health:"]
+                    for name, s in sorted(results.items()):
+                        st = s.get("status", "?")
+                        icon = {"ok": "\u2713", "degraded": "\u26a0", "down": "\u2717"}.get(st, "\u00b7")
+                        lat = s.get("latency_ms", 0)
+                        lat_str = f" ({lat:.0f}ms)" if lat else ""
+                        lines.append(f"  {icon} {name}: {st}{lat_str}")
+                    text = "\n".join(lines)
+                else:
+                    text = "No health data available"
+                await self.send({"type": "chat_append", "role": "system", "text": text, "finished": True})
+            except Exception as e:
+                await self.send({"type": "chat_append", "role": "system",
+                                "text": f"Health check failed: {e}", "finished": True})
         elif cmd == "character":
             if args:
                 name = args.strip()
@@ -607,20 +671,6 @@ class ChatSession:
                 current = settings().get("character.active", "none")
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Current character: {current}", "finished": True})
-        elif cmd == "approve":
-            if args:
-                tool_name = args.strip()
-                mcp_client = getattr(self, '_mcp_client', None)
-                if mcp_client and hasattr(mcp_client, 'approve_tool'):
-                    mcp_client.approve_tool(tool_name)
-                    await self.send({"type": "chat_append", "role": "system",
-                                    "text": f"Approved tool: {tool_name}", "finished": True})
-                else:
-                    await self.send({"type": "chat_append", "role": "system",
-                                    "text": "MCP client not available for approval", "finished": True})
-            else:
-                await self.send({"type": "chat_append", "role": "system",
-                                "text": "Usage: /approve <tool_name>", "finished": True})
         elif cmd == "permission":
             valid_levels = {"readonly", "confirm", "full"}
             if args and args.strip().lower() in valid_levels:
@@ -797,18 +847,46 @@ class ChatSession:
 
     async def cleanup(self):
         """Cancel all pending tasks and stop voice/wake word."""
+        # Cancel all pending tasks
         for t in self.pending_tasks:
             if not t.done():
                 t.cancel()
+        # Wait briefly for tasks to finish cancellation
+        if self.pending_tasks:
+            try:
+                await asyncio.gather(*self.pending_tasks, return_exceptions=True)
+            except Exception:
+                pass
+
+        # Stop voice pipeline cleanly
         if self.voice_pipeline:
-            self.voice_pipeline.stop_listening()
+            try:
+                self.voice_pipeline.stop_listening()
+            except Exception as e:
+                logger.warning(f"Voice pipeline stop failed: {e}")
+            self.voice_pipeline = None
         if self.voice_task and not self.voice_task.done():
             self.voice_task.cancel()
+            try:
+                await self.voice_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self.voice_task = None
+
+        # Stop wake word
         if self.wake_word_enabled:
             try:
                 wakeword().stop()
             except Exception:
                 pass
+            self.wake_word_enabled = False
+
+        # Send voice state idle so frontend can reset UI
+        try:
+            if self.ws.client_state.value == 1:  # CONNECTED
+                await self.send({"type": "voice_state", "state": "idle"})
+        except Exception:
+            pass
 
         # Background: update user profile from this session
         try:
@@ -848,6 +926,11 @@ class ChatSession:
 
     async def run(self):
         """Main message loop."""
+        # Register with companion scheduler
+        sched = companion()
+        if sched:
+            session_id = memory().get_current_session()
+            sched.register_session(session_id, self.send)
         try:
             while True:
                 data = await self.ws.receive_json()
@@ -870,6 +953,9 @@ class ChatSession:
                 elif msg_type == "user_message":
                     text = data.get("text", "").strip()
                     images = data.get("images", None)
+                    sid = data.get("session_id", "").strip()
+                    if sid:
+                        memory().set_current_session(sid)
                     if text or images:
                         await self.process_response(text, images)
 
@@ -897,11 +983,38 @@ class ChatSession:
                     # Heartbeat ping — respond with pong immediately
                     await self.send({"type": "pong"})
 
+                elif msg_type == "idle_enter":
+                    # User went idle — notify companion scheduler
+                    sched = companion()
+                    if sched:
+                        from backend.core.companion.events import CompanionEvent, CompanionEventType
+                        await sched.on_event(CompanionEvent(
+                            event_type=CompanionEventType.IDLE_ENTER,
+                            data={"session_id": memory().get_current_session()},
+                        ))
+
+                elif msg_type == "idle_exit":
+                    # User returned from idle — notify companion scheduler
+                    sched = companion()
+                    if sched:
+                        from backend.core.companion.events import CompanionEvent, CompanionEventType
+                        await sched.on_event(CompanionEvent(
+                            event_type=CompanionEventType.IDLE_EXIT,
+                            data={"session_id": memory().get_current_session()},
+                        ))
+
         except WebSocketDisconnect:
             logger.warning("Chat WebSocket disconnected")
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
         finally:
+            # Unregister from companion scheduler
+            sched = companion()
+            if sched:
+                try:
+                    sched.unregister_session(memory().get_current_session())
+                except Exception:
+                    pass
             await self.cleanup()
 
 
