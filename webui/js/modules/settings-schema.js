@@ -417,6 +417,43 @@ export const SETTINGS_SCHEMA = {
             },
         }
     },
+    "Companion": {
+        icon: "pets",
+        fields: {
+            companion_enabled: {
+                label: "Enable Companion",
+                type: "toggle",
+                key: "companion.enabled",
+                description: "Enable proactive companion interactions",
+            },
+            companion_idle_check_delay: {
+                label: "Idle Check-In Delay (min)",
+                type: "number",
+                key: "companion.idle_check_delay",
+                min: 1, max: 120, step: 1,
+                description: "Minutes of inactivity before the companion checks in",
+            },
+            companion_proactive_interval: {
+                label: "Proactive Interval (min)",
+                type: "number",
+                key: "companion.proactive_interval",
+                min: 10, max: 480, step: 10,
+                description: "Minutes between proactive time-aware messages",
+            },
+            companion_time_awareness: {
+                label: "Time Awareness",
+                type: "toggle",
+                key: "companion.time_awareness",
+                description: "Send messages that acknowledge time of day",
+            },
+            companion_personality_notes: {
+                label: "Personality Notes",
+                type: "textarea",
+                key: "companion.personality_notes",
+                description: "Extra personality instructions for the companion",
+            },
+        }
+    },
     "Advanced": {
         icon: "tune",
         fields: {

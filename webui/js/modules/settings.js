@@ -397,7 +397,10 @@ export function testConnection(key) {
         showToast('Cannot determine provider for connection test', 'warning');
         return;
     }
-    const btn = event?.target?.closest?.('.test-conn-btn');
+    // Find the button in the DOM since event context may not be available
+    const btn = document.querySelector(`[data-key="${CSS.escape(key)}"]`)
+        ?.closest('.settings-field')
+        ?.querySelector('.test-conn-btn');
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="material-icons-round" style="animation:spin 1s linear infinite">sync</span>';
@@ -429,7 +432,7 @@ export function testConnection(key) {
 
 export function fetchModels(provider) {
     if (!provider) return;
-    const btn = event?.target?.closest?.('.fetch-models-btn');
+    const btn = document.querySelector(`.fetch-models-btn`);
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="material-icons-round" style="animation:spin 1s linear infinite">sync</span>';
@@ -474,12 +477,14 @@ export function fetchModels(provider) {
 export async function refreshProviderList() {
     try {
         const resp = await fetch(`${BASE_URL}/api/providers`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         _providerList = (data.providers || []).map(p => ({
             value: p.id,
             label: PROVIDER_DISPLAY_NAMES[p.id] || p.name || p.id,
         }));
     } catch (e) {
+        console.warn('Failed to fetch providers:', e);
         _providerList = Object.keys(PROVIDER_DISPLAY_NAMES).map(id => ({
             value: id,
             label: PROVIDER_DISPLAY_NAMES[id] || id,
@@ -490,6 +495,7 @@ export async function refreshProviderList() {
 export async function refreshCharacterList() {
     try {
         const r = await fetch(`${BASE_URL}/api/characters`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const chars = await r.json();
         _charList = Object.entries(chars || {}).map(([id, c]) => ({
             value: id,
