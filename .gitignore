@@ -29,7 +29,6 @@ data/*
 !data/settings/profiles/
 !data/settings/profiles/*.json
 backend/voice/checkpoints/
-backend/voice/checkpoints/
 .remember/
 processed/
 
@@ -39,9 +38,6 @@ processed/
 
 # Node
 node_modules/
-
-# OpenClaude / opencode
-.openclaude/
 
 # Tauri
 /desktop/tauri/target/
@@ -61,4 +57,14 @@ frontend/godot/.godot/
 *.swo
 *~
 .DS_Store
+
+# Tool session recordings
 .playwright-mcp/
+
+# Generated code analysis output
+graphify-out/
+
+# Gemini / OpenCode / OpenClaude tool dirs
+.gemini/
+.opencode/
+.openclaude/

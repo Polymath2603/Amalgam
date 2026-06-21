@@ -1,4 +1,4 @@
-const CACHE_NAME = 'amalgam-v1';
+const CACHE_NAME = 'amalgam-v2';
 const SHELL_URLS = [
   '/',
   '/index.html',
@@ -7,11 +7,31 @@ const SHELL_URLS = [
   '/js/avatar.js',
   '/js/adaptive-lipsync.js',
   '/js/vrm-animation.js',
-  '/js/speech-bubble.js',
   '/js/custom-select.js',
-  '/js/utils.js',
-  '/js/three.min.js',
-  '/js/three-vrm.js',
+  '/js/idle-manager.js',
+  '/js/frequency-analyzer.js',
+  '/js/viseme-scheduler.js',
+  '/js/visemes.js',
+  '/js/audio-utils.js',
+  '/js/modules/api-client.js',
+  '/js/modules/config.js',
+  '/js/modules/health.js',
+  '/js/modules/history.js',
+  '/js/modules/markdown.js',
+  '/js/modules/mcp.js',
+  '/js/modules/mcp-command.js',
+  '/js/modules/settings-schema.js',
+  '/js/modules/settings.js',
+  '/js/modules/setup-wizard.js',
+  '/js/modules/state.js',
+  '/js/modules/tts.js',
+  '/js/modules/utils.js',
+  '/js/modules/voice.js',
+  '/js/modules/ws.js',
+  '/js/i18n.js',
+  '/js/metrics.js',
+  '/js/swarm.js',
+  '/vendor/d3.min.js',
   '/manifest.json',
 ];
 
@@ -44,18 +64,22 @@ self.addEventListener('fetch', (event) => {
   // VRM and audio files are large — network-first, cache fallback
   if (url.pathname.match(/\.(vrm|vrma|wav|mp3|ogg|png|jpg)$/i)) {
     event.respondWith(
-      caches.open('amalgam-assets').then((cache) => {
-        return fetch(event.request)
-          .then((res) => { cache.put(event.request, res.clone()); return res; })
-          .catch(() => caches.match(event.request));
-      })
+      fetch(event.request)
+        .then((res) => {
+          if (!res || !res.ok) return caches.match(event.request);
+          return caches.open('amalgam-assets').then((cache) => {
+            cache.put(event.request, res.clone());
+            return res;
+          });
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }
 
   // API calls — network only
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(event.request));
+    event.respondWith(fetch(event.request).catch(() => new Response(null, { status: 503 })));
     return;
   }
 
@@ -64,7 +88,8 @@ self.addEventListener('fetch', (event) => {
     caches.match(event.request).then((cached) => {
       return cached || fetch(event.request).then((res) => {
         if (res.ok && url.origin === location.origin) {
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, res.clone()));
+          const cloned = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
         }
         return res;
       });
