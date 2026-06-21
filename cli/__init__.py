@@ -86,7 +86,7 @@ def _show_banner(console, session_id, provider, model, title=None, health=None):
     grid.add_row("Provider", provider)
     grid.add_row("Model", model)
 
-    if health:
+    if health is not None and health:
         dots = []
         for name, status in sorted(health.items()):
             color = {"ok": "green", "degraded": "yellow", "down": "red",
@@ -741,8 +741,27 @@ async def run_cli_direct():
                 continue
 
             elif text == "/provider" or text.startswith("/provider "):
-                parts = text.split(maxsplit=1)
-                if len(parts) > 1:
+                parts = text.split(maxsplit=2)
+                if len(parts) > 2:
+                    subcmd = parts[1].lower()
+                    name = parts[2]
+                    if subcmd == "set":
+                        settings.set("provider.active", name)
+                        con.print(f"[green]Provider set to {name}[/green]")
+                    elif subcmd == "add":
+                        from cli.auth import login_provider as _cli_login
+                        _cli_login(settings, name)
+                    elif subcmd == "rm":
+                        cfg = settings.get(f"provider.{name}")
+                        if isinstance(cfg, dict) and cfg.get("api_key"):
+                            del cfg["api_key"]
+                            settings.set(f"provider.{name}", cfg)
+                            con.print(f"[green]API key removed for {name}[/green]")
+                        else:
+                            con.print(f"[yellow]No API key found for {name}[/yellow]")
+                    else:
+                        con.print(f"[red]Unknown subcommand: {subcmd}. Use: set, add, rm[/red]")
+                elif len(parts) > 1:
                     new_provider = parts[1]
                     if new_provider not in KNOWN_PROVIDERS:
                         con.print(f"[red]Unknown provider:[/red] {new_provider}")
@@ -758,10 +777,13 @@ async def run_cli_direct():
 
             elif text.startswith("/model"):
                 provider = settings.get("provider.active", "gemini")
+                from cli.provider import resolve_display_name
+                _rev_map = {"chatgpt": "openai", "claude": "anthropic"}
+                model_key = _rev_map.get(provider, provider)
                 parts = text.split(maxsplit=1)
                 if len(parts) > 1:
                     new_model = parts[1]
-                    known_models = PROVIDER_MODELS.get(provider, [])
+                    known_models = PROVIDER_MODELS.get(model_key, [])
                     if known_models:
                         if new_model in known_models:
                             con.print(f"[green]\u2713[/green] {new_model} is a known model for {provider}")
@@ -793,16 +815,6 @@ async def run_cli_direct():
                 con.print("[red]Crash state saved. Exiting...[/red]")
                 break
 
-            # ── Unknown command ───────────────────────────────────────
-            if text.startswith("/"):
-                suggestion = _fuzzy_command_suggestion(text)
-                if suggestion:
-                    con.print(f"[red]Unknown command:[/red] {text}")
-                    con.print(f"[dim]Did you mean:[/dim] [italic]{suggestion}[/italic]?")
-                else:
-                    con.print(f"[red]Unknown command:[/red] {text}")
-                continue
-
             # ── Retry last message ───────────────────────────────────
             if text == "/retry":
                 if not _last_message[0]:
@@ -810,6 +822,16 @@ async def run_cli_direct():
                     continue
                 con.print(f"[dim]Retrying: {_last_message[0]}[/dim]")
                 text = _last_message[0]
+
+            # ── Unknown command ───────────────────────────────────────
+            elif text.startswith("/"):
+                suggestion = _fuzzy_command_suggestion(text)
+                if suggestion:
+                    con.print(f"[red]Unknown command:[/red] {text}")
+                    con.print(f"[dim]Did you mean:[/dim] [italic]{suggestion}[/italic]?")
+                else:
+                    con.print(f"[red]Unknown command:[/red] {text}")
+                continue
 
             # ── Chat with agent ───────────────────────────────────────
             from rich.panel import Panel

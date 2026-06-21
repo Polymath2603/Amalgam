@@ -52,6 +52,63 @@ _ORANGE    = "#ff9e64"
 _PINK      = "#ff96c8"
 
 # ═══════════════════════════════════════════════════════════════════════
+# Theme palettes
+# ═══════════════════════════════════════════════════════════════════════
+
+_THEMES: dict[str, dict[str, str]] = {
+    "dark": {
+        "bg": "#1a1b26", "surface": "#24253a", "surface2": "#2a2b41",
+        "border": "#3b3d5c", "text": "#c0caf5", "dim": "#565f89",
+        "muted": "#444b6a", "accent": "#7aa2f7", "green": "#9ece6a",
+        "red": "#f7768e", "yellow": "#e0af68", "cyan": "#7dcfff",
+        "magenta": "#bb9af7", "orange": "#ff9e64", "pink": "#ff96c8",
+    },
+    "midnight": {
+        "bg": "#0f0f1a", "surface": "#1a1a2e", "surface2": "#22223a",
+        "border": "#2a2a4a", "text": "#e0e0ff", "dim": "#6666aa",
+        "muted": "#555588", "accent": "#6c9fff", "green": "#7ecc8f",
+        "red": "#ff6b8a", "yellow": "#f0c674", "cyan": "#7dd4cf",
+        "magenta": "#c59bff", "orange": "#ffa870", "pink": "#ff90b8",
+    },
+    "light": {
+        "bg": "#fafafa", "surface": "#f0f0f0", "surface2": "#e8e8e8",
+        "border": "#cccccc", "text": "#1a1a2e", "dim": "#888888",
+        "muted": "#aaaaaa", "accent": "#3366cc", "green": "#2e8b57",
+        "red": "#cc3344", "yellow": "#b8860b", "cyan": "#008b8b",
+        "magenta": "#8844aa", "orange": "#cc6600", "pink": "#cc4488",
+    },
+    "nord": {
+        "bg": "#2e3440", "surface": "#3b4252", "surface2": "#434c5e",
+        "border": "#4c566a", "text": "#eceff4", "dim": "#616e88",
+        "muted": "#7b88a1", "accent": "#88c0d0", "green": "#a3be8c",
+        "red": "#bf616a", "yellow": "#ebcb8b", "cyan": "#8fbcbb",
+        "magenta": "#b48ead", "orange": "#d08770", "pink": "#d08770",
+    },
+}
+
+
+def _apply_palette(name: str) -> None:
+    """Apply a named color palette to the module-level color globals."""
+    global _BG, _SURFACE, _SURFACE2, _BORDER, _TEXT, _DIM, _MUTED
+    global _ACCENT, _GREEN, _RED, _YELLOW, _CYAN, _MAGENTA, _ORANGE, _PINK
+    p = _THEMES.get(name, _THEMES["dark"])
+    _BG = p["bg"]
+    _SURFACE = p["surface"]
+    _SURFACE2 = p["surface2"]
+    _BORDER = p["border"]
+    _TEXT = p["text"]
+    _DIM = p["dim"]
+    _MUTED = p["muted"]
+    _ACCENT = p["accent"]
+    _GREEN = p["green"]
+    _RED = p["red"]
+    _YELLOW = p["yellow"]
+    _CYAN = p["cyan"]
+    _MAGENTA = p["magenta"]
+    _ORANGE = p["orange"]
+    _PINK = p["pink"]
+
+# ═══════════════════════════════════════════════════════════════════════
 # Dynamic command registry
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -70,20 +127,21 @@ def _init_command_registry():
         ("clear",    "Clear the chat display",             "Clear all messages from view", None),
         ("new",      "Start a new session",                "Clear chat and start a fresh session", None),
         ("help",     "Show this help",                     "Display command reference", None),
-        ("session",  "Show current session ID",            "Display the active session identifier", None),
-        ("sessions", "List all sessions",                  "Show every saved session", None),
-        ("status",   "Show provider/model/session info",   "Display current configuration summary", None),
         ("think",    "Toggle thinking display",            "Show or hide thinking traces", None),
-        ("retry",    "Resend the last message",            "Re-send your previous input to the agent", None),
-        ("cancel",   "Cancel streaming response",          "Stop the current agent response", None),
         ("provider", "Manage providers (add|set|rm)", "Add, update, or remove a provider's API key", ["provider"]),
         ("model",    "Switch model",                       "Change the active model for the current provider", ["model"]),
         ("rename",   "Rename the current session",         "Give the session a new title", None),
         ("resume",   "Show last 5 turns of current session","Display recent conversation history", None),
         ("compact",  "Force memory compaction",            "Compress session context", None),
         ("health",   "Show service health",                "Display system health status", None),
-        ("crash",    "Simulate crash (debug)",             "For testing crash recovery", None),
         ("companion","Toggle companion mode",              "Switch companion personality", None),
+        ("settings", "Show/set a setting",                 "View or change a configuration key", None),
+        ("memory",   "Show memory usage",                  "Display memory stats (sessions, messages)", None),
+        ("stats",    "Show analytics",                     "Tool-usage and cost analytics", None),
+        ("theme",    "Switch UI theme",                    "Change color theme (dark, midnight, light, nord)", None),
+        ("character","Load a character",                   "Switch active character/persona", None),
+        ("profile",  "Switch settings profile",            "Change profile (token-friendly, default, quality, custom)", None),
+        ("permission","Set permission level",              "Set permission level (readonly|confirm|full)", None),
     ]
 
     for name, desc, help_text, arg_type in core:
@@ -204,6 +262,8 @@ class InlineDropdown(Widget):
     def compose(self) -> ComposeResult:
         yield Static("", id="dropdown-text", markup=True)
 
+    MAX_VISIBLE = 8
+
     def _render_content(self) -> str:
         if not self.items or not self.visible:
             return ""
@@ -218,18 +278,37 @@ class InlineDropdown(Widget):
         top = f"[{_BORDER}]┌{'─' * cols}[/]"
         bottom = f"[{_BORDER}]└{'─' * cols}[/]"
         lines.append(top)
-        for i, (value, desc) in enumerate(self.items):
-            marker = "▸" if i == self.selected else " "
-            style = _ACCENT if i == self.selected else _TEXT
-            dim = _DIM
-            if i == self.selected:
-                lines.append(
-                    f"[{_ACCENT} bold]{marker} {value}[/]  [{dim}]{desc}[/]"
-                )
-            else:
-                lines.append(
-                    f"  [{style}]{value}[/]  [{dim}]{desc}[/]"
-                )
+
+        # Scroll window: show max MAX_VISIBLE items centered on selected
+        total = len(self.items)
+        visible = self.items
+        start = 0
+        if total > self.MAX_VISIBLE:
+            # Center selected in window, clamp to valid range
+            half = self.MAX_VISIBLE // 2
+            start = max(0, min(self.selected - half, total - self.MAX_VISIBLE))
+            end = start + self.MAX_VISIBLE
+            visible = self.items[start:end]
+            if start > 0:
+                lines.append(f"[{_DIM}]  ↑ {start} more above[/]")
+            for i, (value, desc) in enumerate(visible):
+                real_idx = start + i
+                marker = "▸" if real_idx == self.selected else " "
+                if real_idx == self.selected:
+                    lines.append(f"[{_ACCENT} bold]{marker} {value}[/]  [{_DIM}]{desc}[/]")
+                else:
+                    lines.append(f"  [{_TEXT}]{value}[/]  [{_DIM}]{desc}[/]")
+            if end < total:
+                remaining = total - end
+                lines.append(f"[{_DIM}]  ↓ {remaining} more below[/]")
+        else:
+            for i, (value, desc) in enumerate(visible):
+                marker = "▸" if i == self.selected else " "
+                if i == self.selected:
+                    lines.append(f"[{_ACCENT} bold]{marker} {value}[/]  [{_DIM}]{desc}[/]")
+                else:
+                    lines.append(f"  [{_TEXT}]{value}[/]  [{_DIM}]{desc}[/]")
+
         lines.append(bottom)
         return "\n".join(lines)
 
@@ -248,12 +327,12 @@ class InlineDropdown(Widget):
     def select_next(self) -> None:
         if not self.items:
             return
-        self.selected = min(self.selected + 1, len(self.items) - 1)
+        self.selected = (self.selected + 1) % len(self.items)
 
     def select_prev(self) -> None:
         if not self.items:
             return
-        self.selected = max(self.selected - 1, 0)
+        self.selected = (self.selected - 1) % len(self.items)
 
     @property
     def current_value(self) -> str:
@@ -276,6 +355,7 @@ _ROLE_STYLES: dict[str, tuple[str, str, str]] = {
     "system":     ("▌ System ▐",     _DIM,     _DIM),
     "avatar":     ("▌ Avatar ▐",     _CYAN,    _CYAN),
     "roleplay":  ("▌ Rp ▐",       _YELLOW,  _DIM),
+    "emotion":    ("▌ Emot ▐",     _PINK,    _PINK),
 }
 
 
@@ -347,44 +427,56 @@ def render_system(text: str) -> Text:
 # Header
 # ═══════════════════════════════════════════════════════════════════════
 
+_STATUS_MAP = {"dev": "DEV", "ready": "READY", "streaming": "STREAMING"}
+
+
 class AmalgamHeader(Widget):
-    """Multi-line centered header à la jcode."""
+    """Multi-line centered header with live stats."""
     session_id = reactive("")
     provider   = reactive("")
     model      = reactive("")
     status     = reactive("")
+    msg_count  = reactive(0)
+    char_count = reactive(0)
+    uptime     = reactive("")
 
     def compose(self) -> ComposeResult:
         yield Static("", id="header-text", markup=True)
 
     def _short_id(self) -> str:
         s = self.session_id
-        return (s[:22] + "…") if len(s) > 22 else s
+        return (s[:18] + "…") if len(s) > 18 else s
 
     def _render_content(self) -> str:
-        sid = self._short_id()
         lines: list[str] = []
 
-        badges: list[str] = []
-        if self.status:
-            badges.append(self.status)
-        if badges:
-            lines.append(f"[{_DIM}]{'⟨' + '·'.join(badges) + '⟩'}[/]")
+        # Top line: session ID + status
+        sid = self._short_id()
+        status_badge = f" [{_YELLOW}]●{_STATUS_MAP.get(self.status, self.status)}[/{_YELLOW}]" if self.status else ""
+        lines.append(f"[{_DIM}]{sid}{status_badge}[/]")
 
-        client_text = f"client: {sid} ◆" if sid else "Amalgam"
-        lines.append(f"[{_DIM}]{client_text}[/]")
-
+        # Provider/model line
         if self.provider and self.model:
             lines.append(
-                f"[{_DIM}]{self.provider} · [/]"
+                f"[{_CYAN}]{self.provider}[/] · "
                 f"[{_PINK} bold]{self.model}[/]"
-                f"[{_DIM}]  · /model to switch[/]"
             )
         elif self.model:
             lines.append(f"[{_PINK} bold]{self.model}[/]")
 
-        lines.append(f"[{_DIM}]built recently[/]")
-        lines.append(f"[{_DIM}]/help · Ctrl+Q quit · Ctrl+N new · Ctrl+R retry[/]")
+        # Stats line: messages, chars, uptime
+        stats_parts = []
+        if self.msg_count:
+            stats_parts.append(f"[{_GREEN}]{self.msg_count} msgs[/]")
+        if self.char_count:
+            stats_parts.append(f"[{_CYAN}]{self.char_count:,} chars[/]")
+        if self.uptime:
+            stats_parts.append(f"[{_DIM}]{self.uptime}[/]")
+        if stats_parts:
+            lines.append(" · ".join(stats_parts))
+
+        # Quick help
+        lines.append(f"[{_DIM}]Esc cancel · Ctrl+N new · /help[/]")
 
         return "\n".join(lines)
 
@@ -398,6 +490,9 @@ class AmalgamHeader(Widget):
     def watch_provider(self, v: str) -> None: self._refresh()
     def watch_model(self, v: str) -> None: self._refresh()
     def watch_status(self, v: str) -> None: self._refresh()
+    def watch_msg_count(self, v: int) -> None: self._refresh()
+    def watch_char_count(self, v: int) -> None: self._refresh()
+    def watch_uptime(self, v: str) -> None: self._refresh()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -461,36 +556,36 @@ class LoadingOverlay(Widget):
 class AmalgamTUI(App):
     """Full-screen chat TUI — jcode-inspired design."""
 
-    CSS = f"""
-    Screen {{
-        background: {_BG};
-    }}
+    CSS = """
+    Screen {
+        background: #1a1b26;
+    }
 
-    AmalgamHeader {{
+    AmalgamHeader {
         dock: top;
         height: auto;
-        background: {_SURFACE};
-        border-bottom: solid {_BORDER};
-    }}
+        background: #24253a;
+        border-bottom: solid #3b3d5c;
+    }
 
-    #header-text {{
+    #header-text {
         width: 100%;
         text-align: center;
         padding: 1 2;
         height: auto;
-    }}
+    }
 
-    #chat-log {{
+    #chat-log {
         height: 1fr;
-        background: {_BG};
+        background: #1a1b26;
         border: none;
         padding: 1 2;
         overflow-y: scroll;
         scrollbar-gutter: stable;
-        scrollbar-color: {_SURFACE2} auto;
-    }}
+        scrollbar-color: #2a2b41 auto;
+    }
 
-    #dropdown-container {{
+    #dropdown-container {
         dock: bottom;
         height: auto;
         max-height: 15;
@@ -498,85 +593,85 @@ class AmalgamTUI(App):
         width: 100%;
         background: transparent;
         margin-bottom: 1;
-    }}
+    }
 
-    InlineDropdown {{
-        background: {_SURFACE};
-        border: solid {_ACCENT};
+    InlineDropdown {
+        background: #24253a;
+        border: solid #7aa2f7;
         height: auto;
         padding: 0 1;
         margin: 0 2;
         display: none;
-    }}
+    }
 
-    #dropdown-text {{
+    #dropdown-text {
         padding: 0 1;
         height: auto;
-    }}
+    }
 
-    #input-container {{
+    #input-container {
         dock: bottom;
         height: auto;
         min-height: 1;
-        background: {_SURFACE};
+        background: #24253a;
         padding: 0 1;
-        border-top: solid {_BORDER};
-    }}
+        border-top: solid #3b3d5c;
+    }
 
-    #input-area {{
+    #input-area {
         height: auto;
         min-height: 1;
         padding: 0;
-    }}
+    }
 
-    #chat-input {{
-        background: {_SURFACE};
-        color: {_TEXT};
+    #chat-input {
+        background: #24253a;
+        color: #c0caf5;
         border: none;
         padding: 0 1;
         min-height: 1;
-    }}
+    }
 
-    #chat-input:focus {{
+    #chat-input:focus {
         border: none;
-    }}
+    }
 
-    #status-bar {{
+    #status-bar {
         dock: bottom;
         height: 1;
-        background: {_SURFACE};
-        color: {_DIM};
+        background: #24253a;
+        color: #565f89;
         padding: 0 2;
-        border-top: solid {_BORDER};
-    }}
+        border-top: solid #3b3d5c;
+    }
 
-    #loading-overlay {{
+    #loading-overlay {
         dock: top;
         height: 5;
-        background: {_BG};
+        background: #1a1b26;
         align: center middle;
-    }}
+    }
 
-    #loading-text {{
-        color: {_DIM};
+    #loading-text {
+        color: #565f89;
         text-style: italic;
-    }}
+    }
 
-    #stream-area {{
+    #stream-area {
         height: auto;
         max-height: 12;
-        background: {_BG};
-        color: {_GREEN};
+        background: #1a1b26;
+        color: #9ece6a;
         padding: 0 2;
         border: none;
-    }}
+    }
     """
 
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit", priority=True),
+        Binding("ctrl+d", "quit", "Quit", priority=True),
         Binding("ctrl+n", "new_session", "New", priority=True),
         Binding("ctrl+l", "clear_screen", "Clear", priority=True),
-        Binding("ctrl+r", "retry", "Retry", priority=True),
         Binding("escape", "cancel_or_hide_dropdown", "Cancel", priority=True),
         Binding("up", "dropdown_up", "Up", priority=True),
         Binding("down", "dropdown_down", "Down", priority=True),
@@ -606,6 +701,9 @@ class AmalgamTUI(App):
         self._pending_api_key_for: tuple[str, str] | None = None  # (action, provider_name)
         self._stream_task: asyncio.Task | None = None
         self._last_filter_prefix: str = ""
+        self._msg_count = 0
+        self._char_count = 0
+        self._start_time = __import__("time").time()
 
     def compose(self) -> ComposeResult:
         yield AmalgamHeader()
@@ -623,6 +721,17 @@ class AmalgamTUI(App):
         yield LoadingOverlay(id="loading-overlay")
 
     def on_mount(self) -> None:
+        # Apply theme palette from settings or default
+        if self._settings:
+            try:
+                theme = self._settings.get("ui.theme", "dark")
+            except Exception:
+                theme = "dark"
+        else:
+            theme = "dark"
+        _apply_palette(theme)
+        self._apply_css_theme()
+
         if self._backend_loading:
             self._show_loading("Initializing backend…")
             self.query_one("#chat-input", Input).disabled = True
@@ -631,6 +740,46 @@ class AmalgamTUI(App):
             self._update_header()
             self._log_system(f"Welcome — {self._short_id()}")
             self.query_one("#chat-input", Input).focus()
+
+    def _apply_css_theme(self) -> None:
+        """Override hardcoded CSS colors with the active palette at runtime."""
+        try:
+            self.screen.styles.background = _BG
+        except Exception:
+            pass
+        for wid in ["#chat-log", "#loading-overlay", "#stream-area"]:
+            try:
+                self.query_one(wid).styles.background = _BG
+            except Exception:
+                pass
+        for wid in ["#input-container", "#status-bar"]:
+            try:
+                self.query_one(wid).styles.background = _SURFACE
+            except Exception:
+                pass
+        try:
+            inp = self.query_one("#chat-input")
+            inp.styles.background = _SURFACE
+            inp.styles.color = _TEXT
+        except Exception:
+            pass
+        try:
+            sb = self.query_one("#status-bar")
+            sb.styles.color = _DIM
+            sb.styles.border_top = ("solid", _BORDER)
+        except Exception:
+            pass
+        try:
+            inp_c = self.query_one("#input-container")
+            inp_c.styles.border_top = ("solid", _BORDER)
+        except Exception:
+            pass
+        try:
+            header = self.query_one(AmalgamHeader)
+            header.styles.background = _SURFACE
+            header.styles.border_bottom = ("solid", _BORDER)
+        except Exception:
+            pass
 
     # ── Lifecycle ──────────────────────────────────────────────────────
 
@@ -652,7 +801,7 @@ class AmalgamTUI(App):
         input_w.disabled = False
         input_w.placeholder = "Type a message…"
         input_w.focus()
-        self._update_status("Ctrl+Q quit · Ctrl+N new · Ctrl+R retry · /help")
+        self._update_status("Ctrl+Q quit · Ctrl+N new · /help")
 
     def show_error(self, msg: str) -> None:
         self._backend_loading = False
@@ -825,10 +974,31 @@ class AmalgamTUI(App):
             # show the arg dropdown for /provider and /model automatically
         elif self._dropdown_mode == "provider":
             self._skip_change = True
-            inp.value = f"/provider {value} "
+            current_input = inp.value
+            cur_parts = current_input.split(maxsplit=2)
+            if len(cur_parts) >= 2 and cur_parts[1].lower() in ("add", "set", "rm"):
+                # Preserve existing subcommand, replace provider name only
+                inp.value = f"/provider {cur_parts[1]} {value} "
+            else:
+                inp.value = f"/provider {value} "
         elif self._dropdown_mode == "model":
             self._skip_change = True
             inp.value = f"/model {value} "
+        elif self._dropdown_mode == "theme":
+            self._skip_change = True
+            inp.value = f"/theme {value} "
+        elif self._dropdown_mode == "profile":
+            self._skip_change = True
+            inp.value = f"/profile {value} "
+        elif self._dropdown_mode == "permission":
+            self._skip_change = True
+            inp.value = f"/permission {value} "
+        elif self._dropdown_mode == "character":
+            self._skip_change = True
+            inp.value = f"/character {value} "
+        elif self._dropdown_mode == "settings":
+            self._skip_change = True
+            inp.value = f"/settings {value} "
 
         inp.cursor_position = len(inp.value)
         inp.focus()
@@ -851,7 +1021,7 @@ class AmalgamTUI(App):
             inp.password = False
             inp.clear()
             inp.placeholder = "Type a message…"
-            self._update_status("Ctrl+Q quit · Ctrl+N new · Ctrl+R retry · /help")
+            self._update_status("Ctrl+Q quit · Ctrl+N new · /help")
             if text:
                 self._settings.set(f"provider.{name}.api_key", text)
                 self._log_system(f"API key {'updated' if action == 'set' else 'added'} for {name}")
@@ -956,14 +1126,34 @@ class AmalgamTUI(App):
                     self._show_dropdown("provider", items, after)
 
             elif cmd_part == "/model":
-                # Show models from ALL configured providers
-                detected = get_detected_providers(self._settings)
-                all_models: list[str] = []
-                for p_name in detected:
-                    for m in get_models_for_provider(self._settings, p_name):
-                        if m not in all_models:
-                            all_models.append(m)
-                items = [(m, "") for m in all_models]
+                # Fetch live models from backend API, fall back to hardcoded list
+                items = []
+                active_provider = self._prov()
+                if active_provider:
+                    try:
+                        import urllib.request, json as _json
+                        url = f"http://localhost:8000/api/models/{active_provider}"
+                        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+                        with urllib.request.urlopen(req, timeout=3) as resp:
+                            data = _json.loads(resp.read())
+                            live_models = data.get("models", [])
+                            if live_models:
+                                items = [(m, "") for m in live_models]
+                    except Exception:
+                        pass  # fallback below
+
+                # Fallback to hardcoded list
+                if not items:
+                    from cli.provider import PROVIDER_MODELS
+                    _rev_map = {"chatgpt": "openai", "claude": "anthropic"}
+                    model_key = _rev_map.get(active_provider, active_provider)
+                    models = get_models_for_provider(self._settings, model_key) or PROVIDER_MODELS.get(model_key, [])
+                    items = [(m, "") for m in models]
+
+                if not items:
+                    self._log_system(f"No models available for {active_provider or '(none)'}. Use /model <name> to set manually.")
+                    self._hide_dropdown()
+                    return
 
                 # If exact model name already typed, hide dropdown so Enter executes
                 model_prefix = after_first.strip()
@@ -974,6 +1164,105 @@ class AmalgamTUI(App):
                         return
 
                 self._show_dropdown("model", items, after_first.strip())
+
+            elif cmd_part == "/theme":
+                themes = [
+                    ("dark", "Dark theme"),
+                    ("midnight", "Midnight theme"),
+                    ("light", "Light theme"),
+                    ("nord", "Nord theme"),
+                ]
+                after = after_first.strip()
+                # Hide if exact theme typed
+                if after:
+                    exact = [v for v, _ in themes if v == after.strip().lower()]
+                    if exact and not raw.endswith(" "):
+                        self._hide_dropdown()
+                        return
+                self._show_dropdown("theme", themes, after)
+
+            elif cmd_part == "/profile":
+                profiles = [
+                    ("default", "Default profile"),
+                    ("token-friendly", "Token-efficient profile"),
+                    ("quality", "Quality-focused profile"),
+                    ("custom", "Custom profile"),
+                ]
+                after = after_first.strip()
+                if after:
+                    exact = [v for v, _ in profiles if v == after.strip().lower()]
+                    if exact and not raw.endswith(" "):
+                        self._hide_dropdown()
+                        return
+                self._show_dropdown("profile", profiles, after)
+
+            elif cmd_part == "/permission":
+                levels = [
+                    ("readonly", "Read-only mode"),
+                    ("confirm", "Ask before executing"),
+                    ("full", "Full access"),
+                ]
+                after = after_first.strip()
+                if after:
+                    exact = [v for v, _ in levels if v == after.strip().lower()]
+                    if exact and not raw.endswith(" "):
+                        self._hide_dropdown()
+                        return
+                self._show_dropdown("permission", levels, after)
+
+            elif cmd_part == "/character":
+                char_items = []
+                if self._settings:
+                    chars = get_detected_providers(self._settings)
+                try:
+                    from backend.core.paths import CHARACTERS_DIR
+                    import os
+                    if os.path.isdir(str(CHARACTERS_DIR)):
+                        for d in sorted(os.listdir(str(CHARACTERS_DIR))):
+                            if os.path.isdir(os.path.join(str(CHARACTERS_DIR), d)):
+                                char_items.append((d, ""))
+                except Exception:
+                    pass
+                if not char_items:
+                    char_items = [("default", "Default character")]
+                after = after_first.strip()
+                if after:
+                    exact = [v for v, _ in char_items if v == after.strip().lower()]
+                    if exact and not raw.endswith(" "):
+                        self._hide_dropdown()
+                        return
+                self._show_dropdown("character", char_items, after)
+
+            elif cmd_part == "/settings":
+                # Show common setting keys
+                common_keys = [
+                    ("provider.active", "Active provider"),
+                    ("voice.engine", "TTS engine"),
+                    ("voice.stt_engine", "STT engine"),
+                    ("voice.input_enabled", "Voice input toggle"),
+                    ("voice.output_enabled", "Voice output toggle"),
+                    ("ui.theme", "UI theme"),
+                    ("ui.font_size", "Font size"),
+                    ("ui.language", "Language"),
+                    ("ui.accent_color", "Accent color"),
+                    ("profile", "Settings profile"),
+                    ("character.active", "Active character"),
+                    ("agent.type", "Agent type"),
+                    ("llm.temperature", "Temperature"),
+                    ("vault.path", "Vault path"),
+                    ("wake_word.engine", "Wake word engine"),
+                    ("mcp.servers", "MCP servers"),
+                ]
+                after = after_first.strip()
+                if after:
+                    # Filter by prefix
+                    filtered = [(v, d) for v, d in common_keys if v.startswith(after)]
+                    if not filtered:
+                        self._hide_dropdown()
+                        return
+                    self._show_dropdown("settings", filtered, after)
+                else:
+                    self._show_dropdown("settings", common_keys, "")
 
             elif cmd_part in ("/rename",):
                 # Accept any free-text arg — don't show dropdown
@@ -1036,57 +1325,52 @@ class AmalgamTUI(App):
                 try:
                     if self._memory:
                         self._memory.start_session()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._log_error(f"Failed to start session: {e}")
             self._update_header()
             self._log_system("New session" if cmd == "/new" else "Cleared")
 
         elif cmd == "/help":
             self._show_help()
 
-        elif cmd == "/session":
-            self._log_system(f"Session: {self._sid()}")
-
-        elif cmd == "/sessions":
-            self._list_sessions()
-
-        elif cmd == "/status":
-            self._show_status()
-
         elif cmd == "/think":
             self._show_thinking = not self._show_thinking
             self._log_system(f"Thinking: {'ON' if self._show_thinking else 'OFF'}")
 
-        elif cmd == "/retry":
-            if self._last_message:
-                self._log_user(self._last_message)
-                self._clear_stream_area()
-                self._send_message(self._last_message)
-            else:
-                self._log_system("No previous message")
-
-        elif cmd == "/cancel":
-            self._cancel_stream()
-
         elif cmd == "/provider":
-            parts = text.split(maxsplit=2)
-            if len(parts) >= 2:
-                subcmd = parts[1].lower()
-                if subcmd in ("add", "set", "rm"):
-                    if len(parts) >= 3:
-                        self._handle_provider_key(subcmd, parts[2].lower())
-                    else:
-                        self._log_system(f"Usage: /provider {subcmd} <name>")
+            # Use partition to preserve multi-word provider names
+            _, _, rest = text.partition(" ")
+            rest = rest.strip()
+            if not rest:
+                current = self._prov() or "?"
+                self._log_system(f"Current provider: {current}")
+                return
+            subcmd, _, name = rest.partition(" ")
+            if subcmd.lower() in ("add", "set", "rm"):
+                if name:
+                    self._handle_provider_key(subcmd.lower(), name.lower())
                 else:
-                    # Legacy: just switch active provider
-                    self._set_provider(subcmd)
-            # else: dropdown handles it via on_input_changed
+                    self._log_system(f"Usage: /provider {subcmd.lower()} <name>")
+            else:
+                # Legacy: just switch active provider
+                self._set_provider(rest.lower())
 
         elif cmd == "/model":
             parts = text.split(maxsplit=1)
             if len(parts) > 1:
                 self._set_model(parts[1])
-            # else: dropdown handles it via on_input_changed
+            else:
+                current = self._model() or "?"
+                p = self._prov() or "?"
+                try:
+                    from cli.provider import PROVIDER_MODELS
+                    known = PROVIDER_MODELS.get(p, [])
+                    if known:
+                        self._log_system(f"Current model ({p}): {current}\nKnown: {', '.join(known)}")
+                    else:
+                        self._log_system(f"Current model ({p}): {current}")
+                except Exception:
+                    self._log_system(f"Current model ({p}): {current}")
 
         elif cmd == "/rename":
             parts = text.split(maxsplit=1)
@@ -1118,34 +1402,42 @@ class AmalgamTUI(App):
             self._log_system("Forcing memory compaction…")
             try:
                 if self._memory:
-                    self._memory.compact()
-                    self._log_system("Memory compacted")
+                    if hasattr(self._memory, 'check_and_summarize'):
+                        self.run_worker(self._do_compact())
+                    elif hasattr(self._memory, 'compact'):
+                        self._memory.compact()
+                        self._log_system("Memory compacted")
+                    else:
+                        self._log_error("Memory backend does not support compaction")
             except Exception as e:
                 self._log_error(f"Compaction failed: {e}")
 
         elif cmd == "/health":
-            self._show_status()
-
-        elif cmd == "/crash":
-            self._log_error("Simulated crash for testing")
-            try:
-                import os, json, time
-                crash_dir = os.path.join(os.path.expanduser("~"), ".amalgam")
-                os.makedirs(crash_dir, exist_ok=True)
-                with open(os.path.join(crash_dir, "crash_state.json"), "w") as f:
-                    json.dump({
-                        "session_id": self._sid(),
-                        "provider": self._prov(),
-                        "model": self._model(),
-                        "last_message": "",
-                        "timestamp": time.time(),
-                    }, f)
-            except Exception:
-                pass
-            self.exit(1)
+            self._show_health()
 
         elif cmd == "/companion":
-            self._log_system("Companion mode toggled")
+            self._toggle_companion()
+
+        elif cmd == "/settings":
+            self._show_or_set_settings(text)
+
+        elif cmd == "/memory":
+            self._show_memory_stats()
+
+        elif cmd == "/stats":
+            self._show_stats()
+
+        elif cmd == "/theme":
+            self._switch_theme(text)
+
+        elif cmd == "/character":
+            self._switch_character(text)
+
+        elif cmd == "/profile":
+            self._switch_profile(text)
+
+        elif cmd == "/permission":
+            self._set_permission(text)
 
         else:
             from cli.__init__ import _fuzzy_command_suggestion
@@ -1162,9 +1454,14 @@ class AmalgamTUI(App):
             hint = f" — try {fuzzy[0]}?" if fuzzy else ""
             self._log_error(f"Unknown provider: {name}{hint}")
             return
+        _name_map = {
+            "openai": "chatgpt",
+            "anthropic": "claude",
+        }
+        config_key = _name_map.get(name, name)
         if self._settings:
             try:
-                self._settings.set("provider.active", name)
+                self._settings.set("provider.active", config_key)
                 if self._llm:
                     self._llm.reload_settings()
                 self._update_header()
@@ -1182,25 +1479,24 @@ class AmalgamTUI(App):
             return
 
         if action == "rm":
-            # Remove the API key from settings
             if self._settings:
                 try:
                     cfg = self._settings.get(f"provider.{name}")
                     if isinstance(cfg, dict) and cfg.get("api_key"):
                         del cfg["api_key"]
+                        self._settings.set(f"provider.{name}", cfg)
                         self._log_system(f"API key removed for {name}")
                     else:
                         self._log_system(f"No API key found for {name}")
                 except Exception as e:
                     self._log_error(f"Failed to remove key: {e}")
         else:  # add, set
-            # Set up interactive API key prompt
-            self._pending_api_key_for = (action, name)
             inp = self.query_one("#chat-input", Input)
             inp.password = True
             inp.placeholder = f"Enter API key for {name}:"
             inp.clear()
             self._update_status(f"Type API key for {name} and press Enter")
+            self._pending_api_key_for = (action, name)
 
     def _set_model(self, name: str) -> None:
         p = self._prov()
@@ -1225,42 +1521,228 @@ class AmalgamTUI(App):
             if desc:
                 tbl.add_row(c, desc)
         self._log_chat(tbl)
-        self._update_status("Ctrl+Q quit · Ctrl+N new · Ctrl+R retry")
 
-    def _show_status(self) -> None:
-        tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
-        tbl.add_column("", style=_CYAN)
-        tbl.add_column("", style=_TEXT)
-        tbl.add_row("Provider", self._prov() or "?")
-        tbl.add_row("Model", self._model() or "?")
-        tbl.add_row("Session", self._sid())
-        self._log_chat(tbl)
+    def _show_health(self) -> None:
+        """Run live health checks and display results."""
+        self._log_system("Running health checks…")
+        self.run_worker(self._do_health_checks(), exclusive=True)
 
-    def _list_sessions(self) -> None:
+    async def _do_compact(self) -> None:
+        """Async memory compaction via check_and_summarize."""
         try:
-            if not self._memory:
-                self._log_system("No memory backend")
-                return
+            await self._memory.check_and_summarize()
+            self._log_system("Memory compacted")
+        except Exception as e:
+            self._log_error(f"Compaction failed: {e}")
+
+    async def _do_health_checks(self) -> None:
+        try:
+            from backend.core.health import get_registry
+            registry = get_registry()
+            results = await registry.check_all()
+            if results:
+                tbl = Table(box=box.SIMPLE, show_header=True, style=_DIM,
+                            header_style=Style(color=_ACCENT))
+                tbl.add_column("Service", style=_CYAN)
+                tbl.add_column("Status")
+                tbl.add_column("Detail", style=_DIM)
+                for name, s in sorted(results.items()):
+                    st = s.get("status", "?")
+                    color = {"ok": _GREEN, "degraded": _YELLOW,
+                             "down": _RED, "not_configured": _DIM,
+                             "unknown": _DIM}.get(st, _DIM)
+                    tbl.add_row(name, f"[{color}]{st}[/{color}]",
+                                f"[dim]{s.get('detail', '')}[/dim]")
+                self._log_chat(tbl)
+            else:
+                self._log_system("No health data available")
+        except Exception as e:
+            self._log_error(f"Health check failed: {e}")
+
+    def _toggle_companion(self) -> None:
+        """Toggle companion mode (voice + avatar)."""
+        if not self._settings:
+            self._log_error("Settings not available")
+            return
+        try:
+            voice_on = self._settings.get("voice.input_enabled", False)
+            self._settings.set("voice.input_enabled", not voice_on)
+            self._settings.set("voice.output_enabled", not voice_on)
+            if voice_on:
+                self._log_system("Companion mode OFF")
+            else:
+                self._log_system("Companion mode ON")
+        except Exception as e:
+            self._log_error(f"Companion toggle failed: {e}")
+
+
+    def _show_or_set_settings(self, text: str) -> None:
+        """Show or set a setting value."""
+        if not self._settings:
+            self._log_error("Settings not available")
+            return
+        try:
+            parts = text.split(maxsplit=1)
+            if len(parts) > 1:
+                args = parts[1].strip().split(" ", 1)
+                key = args[0]
+                val = args[1] if len(args) > 1 else None
+                if val:
+                    self._settings.set(key, val)
+                    self._update_header()
+                    self._log_system(f"Set {key} = {val}")
+                else:
+                    v = self._settings.get(key, "not set")
+                    self._log_system(f"{key} = {v}")
+            else:
+                # Show key settings
+                keys = ["provider.active", "ui.theme", "voice.engine", "profile"]
+                tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
+                tbl.add_column("", style=_CYAN)
+                tbl.add_column("", style=_TEXT)
+                for k in keys:
+                    v = self._settings.get(k, "not set")
+                    tbl.add_row(k, str(v))
+                tbl.add_row("", "[dim]Use /settings <key> <val> to set[/dim]")
+                self._log_chat(tbl)
+        except Exception as e:
+            self._log_error(f"Settings error: {e}")
+
+    def _show_memory_stats(self) -> None:
+        """Show memory usage statistics."""
+        if not self._memory:
+            self._log_error("Memory not available")
+            return
+        try:
+            sessions = self._memory.get_sessions()
             current = self._memory.get_current_session()
-            all_s = self._memory.get_sessions()
-            if not all_s:
-                self._log_system("No sessions found")
-                return
-            tbl = Table(box=box.SIMPLE, show_header=True, style=_DIM,
-                        header_style=Style(color=_ACCENT))
-            tbl.add_column("", style=_DIM, width=10)
-            tbl.add_column("ID", style=_CYAN, no_wrap=True)
-            tbl.add_column("Title", style=_TEXT)
-            tbl.add_column("Msgs", justify="right", style=_GREEN)
-            for s in all_s:
-                sid = s.get("id", "?")
-                mark = "▶ current" if sid == current else ""
-                short = (sid[:22] + "…") if len(sid) > 22 else sid
-                tbl.add_row(mark, short, s.get("title", "") or "",
-                            str(s.get("message_count", 0)))
+            total_msgs = sum(s.get("message_count", 0) for s in sessions)
+            tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
+            tbl.add_column("", style=_CYAN)
+            tbl.add_column("", style=_TEXT)
+            tbl.add_row("Sessions", str(len(sessions)))
+            tbl.add_row("Total messages", str(total_msgs))
+            tbl.add_row("Current session", current)
             self._log_chat(tbl)
         except Exception as e:
-            self._log_error(f"Error listing sessions: {e}")
+            self._log_error(f"Memory stats failed: {e}")
+
+    def _show_stats(self) -> None:
+        """Show tool-usage analytics."""
+        self.run_worker(self._do_stats(), exclusive=True)
+
+    async def _do_stats(self) -> None:
+        try:
+            from backend.core.metrics import get_collector
+            collector = get_collector()
+            r = await collector.report(days=7)
+            tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
+            tbl.add_column("", style=_CYAN)
+            tbl.add_column("", style=_TEXT)
+            tbl.add_row("Turns", str(r.get("total_turns", 0)))
+            tbl.add_row("Cost", f"${r.get('total_cost_usd', 0):.4f} USD")
+            tbl.add_row("Tokens", f"{r.get('total_tokens', 0):,}")
+            tbl.add_row("Avg latency", f"{r.get('avg_latency_ms', 0):.0f} ms")
+            tbl.add_row("Tool calls", str(r.get("total_tool_calls", 0)))
+            self._log_chat(tbl)
+        except Exception as e:
+            self._log_error(f"Stats unavailable: {e}")
+
+    def _switch_theme(self, text: str) -> None:
+        """Switch UI theme and apply it live."""
+        _valid = {"dark", "midnight", "light", "nord"}
+        if not self._settings:
+            self._log_error("Settings not available")
+            return
+        try:
+            parts = text.split(maxsplit=1)
+            if len(parts) > 1 and parts[1].strip().lower() in _valid:
+                theme = parts[1].strip().lower()
+                self._settings.set("ui.theme", theme)
+                _apply_palette(theme)
+                self._apply_css_theme()
+                self._update_header()
+                self._log_system(f"Theme → {theme}")
+            else:
+                current = self._settings.get("ui.theme", "dark")
+                self._log_system(f"Current theme: {current}\nValid: {', '.join(sorted(_valid))}")
+        except Exception as e:
+            self._log_error(f"Theme switch failed: {e}")
+
+    def _switch_character(self, text: str) -> None:
+        """Switch active character."""
+        if not self._settings:
+            self._log_error("Settings not available")
+            return
+        try:
+            parts = text.split(maxsplit=1)
+            if len(parts) > 1:
+                name = parts[1].strip()
+                try:
+                    from backend.core.paths import CHARACTERS_DIR
+                    char_dir = str(CHARACTERS_DIR / name)
+                    import os
+                    if os.path.isdir(char_dir):
+                        self._settings.set("character.active", name)
+                        self._log_system(f"Character → {name}")
+                    else:
+                        chars = [d for d in os.listdir(str(CHARACTERS_DIR))
+                                 if os.path.isdir(os.path.join(str(CHARACTERS_DIR), d))]
+                        self._log_error(f"Character '{name}' not found. Available: {', '.join(chars)}")
+                except Exception as e:
+                    self._log_error(f"Character error: {e}")
+            else:
+                current = self._settings.get("character.active", "default")
+                self._log_system(f"Current character: {current}")
+        except Exception as e:
+            self._log_error(f"Character switch failed: {e}")
+
+    def _switch_profile(self, text: str) -> None:
+        """Switch settings profile."""
+        _valid = {"token-friendly", "default", "quality", "custom"}
+        if not self._settings:
+            self._log_error("Settings not available")
+            return
+        try:
+            parts = text.split(maxsplit=1)
+            if len(parts) > 1:
+                name = parts[1].strip()
+                if name not in _valid:
+                    self._log_error(f"Invalid profile: {name}. Valid: {', '.join(sorted(_valid))}")
+                    return
+                try:
+                    from backend.core.config.settings import switch_profile
+                    switch_profile(name)
+                    self._update_header()
+                    self._log_system(f"Profile → {name}")
+                except ValueError as e:
+                    self._log_error(f"Profile error: {e}")
+            else:
+                current = self._settings.get("profile", "default")
+                self._log_system(f"Current profile: {current}")
+        except Exception as e:
+            self._log_error(f"Profile switch failed: {e}")
+
+
+    def _set_permission(self, text: str) -> None:
+        """Set permission level."""
+        _valid = {"readonly", "confirm", "full"}
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or parts[1].strip().lower() not in _valid:
+            self._log_system(f"Usage: /permission [{'|'.join(sorted(_valid))}]")
+            return
+        level = parts[1].strip().lower()
+        try:
+            from backend.core.deps import get_shared
+            shared = get_shared()
+            mcp = shared.get("mcp")
+            if mcp and hasattr(mcp, 'set_permission_level'):
+                mcp.set_permission_level(level)
+                self._log_system(f"Permission level → {level}")
+            else:
+                self._log_system(f"Permission level → {level} (local only)")
+        except Exception as e:
+            self._log_error(f"Permission set failed: {e}")
 
     # ── Agent streaming ─────────────────────────────────────────────────
 
@@ -1274,6 +1756,7 @@ class AmalgamTUI(App):
         self._stream_task = asyncio.current_task()
         self._update_status("Streaming… (Esc to cancel)")
 
+        full_response = ""
         try:
             stream: AsyncIterator = self._agent.handle_user_input(text)
             async for chunk in stream:
@@ -1281,7 +1764,11 @@ class AmalgamTUI(App):
                     tag, val = chunk
                     self._handle_tag(tag, val)
                 elif isinstance(chunk, str) and chunk.strip():
+                    full_response += chunk
                     self._log_stream_chunk(chunk)
+            # Persist the full response to chat log
+            if full_response.strip():
+                self._log_assistant(full_response.strip())
         except asyncio.CancelledError:
             self._log_system("Canceled")
         except Exception as e:
@@ -1289,7 +1776,8 @@ class AmalgamTUI(App):
         finally:
             self._streaming = False
             self._stream_task = None
-            self._update_status("Ctrl+Q quit · Ctrl+N new · Ctrl+R retry · /help")
+            self._clear_stream_area()
+            self._update_status("Ctrl+Q quit · Ctrl+N new · /help")
             self._log_system("─" * 30)
 
     def _handle_tag(self, tag: str, val: str) -> None:
@@ -1306,6 +1794,8 @@ class AmalgamTUI(App):
             self._log_chat(role_text("roleplay", val))
         elif tag == "__avatar__":
             self._log_chat(role_text("avatar", val))
+        elif tag == "__emotion__":
+            self._log_chat(role_text("emotion", val))
 
     def _cancel_stream(self) -> None:
         self._streaming = False
@@ -1317,7 +1807,6 @@ class AmalgamTUI(App):
 
     def action_new_session(self) -> None: self._handle_command("/new")
     def action_clear_screen(self) -> None: self._handle_command("/clear")
-    def action_retry(self) -> None: self._handle_command("/retry")
 
     def action_cancel(self) -> None:
         if self._streaming:

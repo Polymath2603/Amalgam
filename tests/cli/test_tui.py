@@ -26,12 +26,17 @@ class TestCommandRegistry:
         cmds = get_slash_commands()
         required = [
             "/resume", "/provider", "/model", "/exit", "/help", "/rename",
-            "/compact", "/retry", "/cancel", "/think", "/session", "/sessions",
-            "/status", "/health", "/crash", "/companion", "/new", "/clear", "/quit",
+            "/compact", "/retry", "/think", "/status", "/health",
+            "/companion", "/new", "/clear", "/quit",
+            "/settings", "/memory", "/stats", "/theme", "/character",
+            "/profile", "/permission",
         ]
         for cmd in required:
             assert cmd in cmds, f"Missing command: {cmd}"
-        assert len(cmds) >= 19
+        # These commands were removed
+        for cmd in ["/cancel", "/crash", "/export", "/approve", "/session", "/sessions"]:
+            assert cmd not in cmds, f"Removed command still present: {cmd}"
+        assert len(cmds) >= 22
 
     def test_provider_model_have_arg_type(self):
         from cli.tui import _COMMAND_DEFS
@@ -48,7 +53,7 @@ class TestCommandRegistry:
 class TestFuzzyFilter:
     def test_prefix_matches_first(self):
         from cli.tui import fuzzy_filter
-        result = fuzzy_filter("h", ["/crash", "/health", "/help", "/think", "/model"])
+        result = fuzzy_filter("h", ["/health", "/help", "/think", "/model"])
         assert result[0:2] == ["/health", "/help"]
 
     def test_exact_match_first(self):
@@ -91,14 +96,14 @@ class TestDropownWidget:
         dd.select_next()
         assert dd.selected == 2
         dd.select_next()
-        assert dd.selected == 2  # clamps at max (no wrap)
-        dd.select_prev()
+        assert dd.selected == 0  # wraps to start
+        dd.select_next()
         assert dd.selected == 1
         dd.select_prev()
         assert dd.selected == 0
         dd.select_prev()
-        assert dd.selected == 0  # clamps at 0 (no wrap)
-        assert dd.current_value == "/help"
+        assert dd.selected == 2  # wraps to end
+        assert dd.current_value == "/exit"
 
     def test_empty_select_noop(self):
         from cli.tui import InlineDropdown
@@ -107,6 +112,32 @@ class TestDropownWidget:
         dd.select_next()
         assert dd.selected == 0
         assert dd.current_value == ""  # empty string when no items
+
+
+class TestTUICommandMethods:
+    """Unit tests for TUI command handler methods (no Textual app needed)."""
+
+    def test_fuzzy_filter_22plus_commands(self):
+        """Verify the registry has 22+ unique slash commands."""
+        from cli.tui import _init_command_registry, get_slash_commands
+        _COMMAND_DEFS.clear()
+        _init_command_registry()
+        cmds = get_slash_commands()
+        assert len(cmds) >= 22
+        # New commands must be present
+        for cmd in ["/settings", "/memory", "/stats", "/theme",
+                    "/character", "/profile", "/permission"]:
+            assert cmd in cmds, f"Missing: {cmd}"
+
+    def test_new_commands_have_descriptions(self):
+        """All new commands must have non-empty descriptions."""
+        from cli.tui import _init_command_registry, _COMMAND_DEFS
+        _COMMAND_DEFS.clear()
+        _init_command_registry()
+        for cmd in ["/settings", "/memory", "/stats", "/theme",
+                    "/character", "/profile", "/permission"]:
+            desc = _COMMAND_DEFS[cmd][0]
+            assert desc, f"{cmd} has empty description"
 
 
 # ── TUI integration tests (require Textual) ────────────────────────────
@@ -202,7 +233,7 @@ class TestTUIApp:
             await pilot.press("/")
             await pilot.pause(0.2)
             assert dd.visible
-            assert len(dd.items) >= 19
+            assert len(dd.items) >= 20
 
     @pytest.mark.asyncio
     async def test_enter_autocompletes_command(self, tui):
@@ -213,13 +244,18 @@ class TestTUIApp:
             await pilot.pause(0.3)
             dd = pilot.app.query_one("#inline-dropdown", InlineDropdown)
 
-            await pilot.press("/")
-            await pilot.pause(0.2)
-            first = dd.items[0][0]
+            # Type /help via keystrokes to get a command without arg suggestions
+            await pilot.press("/", "h", "e", "l", "p")
+            await pilot.pause(0.3)
+            assert dd.visible
+            # Should show /health and /help filtered
+            values = [v for v, _ in dd.items]
+            assert "/help" in values
+            # Press enter to autocomplete /help
             await pilot.press("enter")
             await pilot.pause(0.3)
-            assert not dd.visible, "Dropdown hidden after autocomplete"
-            assert inp.value == first + " ", f"Input should be {first + ' '!r}, got {inp.value!r}"
+            assert not dd.visible, "Dropdown hidden after autocomplete for no-arg command"
+            assert inp.value == "/help ", f"Input should be '/help ', got {inp.value!r}"
 
     @pytest.mark.asyncio
     async def test_space_after_provider_shows_providers(self, tui):
@@ -275,11 +311,13 @@ class TestTUIApp:
             await pilot.press("/", "m", "o", "d", "e", "l", " ")
             await pilot.pause(0.3)
             assert dd.visible
-            # Should show models from both configured providers (openai + gemini)
+            # Should show models from the currently active provider (openai)
             assert len(dd.items) >= 4, f"Expected 4+ models, got {len(dd.items)}: {[v for v,_ in dd.items]}"
             values = [v for v, _ in dd.items]
             assert "gpt-4o" in values
-            assert "gemini-2.5-flash" in values
+            # All items should be openai models (active provider)
+            for v in values:
+                assert v in ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini"]
 
     @pytest.mark.asyncio
     async def test_arrow_keys_navigate_dropdown(self, tui):
@@ -489,8 +527,8 @@ class TestTUIApp:
                 assert "api_key" not in cfg or cfg.get("api_key") == ""
 
     @pytest.mark.asyncio
-    async def test_model_shows_models_from_all_providers(self, tui):
-        """/model <space> shows models from ALL configured providers."""
+    async def test_model_shows_models_from_active_provider(self, tui):
+        """/model <space> shows models from the active provider only."""
         from cli.tui import InlineDropdown
         async with tui.run_test(size=(120, 40)) as pilot:
             pilot.app.set_backend(MockSettings(), None, MockMemory(), MockAgent())
@@ -502,10 +540,9 @@ class TestTUIApp:
             await pilot.pause(0.3)
             assert dd.visible
             values = [v for v, _ in dd.items]
-            # openai models + gemini models
+            # Active provider is openai, so only openai models
             assert "gpt-4o" in values
-            assert "gemini-2.5-flash" in values
-            assert len(dd.items) >= 4, f"Expected 4+ models from all providers, got {len(dd.items)}"
+            assert len(dd.items) >= 4, f"Expected 4+ models from active provider, got {len(dd.items)}"
 
     @pytest.mark.asyncio
     async def test_model_exact_match_hides_dropdown(self, tui):

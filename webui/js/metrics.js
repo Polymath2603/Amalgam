@@ -3,6 +3,11 @@
 const _IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
 const _BASE_URL = _IS_TAURI ? 'http://localhost:8000' : '';
 
+function _escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export function loadMetrics() {
   const el = document.getElementById('metrics-dashboard');
   if (!el) return;
@@ -27,9 +32,8 @@ export function loadMetrics() {
 function renderMetrics(el, summary, turns, tools) {
   const t = (key) => {
     const k = `metrics.${key}`;
-    const el = document.querySelector(`[data-i18n="${k}"]`);
-    if (el) return el.textContent;
-    // fallback to en key
+    const labelEl = document.querySelector(`[data-i18n="${k}"]`);
+    if (labelEl) return labelEl.textContent;
     const fallback = {
       turns: 'Turns', tokens: 'Tokens', cost: 'Cost',
       latency: 'Avg Latency', tool_calls: 'Tool Calls',
@@ -73,7 +77,7 @@ function renderMetrics(el, summary, turns, tools) {
     html += `<th>${t('total')}</th><th>${t('tokens')}</th><th>${t('latency')}</th><th>${t('cost')}</th><th>${t('model')}</th>`;
     html += '</tr></thead><tbody>';
     for (const turn of turnList) {
-      html += `<tr><td>${formatTime(turn.timestamp)}</td><td>${turn.token_total.toLocaleString()}</td><td>${turn.latency_ms}ms</td><td>${formatCost(turn.cost)}</td><td>${turn.model || '-'}</td></tr>`;
+      html += `<tr><td>${formatTime(turn.timestamp)}</td><td>${(turn.token_total ?? 0).toLocaleString()}</td><td>${turn.latency_ms ?? 0}ms</td><td>${formatCost(turn.cost ?? 0)}</td><td>${_escHtml(turn.model || '-')}</td></tr>`;
     }
     html += '</tbody></table>';
   } else {
@@ -85,12 +89,13 @@ function renderMetrics(el, summary, turns, tools) {
 
 // Auto-refresh when tab becomes active
 let metricsInterval = null;
+let metricsObserver = null;
 
 export function initMetricsAutoRefresh() {
   const panel = document.getElementById('tab-metrics');
   if (!panel) return;
 
-  const observer = new MutationObserver(() => {
+  metricsObserver = new MutationObserver(() => {
     if (panel.classList.contains('active')) {
       loadMetrics();
       if (!metricsInterval) {
@@ -103,5 +108,13 @@ export function initMetricsAutoRefresh() {
       }
     }
   });
-  observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
+  metricsObserver.observe(panel, { attributes: true, attributeFilter: ['class'] });
+}
+
+// Cleanup on page unload
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (metricsInterval) { clearInterval(metricsInterval); metricsInterval = null; }
+    if (metricsObserver) { metricsObserver.disconnect(); metricsObserver = null; }
+  });
 }

@@ -187,7 +187,6 @@ export class AvatarRenderer {
 
         // Post-processing pipeline (must be after scene + camera init)
         this._composer = null;
-        this._bloomPass = null;
         this._postProcessingEnabled = false;
         this._initComposer();
 

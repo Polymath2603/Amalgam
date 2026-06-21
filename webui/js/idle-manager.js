@@ -1,6 +1,6 @@
 
 
-const MICRO_ANIMS = ['curiosity', 'amusement', 'admiration', 'optimism', 'relief', 'realization', 'confusion'];
+const MICRO_ANIMS = ['curiosity', 'amusement', 'admiration', 'confusion'];
 
 const DEFAULTS = {
     timeBeforeIdleSec: 30,
