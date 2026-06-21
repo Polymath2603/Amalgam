@@ -2,7 +2,7 @@
  * settings.js — Settings panel rendering and management
  */
 import { BASE_URL } from './config.js';
-import { escapeHtml, _getNestedValue, showToast, applyTheme, applyAccentColor } from './utils.js';
+import { escHtml, _getNestedValue, showToast, applyTheme, applyAccentColor } from './utils.js';
 import { api } from './api-client.js';
 import { PROVIDER_DISPLAY_NAMES, PROVIDER_MODELS, SETTINGS_SCHEMA } from './settings-schema.js';
 import { getSettings, setSettingsCache } from './state.js';
@@ -86,8 +86,8 @@ export function renderField(fieldId, field) {
     const key = _getFieldKey(fieldId, field);
     let value = _getFieldValue(fieldId, field);
     const options = _getFieldOptions(fieldId, field);
-    const desc = field.description ? `<span class="field-desc">${escapeHtml(field.description)}</span>` : '';
-    const commonAttrs = `id="field-${fieldId}" data-key="${escapeHtml(key)}" data-field="${fieldId}"`;
+    const desc = field.description ? `<span class="field-desc">${escHtml(field.description)}</span>` : '';
+    const commonAttrs = `id="field-${fieldId}" data-key="${escHtml(key)}" data-field="${fieldId}"`;
 
     switch (field.type) {
         case 'toggle': {
@@ -109,7 +109,7 @@ export function renderField(fieldId, field) {
             const opts = options.map(opt => {
                 const val = typeof opt === 'object' ? opt.value : opt;
                 const label = typeof opt === 'object' ? opt.label : (PROVIDER_DISPLAY_NAMES[opt] || opt);
-                return `<option value="${escapeHtml(val)}" ${String(value) === val ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+                return `<option value="${escHtml(val)}" ${String(value) === val ? 'selected' : ''}>${escHtml(label)}</option>`;
             }).join('');
             let actionBtn = '';
             if (field.dynamic_options) {
@@ -134,11 +134,11 @@ export function renderField(fieldId, field) {
                 <div class="settings-field" data-field="${fieldId}">
                     <label for="field-${fieldId}">${field.label}</label>
                     <div class="input-with-action">
-                        <input type="password" ${commonAttrs} value="${escapeHtml(String(value))}" placeholder="${field.label}">
+                        <input type="password" ${commonAttrs} value="${escHtml(String(value))}" placeholder="${field.label}">
                         <button class="icon-btn toggle-vis-btn" onclick="toggleFieldVisibility('field-${fieldId}')" title="Show/hide">
                             <span class="material-icons-round">visibility</span>
                         </button>
-                        <button class="icon-btn test-conn-btn" onclick="testConnection('${escapeHtml(key)}')" title="Test connection">
+                        <button class="icon-btn test-conn-btn" onclick="testConnection('${escHtml(key)}')" title="Test connection">
                             <span class="material-icons-round">wifi_find</span>
                         </button>
                     </div>
@@ -150,7 +150,7 @@ export function renderField(fieldId, field) {
             return `
                 <div class="settings-field" data-field="${fieldId}">
                     <label for="field-${fieldId}">${field.label}</label>
-                    <input type="number" ${commonAttrs} value="${escapeHtml(String(value))}" min="${field.min || 0}" max="${field.max || 999}" step="${field.step || 1}">
+                    <input type="number" ${commonAttrs} value="${escHtml(String(value))}" min="${field.min || 0}" max="${field.max || 999}" step="${field.step || 1}">
                     ${desc}
                 </div>
             `;
@@ -182,7 +182,7 @@ export function renderField(fieldId, field) {
             return `
                 <div class="settings-field" data-field="${fieldId}">
                     <label for="field-${fieldId}">${field.label}</label>
-                    <textarea ${commonAttrs} rows="3" placeholder="${field.label}">${escapeHtml(String(value))}</textarea>
+                    <textarea ${commonAttrs} rows="3" placeholder="${field.label}">${escHtml(String(value))}</textarea>
                     ${desc}
                 </div>
             `;
@@ -198,7 +198,7 @@ export function renderField(fieldId, field) {
                 <div class="settings-field" data-field="${fieldId}">
                     <label for="field-${fieldId}">${field.label}</label>
                     <div class="input-with-action">
-                        <input type="text" ${commonAttrs} value="${escapeHtml(String(value))}" placeholder="${field.label}">
+                        <input type="text" ${commonAttrs} value="${escHtml(String(value))}" placeholder="${field.label}">
                         ${actionBtn}
                     </div>
                     ${desc}
@@ -316,7 +316,7 @@ export function filterSettings() {
         );
         if (matchingFields.length > 0) {
             found = true;
-            html += `<h4 class="settings-result-category">${escapeHtml(catName)}</h4>`;
+            html += `<h4 class="settings-result-category">${escHtml(catName)}</h4>`;
             for (const [fieldId, field] of matchingFields) {
                 if (!_shouldShowField(fieldId, field)) continue;
                 html += renderField(fieldId, field);
@@ -325,7 +325,7 @@ export function filterSettings() {
     }
 
     if (!found) {
-        html += '<p class="settings-no-results">No settings found matching "' + escapeHtml(query) + '"</p>';
+        html += '<p class="settings-no-results">No settings found matching "' + escHtml(query) + '"</p>';
     }
 
     area.innerHTML = html;

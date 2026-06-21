@@ -6,7 +6,7 @@
  * Arrow keys navigate, Space toggles, Escape cancels, Enter confirms.
  */
 import { BASE_URL } from './config.js';
-import { showToast, escapeHtml } from './utils.js';
+import { showToast, escHtml } from './utils.js';
 import { api } from './api-client.js';
 import { getMcpServersCache, setMcpServersCache, getChatInput, getWs } from './state.js';
 
@@ -232,12 +232,12 @@ function _render() {
                                 <div class="mcp-panel-item-text">
                                     <div class="mcp-panel-item-name">
                                         <span class="mcp-panel-conn-dot ${connClass}" title="${statusLabel}"></span>
-                                        ${escapeHtml(s.name)}
+                                        ${escHtml(s.name)}
                                     </div>
-                                    <div class="mcp-panel-item-cmd">${escapeHtml(cmdShort || 'No command')}</div>
+                                    <div class="mcp-panel-item-cmd">${escHtml(cmdShort || 'No command')}</div>
                                 </div>
                             </div>
-                            <label class="toggle mcp-panel-toggle" aria-label="Toggle ${escapeHtml(s.name)}">
+                            <label class="toggle mcp-panel-toggle" aria-label="Toggle ${escHtml(s.name)}">
                                 <input type="checkbox" ${s.enabled ? 'checked' : ''} tabindex="-1">
                                 <span class="toggle-slider"></span>
                             </label>

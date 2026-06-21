@@ -3,7 +3,11 @@
  * Zero dependencies.
  */
 
-export function escapeHtml(str) {
+/**
+ * Escape HTML special characters to prevent XSS.
+ * This is the single canonical escaper for the entire codebase.
+ */
+export function escHtml(str) {
     if (!str) return '';
     return String(str)
         .replace(/&/g, '&amp;')
@@ -12,9 +16,6 @@ export function escapeHtml(str) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
-
-// escHtml is an alias for escapeHtml — kept for backward compatibility
-export const escHtml = escapeHtml;
 
 export function _getNestedValue(obj, path) {
     if (!obj || !path) return undefined;
@@ -46,8 +47,8 @@ export function showToast(message, type = 'system', options = {}) {
     };
     const icon = icons[type] || 'info';
 
-    const service = options.service ? `<span class="toast-service">${escapeHtml(options.service)}</span>` : '';
-    const suggestion = options.suggestion ? `<span class="toast-suggestion">${escapeHtml(options.suggestion)}</span>` : '';
+    const service = options.service ? `<span class="toast-service">${escHtml(options.service)}</span>` : '';
+    const suggestion = options.suggestion ? `<span class="toast-suggestion">${escHtml(options.suggestion)}</span>` : '';
     const dismissBtn = type === 'critical' || type === 'danger'
         ? '<button class="toast-dismiss" onclick="this.parentElement.remove()"><span class="material-icons-round">close</span></button>'
         : '';
@@ -56,7 +57,7 @@ export function showToast(message, type = 'system', options = {}) {
         <span class="material-icons-round toast-icon">${icon}</span>
         <div class="toast-content">
             ${service}
-            <span class="toast-message">${escapeHtml(message)}</span>
+            <span class="toast-message">${escHtml(message)}</span>
             ${suggestion}
         </div>
         ${dismissBtn}

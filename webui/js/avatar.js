@@ -13,8 +13,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
-const BASE_URL = IS_TAURI ? 'http://localhost:8000' : '';
+import { IS_TAURI, BASE_URL } from './modules/config.js';
 
 import { loadVRMAnimation } from './vrm-animation.js';
 import { AdaptiveLipsyncManager } from './adaptive-lipsync.js';
@@ -74,17 +73,6 @@ const SACCADE_RADIUS = 5.0 * (Math.PI / 180);
 const BLINK_CLOSE_MAX = 0.12;
 const BLINK_OPEN_MAX = 5;
 
-/* ---------- GPU capability detection ---------- */
-function _detectGPU() {
-    const c = document.createElement('canvas');
-    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
-    if (!gl) return 'software';
-    const di = gl.getExtension('WEBGL_debug_renderer_info');
-    const r = di ? gl.getParameter(di.UNMASKED_RENDERER_WEBGL) : '';
-    if (/(adreno [54]|mali-?[34]|powervr|intel hd graphics|swiftshader|llvmpipe)/i.test(r)) return 'low';
-    return 'high';
-}
-const _GPU_TIER = _detectGPU();
 
 export class AvatarRenderer {
     constructor(container, vrmPath, options = {}) {
@@ -251,6 +239,11 @@ export class AvatarRenderer {
         this._mixer = null;
         this._idleAction = null;
         this._currentAction = null;
+        // Clear life state machine interval before VRM reload to prevent leak
+        if (this._lifeInterval) {
+            clearInterval(this._lifeInterval);
+            this._lifeInterval = null;
+        }
         this.vrmPath = newPath;
         this._loadVRM();
     }
@@ -392,11 +385,6 @@ export class AvatarRenderer {
         if (!vrmAnim || !this.vrm || !this._mixer) return;
 
         const clip = vrmAnim.createAnimationClip(this.vrm);
-
-        // Strip position tracks from the idle animation so it does not
-        // shift the avatar sideways (e.g. leftward drift). Only keep
-        // rotation and expression tracks.
-        clip.tracks = clip.tracks.filter(t => !t.name.endsWith('.position'));
 
         this._idleAction = this._mixer.clipAction(clip);
         this._idleAction.loop = THREE.LoopRepeat;
@@ -1129,12 +1117,17 @@ export class AvatarRenderer {
 
     _dispatchLifeEvent(event) {
         // Tell the backend the avatar is bored → backend can initiate conversation
-        if (window.ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'avatar_life_event',
-                event: event,
-            }));
-        }
+        try {
+            import('./modules/state.js').then(({ getWs }) => {
+                const ws = getWs();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'avatar_life_event',
+                        event: event,
+                    }));
+                }
+            });
+        } catch (_) {}
         // Also dispatch a DOM event so local components can react
         document.dispatchEvent(new CustomEvent('avatarLifeState', { detail: { event } }));
     }

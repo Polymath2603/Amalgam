@@ -617,8 +617,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         sendMessage();
     });
 
-    function updateCmdSuggestionsFn() { updateCmdSuggestions(); }
-    void updateCmdSuggestionsFn; // reserved for potential external use
 
     async function fetchCommands() {
         try {
@@ -680,6 +678,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function loadCharacters() {
         const grid = document.getElementById('characters-grid');
         if (!grid) return;
+        grid.setAttribute('aria-busy', 'true');
         grid.innerHTML = Array(3).fill('').map(() => `
             <div class="char-card" aria-hidden="true">
                 <div class="skeleton skeleton-circle"></div>
@@ -751,54 +750,67 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     async function loadRelationship() {
-        const charId = (await api(BASE_URL + '/api/settings'))?.character?.active || 'amalgam';
-        const data = await api(BASE_URL + `/api/relationship/${charId}`);
-        const container = document.getElementById('relationship-display');
-        const label = document.getElementById('rel-stage-label');
-        if (!container) return;
-        if (!data || data.error) {
-            container.innerHTML = '<p class="muted">No relationship data yet.</p>';
-            if (label) label.textContent = '';
-            return;
+        try {
+            const charId = (await api(BASE_URL + '/api/settings'))?.character?.active || 'amalgam';
+            const data = await api(BASE_URL + `/api/relationship/${charId}`);
+            const container = document.getElementById('relationship-display');
+            const label = document.getElementById('rel-stage-label');
+            if (!container) return;
+            if (!data || data.error) {
+                container.innerHTML = '<p class="muted">No relationship data yet.</p>';
+                if (label) label.textContent = '';
+                return;
+            }
+            if (label) label.textContent = data.stage || '';
+            const relStats = [
+                { label: 'Stage', value: data.stage || 'stranger' },
+                { label: 'Interactions', value: data.interaction_count || 0 },
+                { label: 'Sentiment', value: data.avg_sentiment ?? 0.5 },
+                { label: 'Depth', value: data.avg_depth ?? 0 },
+                { label: 'User words', value: data.total_words_user || 0 },
+                { label: 'Assistant words', value: data.total_words_assistant || 0 },
+            ];
+            container.innerHTML = relStats.map(s =>
+                `<div class="rel-stat"><span class="rel-stat-label">${escHtml(s.label)}</span><span>${escHtml(String(s.value))}</span></div>`
+            ).join('');
+        } catch (e) {
+            console.warn('Failed to load relationship:', e);
+            const container = document.getElementById('relationship-display');
+            if (container) container.innerHTML = '<p class="muted">Could not load relationship data.</p>';
         }
-        if (label) label.textContent = data.stage || '';
-        container.innerHTML = `
-            <div class="rel-stat"><span class="rel-stat-label">Stage</span><span>${escHtml(data.stage || 'stranger')}</span></div>
-            <div class="rel-stat"><span class="rel-stat-label">Interactions</span><span>${data.interaction_count || 0}</span></div>
-            <div class="rel-stat"><span class="rel-stat-label">Sentiment</span><span>${data.avg_sentiment ?? 0.5}</span></div>
-            <div class="rel-stat"><span class="rel-stat-label">Depth</span><span>${data.avg_depth ?? 0}</span></div>
-            <div class="rel-stat"><span class="rel-stat-label">User words</span><span>${data.total_words_user || 0}</span></div>
-            <div class="rel-stat"><span class="rel-stat-label">Assistant words</span><span>${data.total_words_assistant || 0}</span></div>
-        `;
     }
 
     async function loadSessions() {
-        const data = await api(BASE_URL + '/api/memory/sessions');
-        const container = document.getElementById('sessions-list');
-        const count = document.getElementById('sessions-count');
-        if (!container) return;
-        const sessions = data?.sessions || [];
-        if (count) count.textContent = `(${sessions.length})`;
-        if (sessions.length === 0) {
-            container.innerHTML = '<p class="muted">No sessions yet.</p>';
-            return;
-        }
-        container.innerHTML = sessions.map(s => `
-            <div class="data-session-item">
-                <strong>${escHtml(s.title || s.id)}</strong>
-                <span class="muted">${s.message_count || '?'} msgs</span>
-                <span class="data-session-delete" data-id="${escHtml(s.id)}">delete</span>
-            </div>
-        `).join('');
-        container.querySelectorAll('.data-session-delete').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                if (!confirm('Delete this session?')) return;
-                await api(BASE_URL + `/api/memory/session/${btn.dataset.id}`, { method: 'DELETE' });
-                loadSessions();
-                loadHistory();
-                showToast('Session deleted');
+        try {
+            const data = await api(BASE_URL + '/api/memory/sessions');
+            const container = document.getElementById('sessions-list');
+            const count = document.getElementById('sessions-count');
+            if (!container) return;
+            const sessions = data?.sessions || [];
+            if (count) count.textContent = `(${sessions.length})`;
+            if (sessions.length === 0) {
+                container.innerHTML = '<p class="muted">No sessions yet.</p>';
+                return;
+            }
+            container.innerHTML = sessions.map(s => `
+                <div class="data-session-item">
+                    <strong>${escHtml(s.title || s.id)}</strong>
+                    <span class="muted">${s.message_count || '?'} msgs</span>
+                    <span class="data-session-delete" data-id="${escHtml(s.id)}">delete</span>
+                </div>
+            `).join('');
+            container.querySelectorAll('.data-session-delete').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    if (!confirm('Delete this session?')) return;
+                    await api(BASE_URL + `/api/memory/session/${btn.dataset.id}`, { method: 'DELETE' });
+                    loadSessions();
+                    loadHistory();
+                    showToast('Session deleted');
+                });
             });
-        });
+        } catch (e) {
+            console.warn('Failed to load sessions:', e);
+        }
     }
 
     function applySettings(d) {

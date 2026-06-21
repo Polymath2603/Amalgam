@@ -50,7 +50,7 @@ export async function loadHistory() {
                     <div class="history-preview">${escHtml(session.preview)}</div>
                     <div class="history-time">${time} · ${session.message_count} messages</div>
                 </div>
-                <button class="history-delete" title="Delete conversation"><span class="material-icons-round" style="font-size:1rem">close</span></button>
+                <button class="history-delete" title="Delete conversation" aria-label="Delete conversation"><span class="material-icons-round" style="font-size:1rem">close</span></button>
             `;
             item.querySelector('.history-content').addEventListener('click', () => {
                 location.hash = 'chat/' + session.id;

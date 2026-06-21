@@ -1,12 +1,8 @@
 // Metrics dashboard — fetches and renders per-turn + tool analytics
+import { escHtml } from './modules/utils.js';
 
 const _IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
 const _BASE_URL = _IS_TAURI ? 'http://localhost:8000' : '';
-
-function _escHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
 
 export function loadMetrics() {
   const el = document.getElementById('metrics-dashboard');
@@ -77,7 +73,7 @@ function renderMetrics(el, summary, turns, tools) {
     html += `<th>${t('total')}</th><th>${t('tokens')}</th><th>${t('latency')}</th><th>${t('cost')}</th><th>${t('model')}</th>`;
     html += '</tr></thead><tbody>';
     for (const turn of turnList) {
-      html += `<tr><td>${formatTime(turn.timestamp)}</td><td>${(turn.token_total ?? 0).toLocaleString()}</td><td>${turn.latency_ms ?? 0}ms</td><td>${formatCost(turn.cost ?? 0)}</td><td>${_escHtml(turn.model || '-')}</td></tr>`;
+      html += `<tr><td>${formatTime(turn.timestamp)}</td><td>${(turn.token_total ?? 0).toLocaleString()}</td><td>${turn.latency_ms ?? 0}ms</td><td>${formatCost(turn.cost ?? 0)}</td><td>${escHtml(turn.model || '-')}</td></tr>`;
     }
     html += '</tbody></table>';
   } else {
