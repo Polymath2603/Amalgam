@@ -245,7 +245,7 @@
     "history.no_conversations": "暂无对话",
     "history.messages": "{count} 条消息",
 
-    "install.prompt": "安装 Amalgam 以便离线使用",
+
 
     "command.allowed_once": "已允许一次",
     "command.prefix_allowed": "前缀已允许",

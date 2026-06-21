@@ -87,8 +87,6 @@ export class SpriteAvatar {
     startLipSync() {}
     stopLipSync() {}
     initIdleManager() {}
-    setEmotion() {}
-    setExpression() {}
     destroy() {
         if (this._animId) cancelAnimationFrame(this._animId);
         this.container.innerHTML = '';

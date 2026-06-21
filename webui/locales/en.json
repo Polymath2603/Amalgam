@@ -245,7 +245,7 @@
     "history.no_conversations": "No conversations yet",
     "history.messages": "{count} messages",
 
-    "install.prompt": "Install Amalgam for offline use",
+
 
     "command.allowed_once": "allowed once",
     "command.prefix_allowed": "prefix allowed",

@@ -305,13 +305,9 @@ def main():
         for url in urls:
             _info(f"Chat UI: {url}")
 
-        # Auto-open browser if not disabled
-        if not args.no_browser:
-            import webbrowser
-            try:
-                webbrowser.open(f"http://localhost:{port}")
-            except Exception:
-                pass
+        # Pass --no-browser to app.py startup event via env
+        if args.no_browser:
+            os.environ["NO_BROWSER"] = "1"
 
         import uvicorn
 
