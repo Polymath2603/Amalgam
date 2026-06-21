@@ -351,8 +351,7 @@ export function handleWSMessage(data) {
             }
         }
     } else if (data.type === 'tool_call') {
-        const cam = getCurrentAssistantMessage();
-        if (cam) updateToolCall(cam, data.text);
+        if (data.tool_id) updateToolCall(data.tool_id, data.status || 'running', data.result);
     } else if (data.type === 'permission_request') {
         showToast(`Permission requested: ${data.command}`, 'info');
     } else if (data.type === 'theme_change') {
