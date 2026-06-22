@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from backend.api.deps import settings, memory, tts, agent, relationship, wakeword, mcp, orchestrator, llm, companion
 from backend.api.ws.tts_service import OrderedTTSScheduler, synthesize_sentence, synthesize_now
-from backend.core.translate import TranslationService
+from backend.core.translation import TranslationService
 from backend.core.orchestrator import AgentProtocol
 from pathlib import Path
 from backend.core.paths import CHARACTERS_DIR, PROJECT_ROOT
@@ -154,7 +154,7 @@ class ChatSession:
             try:
                 base_url = settings().get("translation.base_url", "http://localhost:1188/translate")
                 if base_url:
-                    from backend.core.translate import TranslationService as _TS
+                    from backend.core.translation import TranslationService as _TS
                     self._translation_service = _TS(base_url=base_url)
             except Exception as e:
                 logger.warning("Failed to init TranslationService: %s", e)

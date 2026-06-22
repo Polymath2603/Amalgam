@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from backend.api.deps import settings
-from backend.core.deprecated import deprecated, companion
+from backend.core.deprecated import deprecated
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/companion", tags=["companion"])
