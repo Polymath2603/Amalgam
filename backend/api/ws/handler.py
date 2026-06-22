@@ -5,6 +5,7 @@ import asyncio
 import json
 import re
 import logging
+import time
 
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -14,6 +15,7 @@ from backend.api.deps import settings, memory, tts, agent, relationship, wakewor
 from backend.api.ws.tts_service import OrderedTTSScheduler, synthesize_sentence, synthesize_now
 from backend.core.translation import TranslationService
 from backend.core.orchestrator import AgentProtocol
+from backend.api.routes.metrics import record_turn
 from pathlib import Path
 from backend.core.paths import CHARACTERS_DIR, PROJECT_ROOT
 from backend.voice.pipeline import VoicePipeline
@@ -190,6 +192,7 @@ class ChatSession:
         await self.send({"type": "expression", "expression": "neutral"})
 
         tts_scheduler = OrderedTTSScheduler(translation_service=self._get_translation_service())
+        _start = time.monotonic()
         try:
             full_response = ""
             sentence_buffer = ""
@@ -275,6 +278,19 @@ class ChatSession:
                 except Exception as e:
                     logger.warning(f"Relationship tracking error: {e}")
 
+                # TODO: Wire self-learning into the agent loop
+                # CorrectionStore: detect user corrections, extract and store them
+                # PreferenceLearner: observe interactions, infer preferences
+                # See backend.core.self_learning for built-but-unwired modules.
+                # Example wiring:
+                #   from backend.core.self_learning.corrections import CorrectionStore
+                #   from backend.core.self_learning.preferences import PreferenceLearner
+                #   cs = CorrectionStore(data_dir=str(DATA_DIR))
+                #   if cs.detect_correction(full_response, text):
+                #       cs.extract_correction(full_response, text)
+                #   pl = PreferenceLearner(data_dir=str(DATA_DIR))
+                #   pl.observe_interaction(text, full_response)
+
             # Final TTS + cleanup
             if this_stream == self.stream_idx:
                 await self.send({"type": "viseme", "value": 0.0})
@@ -307,6 +323,19 @@ class ChatSession:
                 if not chat_msg.get("text"):
                     chat_msg["text"] = full_response
                 await self.send(chat_msg)
+
+                # Record turn metrics (latency, tokens, etc.)
+                try:
+                    _latency_ms = (time.monotonic() - _start) * 1000
+                    _tok_out = len(full_response.split())
+                    record_turn(
+                        token_in=len(text.split()),
+                        token_out=_tok_out,
+                        latency_ms=_latency_ms,
+                        model=settings().get("llm.model", ""),
+                    )
+                except Exception as exc:
+                    logger.debug("Failed to record turn metrics: %s", exc)
 
                 if not tts_scheduler.is_empty:
                     await tts_scheduler.flush(self.ws, this_stream, lambda: self.stream_idx)
@@ -1045,13 +1074,13 @@ class ChatSession:
         if sched:
             session_id = memory().get_current_session()
             sched.register_session(session_id, self.send)
-            # Notify companion that user joined
+            # Notify companion that user joined (fire-and-forget — it sleeps + generates LLM text)
             try:
                 from backend.core.companion.events import CompanionEvent, CompanionEventType
-                await sched.on_event(CompanionEvent(
+                asyncio.create_task(sched.on_event(CompanionEvent(
                     event_type=CompanionEventType.USER_JOINED,
                     data={"session_id": session_id},
-                ))
+                )))
             except Exception as e:
                 logger.debug("Companion USER_JOINED event failed: %s", e)
         try:
@@ -1118,13 +1147,14 @@ class ChatSession:
 
                 elif msg_type == "idle_exit":
                     # User returned from idle — notify companion scheduler
+                    # Fire-and-forget: _on_welcome_back sleeps + generates LLM text
                     sched = companion()
                     if sched:
                         from backend.core.companion.events import CompanionEvent, CompanionEventType
-                        await sched.on_event(CompanionEvent(
+                        asyncio.create_task(sched.on_event(CompanionEvent(
                             event_type=CompanionEventType.IDLE_EXIT,
                             data={"session_id": memory().get_current_session()},
-                        ))
+                        )))
 
                 elif msg_type == "retry_tool":
                     # Retry a failed tool call from the frontend
