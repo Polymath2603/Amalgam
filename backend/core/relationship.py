@@ -135,6 +135,9 @@ class Relationship :
     def _analyze_sentiment(self, text: str) -> float:
         if not text or not text.strip():
             return 0.5
+        # Truncate long text to avoid VADER performance issues with large inputs
+        if len(text) > 10000:
+            text = text[:10000]
         compound = _VADER.polarity_scores(text)["compound"]
         return (compound + 1.0) / 2.0
 
