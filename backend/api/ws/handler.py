@@ -134,6 +134,13 @@ class ChatSession:
         self._main_loop = asyncio.get_running_loop()
         # Wire MCP client for /stats, /approve, /permission slash commands
         self._mcp_client = mcp()
+        # Wire self-learning modules (gracefully degrade if unavailable)
+        try:
+            from backend.core.self_learning.auto_skill import AutoSkillCreator
+            self._auto_skill = AutoSkillCreator()
+        except ImportError as e:
+            logger.warning(f"AutoSkill not available: {e}")
+            self._auto_skill = None
 
     def _track_task(self, t: asyncio.Task):
         """Track a task and register safe cleanup on completion."""
@@ -352,6 +359,7 @@ class ChatSession:
             raise
         except ServiceError as e:
             logger.error(f"Service error in agent loop: {e}")
+            await tts_scheduler.cancel_all()
             try:
                 await self.send({"type": "chat_append", "role": "assistant",
                                 "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})
@@ -361,6 +369,7 @@ class ChatSession:
                 pass
         except Exception as e:
             logger.error(f"Agent error in loop: {e}")
+            await tts_scheduler.cancel_all()
             try:
                 await self.send({"type": "chat_append", "role": "assistant",
                                 "text": f"Error: {_normalize_error(str(e))}", "finished": True, "error": True})

@@ -96,6 +96,13 @@ class OrderedTTSScheduler:
         self._buffer.clear()
         self._next_idx = 0
 
+    async def cancel_all(self) -> None:
+        """Alias for cancel() — cancels all pending TTS tasks and clears buffer.
+
+        Provided for consistent naming across subsystems.
+        """
+        await self.cancel()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

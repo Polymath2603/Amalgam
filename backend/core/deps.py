@@ -97,6 +97,7 @@ def get_shared():
             _shared["companion"] = CompanionScheduler(
                 settings_provider=lambda: _shared["settings"],
                 llm_provider=lambda: _shared["llm"],
+                memory_provider=lambda: _shared["memory"],
             )
         if _shared["agent"] is None:
             agent_type = _shared["settings"].get("agent.type", "reflective_planning")

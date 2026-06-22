@@ -259,6 +259,10 @@ async def batch_set_settings (body :BatchSettingsRequest ):
         logger.warning("Agent does not support update_settings")
     except Exception as e:
         logger.warning(f"Failed to push settings to agent: {e}")
+    # Propagate settings to TTS subsystem
+    tts_obj = tts()
+    if hasattr(tts_obj, 'reload_settings'):
+        tts_obj.reload_settings(s)
     return {"status":"ok","count":len (pairs )}
 
 
