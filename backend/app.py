@@ -188,7 +188,10 @@ def create_app ():
     REPO_CHARS =str (CHARACTERS_DIR )
     @app .get ("/characters/{file_path:path}")
     async def serve_character_asset (file_path :str ):
-        full_path =CHARACTERS_DIR /file_path 
+        # Prevent path traversal: resolve and verify the path stays inside CHARACTERS_DIR
+        full_path =(CHARACTERS_DIR /file_path ).resolve ()
+        if not str (full_path ).startswith (str (CHARACTERS_DIR .resolve ())):
+            return Response (status_code =403 )
         if full_path .exists ()and full_path .is_file ():
             return FileResponse (str (full_path ))
         return Response (status_code =404 )
@@ -236,7 +239,10 @@ def create_app ():
     if index_path .exists ():
         @app .get ("/{path:path}")
         async def serve_webui (path :str ):
-            file_path =WEBUI_DIR /path 
+            # Prevent path traversal: resolve and verify the path stays inside WEBUI_DIR
+            file_path =(WEBUI_DIR /path ).resolve ()
+            if not str (file_path ).startswith (str (WEBUI_DIR .resolve ())):
+                return Response (status_code =403 )
             if file_path .exists ()and file_path .is_file ():
                 return FileResponse (str (file_path ))
             return FileResponse (str (index_path ))

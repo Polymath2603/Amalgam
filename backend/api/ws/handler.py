@@ -616,12 +616,28 @@ class ChatSession:
                 parts = args.strip().split(" ", 1)
                 key = parts[0]
                 val = parts[1] if len(parts) > 1 else None
+                # Allowlist of settings keys that can be modified via slash command
+                _SETTINGS_ALLOWLIST = {
+                    "ui.theme", "ui.language", "ui.font_size", "ui.accent_color",
+                    "ui.thinking_enabled", "ui.voice_input", "ui.voice_output",
+                    "character.active", "character.greeting",
+                    "provider.active", "profile",
+                    "companion.enabled",
+                    "translation.enabled", "translation.source_lang", "translation.target_lang",
+                    "memory.enabled", "memory.context_window", "memory.fact_extraction",
+                    "privacy.metrics_opt_out", "privacy.local_only_mode",
+                }
                 if val:
-                    loop = asyncio.get_running_loop()
-                    s_obj = settings()
-                    await loop.run_in_executor(None, lambda: s_obj.set(key, val))
-                    await self.send({"type": "chat_append", "role": "system",
-                                    "text": f"Setting {key} = {val}", "finished": True})
+                    if key not in _SETTINGS_ALLOWLIST:
+                        await self.send({"type": "chat_append", "role": "system",
+                                        "text": f"Cannot set '{key}' via slash command. Use the Settings UI for provider/credential keys.",
+                                        "finished": True})
+                    else:
+                        loop = asyncio.get_running_loop()
+                        s_obj = settings()
+                        await loop.run_in_executor(None, lambda: s_obj.set(key, val))
+                        await self.send({"type": "chat_append", "role": "system",
+                                        "text": f"Setting {key} = {val}", "finished": True})
                 else:
                     val = settings().get(key, "not set")
                     await self.send({"type": "chat_append", "role": "system",
@@ -743,19 +759,24 @@ class ChatSession:
         elif cmd == "character":
             if args:
                 name = args.strip()
-                from backend.core.paths import CHARACTERS_DIR
-                char_dir = str(CHARACTERS_DIR / name)
-                import os as _os
-                if _os.path.isdir(char_dir):
-                    settings().set("character.active", name)
+                # Sanitize character name: prevent path traversal
+                if '..' in name or '/' in name or '\\' in name or not name.isprintable():
                     await self.send({"type": "chat_append", "role": "system",
-                                    "text": f"Loaded character: {name}", "finished": True})
+                                    "text": f"Invalid character name: '{name}'", "finished": True})
                 else:
-                    chars = [d for d in _os.listdir(str(CHARACTERS_DIR))
-                             if _os.path.isdir(_os.path.join(str(CHARACTERS_DIR), d))]
-                    await self.send({"type": "chat_append", "role": "system",
-                                    "text": f"Character '{name}' not found. Available: {', '.join(chars)}",
-                                    "finished": True})
+                    from backend.core.paths import CHARACTERS_DIR
+                    char_dir = str(CHARACTERS_DIR / name)
+                    import os as _os
+                    if _os.path.isdir(char_dir):
+                        settings().set("character.active", name)
+                        await self.send({"type": "chat_append", "role": "system",
+                                        "text": f"Loaded character: {name}", "finished": True})
+                    else:
+                        chars = [d for d in _os.listdir(str(CHARACTERS_DIR))
+                                 if _os.path.isdir(_os.path.join(str(CHARACTERS_DIR), d))]
+                        await self.send({"type": "chat_append", "role": "system",
+                                        "text": f"Character '{name}' not found. Available: {', '.join(chars)}",
+                                        "finished": True})
             else:
                 current = settings().get("character.active", "none")
                 await self.send({"type": "chat_append", "role": "system",
