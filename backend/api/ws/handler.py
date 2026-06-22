@@ -206,6 +206,7 @@ class ChatSession:
             sentence_buffer = ""
             sentence_idx = 0
             current_emotion = "neutral"
+            tool_calls_in_turn = []
 
             char_id = settings().get("character.active", "default")
             rel_context = await relationship().get_context_string(char_id)
@@ -245,6 +246,15 @@ class ChatSession:
                             continue
                     elif sig_type == '__tool__':
                         await self.send({"type": "tool_call", "text": sig_val})
+                        # Track tool calls for AutoSkillCreator pattern detection
+                        tool_name = sig_val
+                        if isinstance(sig_val, str) and sig_val.startswith("Calling tool: "):
+                            tool_name = sig_val[len("Calling tool: "):]
+                        tool_calls_in_turn.append({
+                            "tool_name": tool_name,
+                            "tool_input": {},
+                            "success": True,
+                        })
                     elif sig_type == '__error__':
                         await self.send({"type": "chat_append", "role": "assistant",
                                         "text": _normalize_error(str(sig_val)), "finished": True, "error": True})
@@ -294,10 +304,9 @@ class ChatSession:
 
                     # AutoSkillCreator: extract skill patterns from complex tool sequences
                     if hasattr(self, '_auto_skill') and self._auto_skill:
-                        # tool_calls tracking not yet wired in this loop; pass empty list
                         asyncio.create_task(self._auto_skill.maybe_create_skill(
                             user_message=text,
-                            tool_calls=[],
+                            tool_calls=tool_calls_in_turn,
                             full_response=full_response,
                         ))
 
