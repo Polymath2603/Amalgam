@@ -5,47 +5,86 @@ Offers:
 - Auto-detection of configured providers from env vars
 - Display helpers for /provider and /model commands
 - Provider metadata (known providers, model lists)
+
+Canonical source for provider metadata:
+  backend/api/routes/setup.py::PROVIDER_CATALOG
+
+When adding a new provider, update the PROVIDER_CATALOG dict in setup.py first.
 """
 import os
 from dataclasses import dataclass, field
 from typing import Optional
 
+# ── Derive provider metadata from the canonical source ──────────────────
+# Uses a lazy import with fallback so that CLI-only usage (without the full
+# backend loaded) still works.  The /api/providers endpoint is the single
+# source of truth; these lists are kept in sync automatically.
+def _load_catalog():
+    """Import PROVIDER_CATALOG from the backend, returning (id_list, model_dict, name_map)."""
+    try:
+        from backend.api.routes.setup import PROVIDER_CATALOG
+        ids = [p["id"] for p in PROVIDER_CATALOG]
+        models = {p["id"]: list(p.get("models") or []) for p in PROVIDER_CATALOG}
+        name_map = {p["id"]: p["name"] for p in PROVIDER_CATALOG}
+        return ids, models, name_map
+    except ImportError:
+        # Fallback: hardcoded data kept in sync with PROVIDER_CATALOG
+        ids = [
+            "gemini", "openai", "anthropic", "groq", "ollama", "openrouter",
+            "deepseek", "siliconflow", "zai", "mistral", "together",
+            "huggingface", "llamacpp", "koboldai", "aws", "gcp",
+            "opencode", "opendev",
+        ]
+        models = {
+            "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
+            "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini"],
+            "anthropic": ["claude-sonnet-4-20250514", "claude-haiku-3-5"],
+            "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b"],
+            "ollama": [],
+            "openrouter": ["meta-llama/llama-3.1-8b-instruct:free"],
+            "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash-free"],
+            "siliconflow": ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"],
+            "zai": ["google/gemma-2-27b-it", "Qwen/QwQ-32B-Preview"],
+            "mistral": ["mistral-small-latest", "mistral-large-latest"],
+            "together": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+            "huggingface": [],
+            "llamacpp": [],
+            "koboldai": [],
+            "aws": [],
+            "gcp": [],
+            "opencode": [],
+            "opendev": [],
+        }
+        name_map = {
+            "gemini": "Google Gemini",
+            "openai": "OpenAI",
+            "chatgpt": "ChatGPT (OpenAI)",
+            "anthropic": "Anthropic",
+            "claude": "Claude (Anthropic)",
+            "groq": "Groq",
+            "ollama": "Ollama (local)",
+            "openrouter": "OpenRouter",
+            "deepseek": "DeepSeek",
+            "siliconflow": "SiliconFlow",
+            "zai": "Z.AI",
+            "mistral": "Mistral AI",
+            "together": "Together AI",
+            "huggingface": "HuggingFace",
+            "llamacpp": "llama.cpp (local)",
+            "koboldai": "KoboldAI (local)",
+            "aws": "AWS Bedrock",
+            "gcp": "GCP Vertex AI",
+            "azure-openai": "Azure OpenAI",
+            "alibaba": "Alibaba Cloud",
+            "opencode": "OpenCode",
+            "opendev": "OpenDev",
+        }
+        return ids, models, name_map
 
-# TODO dedup: KNOWN_PROVIDERS, PROVIDER_MODELS, and resolve_display_name
-# duplicate data from backend/api/routes/setup.py::PROVIDER_CATALOG and
-# webui/js/modules/settings-schema.js.  The /api/providers endpoint is
-# the single source of truth.  When adding a new provider, update the
-# PROVIDER_CATALOG dict in setup.py first, then keep the CLI lists in
-# sync for offline/CLI-only use.
-#
-# ── Known providers and their models ───────────────────────────────────
-KNOWN_PROVIDERS: list[str] = [
-    "gemini", "openai", "anthropic", "groq", "ollama", "openrouter",
-    "deepseek", "siliconflow", "zai", "mistral", "together",
-    "huggingface", "llamacpp", "koboldai", "aws", "gcp",
-    "opencode", "opendev",
-]
+_catalog_ids, _catalog_models, _catalog_names = _load_catalog()
 
-PROVIDER_MODELS: dict[str, list[str]] = {
-    "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
-    "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini"],
-    "anthropic": ["claude-sonnet-4-20250514", "claude-haiku-3-5"],
-    "groq": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "deepseek-r1-distill-llama-70b"],
-    "ollama": [],
-    "openrouter": ["meta-llama/llama-3.1-8b-instruct:free"],
-    "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash-free"],
-    "siliconflow": ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"],
-    "zai": ["google/gemma-2-27b-it", "Qwen/QwQ-32B-Preview"],
-    "mistral": ["mistral-small-latest", "mistral-large-latest"],
-    "together": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],
-    "huggingface": [],
-    "llamacpp": [],
-    "koboldai": [],
-    "aws": [],
-    "gcp": [],
-    "opencode": [],
-    "opendev": [],
-}
+KNOWN_PROVIDERS: list[str] = list(_catalog_ids)
+PROVIDER_MODELS: dict[str, list[str]] = dict(_catalog_models)
 
 
 @dataclass
@@ -172,29 +211,10 @@ def autocomplete_words(settings) -> list[str]:
 
 
 def resolve_display_name(provider_name: str) -> str:
-    """Get a human-readable display name for a provider."""
-    display_map = {
-        "gemini": "Google Gemini",
-        "openai": "OpenAI",
-        "chatgpt": "ChatGPT (OpenAI)",
-        "anthropic": "Anthropic",
-        "claude": "Claude (Anthropic)",
-        "groq": "Groq",
-        "ollama": "Ollama (local)",
-        "openrouter": "OpenRouter",
-        "deepseek": "DeepSeek",
-        "siliconflow": "SiliconFlow",
-        "zai": "Z.AI",
-        "mistral": "Mistral AI",
-        "together": "Together AI",
-        "huggingface": "HuggingFace",
-        "llamacpp": "llama.cpp (local)",
-        "koboldai": "KoboldAI (local)",
-        "aws": "AWS Bedrock",
-        "gcp": "GCP Vertex AI",
-        "azure-openai": "Azure OpenAI",
-        "alibaba": "Alibaba Cloud",
-        "opencode": "OpenCode",
-        "opendev": "OpenDev",
-    }
-    return display_map.get(provider_name, provider_name.title())
+    """Get a human-readable display name for a provider.
+
+    Uses the canonical PROVIDER_CATALOG from backend/api/routes/setup.py
+    (or the fallback map if the backend is not loaded).
+    Falls back to title-cased name if not found.
+    """
+    return _catalog_names.get(provider_name, provider_name.title())
