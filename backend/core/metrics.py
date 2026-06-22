@@ -46,7 +46,7 @@ def _estimate_cost(provider: str, model: str, in_tok: int, out_tok: int) -> floa
                 break
     if not rates:
         return 0.0
-    return round((in_tok / 1_000_000) * rates[0] + (out_tok / 1_000_000) * rates[1], 6)
+    return max(0.0, round((in_tok / 1_000_000) * rates[0] + (out_tok / 1_000_000) * rates[1], 6))
 
 
 @dataclass
