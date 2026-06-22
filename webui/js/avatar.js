@@ -405,21 +405,6 @@ export class AvatarRenderer {
 
         const clip = vrmAnim.createAnimationClip(this.vrm);
 
-        // The idle_loop.vrma file contains a small but persistent rotation
-        // bias on the hips bone (~2-4° on Y-axis) that makes the avatar
-        // face slightly to the right.  Strip the hips position track
-        // (prevents translation drift) and replace the hips rotation track
-        // with an identity quaternion so the root bone is always reset to
-        // forward-facing.  Breathing / swaying motion comes from the
-        // spine / chest / neck bones which are left intact.
-        const hipsNodeName = this.vrm.humanoid?.getNormalizedBoneNode('hips')?.name;
-        const identityQuat = new THREE.QuaternionKeyframeTrack(
-            `${hipsNodeName}.quaternion`, [0, clip.duration], [0, 0, 0, 1, 0, 0, 0, 1]
-        );
-        clip.tracks = clip.tracks.filter(t => !t.name.endsWith('.position')
-            && !(hipsNodeName && t.name === `${hipsNodeName}.quaternion`));
-        clip.tracks.push(identityQuat);
-
         this._idleAction = this._mixer.clipAction(clip);
         this._idleAction.loop = THREE.LoopRepeat;
         this._fadeToAction(this._idleAction, 0.5);
