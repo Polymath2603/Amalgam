@@ -318,6 +318,7 @@ async def synthesize_sentence(sentence_text: str, sentence_idx: int, expected_st
             wav_bytes = numpy_to_wav_bytes(audio_np, sr)
             b64_audio = base64.b64encode(wav_bytes).decode()
             duration = len(audio_np) / sr
+            lipsync_enabled = settings().get("voice.lipsync_enabled", True)
             msg = {
                 "type": "tts_audio",
                 "audio": b64_audio,
@@ -326,7 +327,7 @@ async def synthesize_sentence(sentence_text: str, sentence_idx: int, expected_st
                 "sentence_idx": sentence_idx,
                 "emotion": emotion,
             }
-            if viseme_schedule:
+            if viseme_schedule and lipsync_enabled:
                 msg["viseme_schedule"] = viseme_schedule
             await ws.send_json(msg)
             logger.debug(f"TTS sentence {sentence_idx}: sent {duration:.2f}s audio (emotion={emotion})")
@@ -377,11 +378,12 @@ async def synthesize_now(text: str, ws: WebSocket, emotion: str = "neutral"):
             wav_bytes = numpy_to_wav_bytes(audio_np, sr)
             b64_audio = base64.b64encode(wav_bytes).decode()
             duration = len(audio_np) / sr
+            lipsync_enabled = settings().get("voice.lipsync_enabled", True)
             msg = {
                 "type": "tts_audio", "audio": b64_audio, "format": "wav",
                 "duration": round(duration, 2), "sentence_idx": 0, "emotion": emotion,
             }
-            if viseme_schedule:
+            if viseme_schedule and lipsync_enabled:
                 msg["viseme_schedule"] = viseme_schedule
             await ws.send_json(msg)
             logger.debug(f"Speak TTS: sent {duration:.2f}s audio")
