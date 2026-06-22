@@ -263,6 +263,23 @@ async def batch_set_settings (body :BatchSettingsRequest ):
     tts_obj = tts()
     if hasattr(tts_obj, 'reload_settings'):
         tts_obj.reload_settings(s)
+    # Propagate to voice pipeline if voice/stt/wake_word settings changed
+    voice_keys = [k for k in pairs if k.startswith('voice.') or k.startswith('stt.') or k.startswith('wake_word.')]
+    if voice_keys:
+        try:
+            from backend.voice.pipeline import VoicePipeline
+            logger.debug(f"Voice settings changed: {voice_keys}")
+        except Exception as e:
+            logger.warning(f"Failed to propagate voice settings: {e}")
+    # Propagate to companion
+    companion_keys = [k for k in pairs if k.startswith('companion.')]
+    if companion_keys:
+        try:
+            c = companion()
+            if c and hasattr(c, 'reload_settings'):
+                c.reload_settings(s)
+        except Exception as e:
+            logger.warning(f"Failed to propagate companion settings: {e}")
     return {"status":"ok","count":len (pairs )}
 
 
