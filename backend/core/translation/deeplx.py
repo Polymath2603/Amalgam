@@ -19,6 +19,7 @@ DEFAULT_DEEPLX_URL = "http://localhost:1188/translate"
 async def translate_text(
     text: str,
     target_lang: str = "ZH",
+    source_lang: str = "auto",
     deeplx_url: str = DEFAULT_DEEPLX_URL,
 ) -> str:
     """Translate *text* to *target_lang* via DeepLX.
@@ -26,6 +27,7 @@ async def translate_text(
     Args:
         text: Source text to translate.
         target_lang: Target language code (e.g. "ZH", "JA", "FR").
+        source_lang: Source language code (e.g. "auto", "EN", "ZH").
         deeplx_url: Full URL of the DeepLX translate endpoint.
 
     Returns:
@@ -40,7 +42,7 @@ async def translate_text(
                 deeplx_url,
                 json={
                     "text": text,
-                    "source_lang": "auto",
+                    "source_lang": source_lang,
                     "target_lang": target_lang,
                 },
             )

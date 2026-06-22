@@ -12,7 +12,7 @@ class TranslationService:
         self, text: str, source_lang: str = "auto", target_lang: str = "en"
     ) -> str:
         return await translate_text(
-            text, target_lang=target_lang, deeplx_url=self._url
+            text, target_lang=target_lang, source_lang=source_lang, deeplx_url=self._url
         )
 
 
