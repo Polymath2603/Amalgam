@@ -11,7 +11,8 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from backend.api.deps import settings, memory, tts, agent, relationship, wakeword, mcp, orchestrator, llm, companion
-from backend.api.ws.tts_service import synthesize_sentence, synthesize_now
+from backend.api.ws.tts_service import OrderedTTSScheduler, synthesize_sentence, synthesize_now
+from backend.core.translate import TranslationService
 from backend.core.orchestrator import AgentProtocol
 from pathlib import Path
 from backend.core.paths import CHARACTERS_DIR, PROJECT_ROOT
@@ -146,6 +147,19 @@ class ChatSession:
         except Exception as e:
             logger.warning("WS send failed: %s", e)
 
+    def _get_translation_service(self):
+        """Lazy-init and return a TranslationService (or None if not configured)."""
+        if not hasattr(self, "_translation_service"):
+            self._translation_service = None
+            try:
+                base_url = settings().get("translation.base_url", "http://localhost:1188/translate")
+                if base_url:
+                    from backend.core.translate import TranslationService as _TS
+                    self._translation_service = _TS(base_url=base_url)
+            except Exception as e:
+                logger.warning("Failed to init TranslationService: %s", e)
+        return self._translation_service
+
     async def cancel_assistant(self):
         if self.current_task and not self.current_task.done():
             # Cancel all pending TTS tasks for this stream
@@ -172,7 +186,7 @@ class ChatSession:
         await self.send({"type": "emotion", "emotion": "neutral"})
         await self.send({"type": "expression", "expression": "neutral"})
 
-        tts_tasks = []
+        tts_scheduler = OrderedTTSScheduler(translation_service=self._get_translation_service())
         try:
             full_response = ""
             sentence_buffer = ""
@@ -245,11 +259,9 @@ class ChatSession:
                         sentence_buffer = ' '.join(parts[1:])
                         if complete:
                             await self.send({"type": "voice_state", "state": "speaking"})
-                            t = asyncio.create_task(synthesize_sentence(
-                                complete, sentence_idx, this_stream, self.stream_idx,
-                                self.ws, current_emotion))
-                            self._track_task(t)
-                            tts_tasks.append(t)
+                            await tts_scheduler.submit(
+                                sentence_idx, complete, current_emotion,
+                                self.ws, this_stream, lambda: self.stream_idx)
                             sentence_idx += 1
 
             # Post-stream: relationship tracking
@@ -265,25 +277,41 @@ class ChatSession:
                 await self.send({"type": "viseme", "value": 0.0})
                 if self.voice_output_enabled and sentence_buffer.strip():
                     await self.send({"type": "voice_state", "state": "speaking"})
-                    t = asyncio.create_task(synthesize_sentence(
-                        sentence_buffer.strip(), sentence_idx, this_stream,
-                        self.stream_idx, self.ws, current_emotion))
-                    self._track_task(t)
-                    tts_tasks.append(t)
+                    await tts_scheduler.submit(
+                        sentence_idx, sentence_buffer.strip(), current_emotion,
+                        self.ws, this_stream, lambda: self.stream_idx)
 
                 await self.send({"type": "emotion", "emotion": "neutral"})
                 await self.send({"type": "expression", "expression": "neutral"})
-                await self.send({"type": "chat_append", "role": "assistant", "text": "", "finished": True})
 
-                if tts_tasks:
-                    await asyncio.gather(*tts_tasks, return_exceptions=True)
+                # Optional full-response translation for display
+                chat_msg = {"type": "chat_append", "role": "assistant", "text": "", "finished": True}
+                if full_response.strip() and this_stream == self.stream_idx:
+                    trans_svc = self._get_translation_service()
+                    trans_enabled = settings().get("translation.enabled", False)
+                    if trans_svc and trans_enabled:
+                        try:
+                            source = settings().get("translation.source_lang", "auto")
+                            target = settings().get("translation.target_lang", "en")
+                            translated = await trans_svc.translate(
+                                full_response, source_lang=source, target_lang=target
+                            )
+                            if translated and translated != full_response:
+                                chat_msg["text"] = translated
+                                chat_msg["original_text"] = full_response
+                        except Exception as exc:
+                            logger.warning("Full response translation failed: %s", exc)
+                if not chat_msg.get("text"):
+                    chat_msg["text"] = full_response
+                await self.send(chat_msg)
+
+                if not tts_scheduler.is_empty:
+                    await tts_scheduler.flush(self.ws, this_stream, lambda: self.stream_idx)
                     if this_stream == self.stream_idx:
                         await self.send({"type": "voice_state", "state": "idle"})
 
         except asyncio.CancelledError:
-            for t in tts_tasks:
-                if not t.done():
-                    t.cancel()
+            await tts_scheduler.cancel()
             try:
                 await self.send({"type": "voice_state", "state": "idle"})
             except Exception:
@@ -360,6 +388,63 @@ class ChatSession:
                 await self.send({"type": "voice_state", "state": "speaking"})
                 t = asyncio.create_task(synthesize_now(speak_text, self.ws))
                 self._track_task(t)
+        elif cmd == "typing":
+            # Frontend typing indicator — acknowledge to prevent silent fall-through
+            pass
+        elif cmd == "stop_typing":
+            # Frontend stop-typing indicator — acknowledge to prevent silent fall-through
+            pass
+        elif cmd == "mcp_config_update":
+            await self._handle_mcp_config_update(data)
+
+    async def _handle_mcp_config_update(self, data: dict):
+        """Handle MCP server configuration update from the frontend."""
+        try:
+            args_raw = data.get("args", "[]")
+            if isinstance(args_raw, str):
+                updates = json.loads(args_raw)
+            else:
+                updates = args_raw
+
+            mcp_client = mcp()
+            if not mcp_client:
+                await self.send({"type": "mcp_config_updated", "error": "MCP client not available"})
+                return
+
+            s = settings()
+            current_servers = s.get_mcp_servers()
+            current_by_name = {sv["name"]: sv for sv in current_servers}
+
+            for update in updates:
+                name = update.get("name")
+                enabled = update.get("enabled", False)
+                if not name:
+                    continue
+
+                if name in current_by_name:
+                    current_by_name[name]["enabled"] = enabled
+
+                    # Disconnect if now disabled
+                    if not enabled and name in mcp_client.sessions:
+                        await mcp_client._close_server(name)
+                        await self.send({"type": "mcp_server_disconnected", "server": name})
+                        logger.info(f"MCP server '{name}' disconnected via config update")
+                    # Connect if now enabled and not already connected
+                    elif enabled and name not in mcp_client.sessions:
+                        config = current_by_name[name]
+                        await mcp_client._connect_from_config(name, config)
+                        await self.send({"type": "mcp_server_connected", "server": name})
+                        logger.info(f"MCP server '{name}' connected via config update")
+
+            # Persist updated settings
+            s.set("mcp.servers", current_servers)
+            await self.send({"type": "mcp_config_updated"})
+        except json.JSONDecodeError as e:
+            logger.error(f"MCP config update: JSON parse error: {e}")
+            await self.send({"type": "mcp_config_updated", "error": f"Invalid JSON: {e}"})
+        except Exception as e:
+            logger.error(f"MCP config update failed: {e}")
+            await self.send({"type": "mcp_config_updated", "error": str(e)})
 
     async def _voice_input_on(self):
         stt_engine = settings().get("voice.stt_engine", "faster-whisper")
@@ -607,10 +692,9 @@ class ChatSession:
                             "text": "Thinking display toggled.", "finished": True})
         elif cmd == "companion":
             try:
-                voice_on = settings().get("voice.input_enabled", False)
-                settings().set("voice.input_enabled", not voice_on)
-                settings().set("voice.output_enabled", not voice_on)
-                state = "ON" if not voice_on else "OFF"
+                companion_enabled = settings().get("companion.enabled", False)
+                settings().set("companion.enabled", not companion_enabled)
+                state = "ON" if not companion_enabled else "OFF"
                 await self.send({"type": "chat_append", "role": "system",
                                 "text": f"Companion mode {state}", "finished": True})
             except Exception as e:
@@ -1008,6 +1092,32 @@ class ChatSession:
                             event_type=CompanionEventType.IDLE_EXIT,
                             data={"session_id": memory().get_current_session()},
                         ))
+
+                elif msg_type == "retry_tool":
+                    # Retry a failed tool call from the frontend
+                    tool_name = data.get("tool", "")
+                    tool_args = data.get("args", {})
+                    if tool_name:
+                        try:
+                            mcp_client = mcp()
+                            if mcp_client:
+                                result = await mcp_client.call_tool(tool_name, tool_args)
+                            else:
+                                result = "No MCP client available"
+                            await self.send({
+                                "type": "tool_result",
+                                "tool_name": tool_name,
+                                "result": result,
+                                "error": None,
+                            })
+                        except Exception as e:
+                            logger.warning(f"Tool retry '{tool_name}' failed: {e}")
+                            await self.send({
+                                "type": "tool_result",
+                                "tool_name": tool_name,
+                                "result": None,
+                                "error": str(e),
+                            })
 
         except WebSocketDisconnect:
             logger.warning("Chat WebSocket disconnected")

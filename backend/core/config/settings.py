@@ -393,6 +393,12 @@ DEFAULTS ={
 "context_strategy":"full",
 "sliding_window_size":20
 },
+"translation":{
+"enabled":False,
+"source_lang":"auto",
+"target_lang":"ZH",
+"base_url":"http://localhost:1188/translate"
+},
 "memory":{
 "enabled":True ,
 "retrieval_k":3,

@@ -121,6 +121,24 @@ def get_shared():
                 )
             # Register sub-agent spawner via callable to avoid circular dependency
             mcp_client.register_subagent_spawner(_shared["agent"].spawn_subagent)
+    if _shared.get("characters_dir") is None:
+        from backend.core.paths import CHARACTERS_DIR as _C
+        _shared["characters_dir"] = _C
+    if _shared.get("health_registry") is None:
+        from backend.core.health import get_registry as _gr
+        _shared["health_registry"] = _gr()
+    if _shared.get("metrics_collector") is None:
+        from backend.core.metrics import get_collector as _gc
+        _shared["metrics_collector"] = _gc()
+    if _shared.get("switch_profile") is None:
+        from backend.core.config.settings import switch_profile as _sp
+        _shared["switch_profile"] = _sp
+    if _shared.get("known_providers") is None:
+        from cli.provider import KNOWN_PROVIDERS as _kp
+        _shared["known_providers"] = _kp
+    if _shared.get("provider_models") is None:
+        from cli.provider import PROVIDER_MODELS as _pm
+        _shared["provider_models"] = _pm
     return _shared
 
 
@@ -138,3 +156,9 @@ def wakeword(): return get_shared()["wakeword"]
 def strategy_selector(): return get_shared()["strategy_selector"]
 def orchestrator(): return get_shared()["orchestrator"]
 def companion(): return get_shared()["companion"]
+def characters_dir(): return get_shared()["characters_dir"]
+def health_registry(): return get_shared()["health_registry"]
+def metrics_collector(): return get_shared()["metrics_collector"]
+def switch_profile_func(): return get_shared()["switch_profile"]
+def known_providers(): return get_shared()["known_providers"]
+def provider_models(): return get_shared()["provider_models"]

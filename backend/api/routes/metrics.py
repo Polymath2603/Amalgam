@@ -9,6 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 from backend.core.deps import get_shared
+from backend.core.deprecated import deprecated
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ async def get_turns(limit: int = 50):
 
 
 @router.get("/api/metrics/tool-stats")
+@deprecated()
 async def get_tool_stats(tool: Optional[str] = None):
     """Return tool analytics aggregated stats."""
     client = get_shared()["mcp"]

@@ -13,7 +13,8 @@ from backend .api .deps import settings ,llm ,tts
 from backend .core .config .settings import BUILTIN_VOICES 
 from backend .core .llm import LLMRouter 
 from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT ,DATA_DIR 
-from backend .core .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE 
+from backend .core .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE
+from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["characters"])
@@ -26,6 +27,7 @@ async def get_characters ():
 
 
 @router .get ("/api/characters/{character_id}")
+@deprecated()
 async def get_character (character_id :str ):
     """Get a specific character's definition."""
     chars =settings ().get_characters ()
@@ -45,6 +47,7 @@ def _list_anim_files (base_dir :Path )->list :
     return result 
 
 @router .get ("/api/animations")
+@deprecated()
 async def get_animations (char_id :str =None ):
     """Return available VRMA animation files."""
     animations ={"default":[],"character":[]}
@@ -78,11 +81,13 @@ async def get_animations (char_id :str =None ):
 
 
 @router .get ("/api/emotions")
+@deprecated()
 async def get_emotions ():
     return {"emotions":tts ().get_supported_emotions ()}
 
 
 @router .get ("/api/expressions")
+@deprecated()
 async def get_expressions (char_id :str =None ):
     from backend .core .context_builder import VRM_EXPRESSIONS 
     exprs =list (VRM_EXPRESSIONS )
@@ -90,17 +95,20 @@ async def get_expressions (char_id :str =None ):
 
 
 @router .get ("/api/voices")
+@deprecated()
 async def get_voices ():
     return BUILTIN_VOICES 
 
 
 @router .get ("/api/models/ollama")
+@deprecated()
 async def get_ollama_models ():
     models =await llm ().fetch_ollama_models ()
     return {"models":models }
 
 
 @router .get ("/api/models/gemini")
+@deprecated()
 async def get_gemini_models ():
     models =await llm ().fetch_gemini_models ()
     return {"models":models }

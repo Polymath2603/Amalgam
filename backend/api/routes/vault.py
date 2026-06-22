@@ -4,10 +4,11 @@ Vault / rules API routes.
 import os 
 import logging 
 
-from fastapi import APIRouter 
+from fastapi import APIRouter
 from pydantic import BaseModel
-from backend .api .deps import settings ,vault ,llm 
-from backend .core .paths import VAULT_DIR 
+from backend .api .deps import settings ,vault ,llm
+from backend .core .paths import VAULT_DIR
+from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["vault"])
@@ -22,23 +23,27 @@ class VaultFileWriteRequest(BaseModel):
 
 
 @router .get ("/api/rules")
+@deprecated()
 async def get_rules ():
     content =vault ().read ("rules.md")
     return {"content":content or ""}
 
 
 @router .post ("/api/rules")
+@deprecated()
 async def save_rules (body :RulesSaveRequest ):
     vault ().write ("rules.md",body .content)
     return {"status":"ok"}
 
 
 @router .get ("/api/vault/files")
+@deprecated()
 async def list_vault_files ():
     return {"files":vault ().list_files ()}
 
 
 @router .get ("/api/vault/files/{filename}")
+@deprecated()
 async def read_vault_file (filename :str ):
     content =vault ().read (filename )
     if content is None :
@@ -47,18 +52,21 @@ async def read_vault_file (filename :str ):
 
 
 @router .post ("/api/vault/files/{filename}")
+@deprecated()
 async def write_vault_file (filename :str ,body :VaultFileWriteRequest ):
     ok =vault ().write (filename ,body .content)
     return {"status":"ok"if ok else "error"}
 
 
 @router .delete ("/api/vault/files/{filename}")
+@deprecated()
 async def delete_vault_file (filename :str ):
     ok =vault ().delete (filename )
     return {"status":"ok"if ok else "error"}
 
 
 @router .get ("/api/vault/search")
+@deprecated()
 async def search_vault (q :str ="",mode :str ="keyword",max_results :int =5 ):
     """Search vault files.
 

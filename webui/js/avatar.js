@@ -14,6 +14,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { IS_TAURI, BASE_URL } from './modules/config.js';
+import { showToast, escHtml } from './modules/utils.js';
 
 import { loadVRMAnimation } from './vrm-animation.js';
 import { AdaptiveLipsyncManager } from './adaptive-lipsync.js';
@@ -26,6 +27,7 @@ try {
     console.warn('[Avatar] AdvancedLipSync not available, using standard lipsync:', e.message);
 }
 import { IdleManager } from './idle-manager.js';
+import { AnimationManager, ANIM_PRIORITY } from './animation-manager.js';
 
 /**
  * Emotion → candidate VRM expression names (in priority order).
@@ -112,12 +114,20 @@ export class AvatarRenderer {
         this._yawDamped = 0;
         this._pitchDamped = 0;
 
+        // Breathing animation
+        this._breathingEnabled = true;
+        this._breathingPhase = Math.random() * Math.PI * 2;
+        this._breathingAmplitude = 0.003;
+        this._breathingSpeed = 1.5;
+
         this._mixer = null;
         this._currentAction = null;
         this._idleAction = null;
         this._animationQueue = [];
 
-        
+        this._animManager = new AnimationManager(this);
+
+
         this._lookAtFallback = false;
 
         
@@ -220,6 +230,9 @@ export class AvatarRenderer {
         this._animate();
         if (this._hitAreaEnabled) {
             this._setupHitAreas();
+        }
+        if (!this.preview) {
+            this._setupDragAndDrop();
         }
     }
 
@@ -351,6 +364,12 @@ export class AvatarRenderer {
                     console.warn('VRMA animations not available, using procedural idle:', e);
                 }
 
+
+                this._animManager.init(vrm, this._mixer);
+                this._animManager.onFinish = () => {
+                    if (this._idleAction) this._fadeToAction(this._idleAction, 0.5);
+                };
+
                 if (this._hitAreaEnabled) {
                     this._startIdleBehaviorLoop();
                 }
@@ -385,6 +404,21 @@ export class AvatarRenderer {
         if (!vrmAnim || !this.vrm || !this._mixer) return;
 
         const clip = vrmAnim.createAnimationClip(this.vrm);
+
+        // The idle_loop.vrma file contains a small but persistent rotation
+        // bias on the hips bone (~2-4° on Y-axis) that makes the avatar
+        // face slightly to the right.  Strip the hips position track
+        // (prevents translation drift) and replace the hips rotation track
+        // with an identity quaternion so the root bone is always reset to
+        // forward-facing.  Breathing / swaying motion comes from the
+        // spine / chest / neck bones which are left intact.
+        const hipsNodeName = this.vrm.humanoid?.getNormalizedBoneNode('hips')?.name;
+        const identityQuat = new THREE.QuaternionKeyframeTrack(
+            `${hipsNodeName}.quaternion`, [0, clip.duration], [0, 0, 0, 1, 0, 0, 0, 1]
+        );
+        clip.tracks = clip.tracks.filter(t => !t.name.endsWith('.position')
+            && !(hipsNodeName && t.name === `${hipsNodeName}.quaternion`));
+        clip.tracks.push(identityQuat);
 
         this._idleAction = this._mixer.clipAction(clip);
         this._idleAction.loop = THREE.LoopRepeat;
@@ -616,18 +650,23 @@ export class AvatarRenderer {
             
             this._updateSaccade(delta);
 
-            
+
             if (this._mixer) {
                 this._mixer.update(delta);
             }
 
-            
+            this._animManager.update(delta);
+
+
             this._applyLookAtFallback();
 
             
             this.vrm.update(delta);
 
-            
+            // Subtle breathing animation
+            this._applyBreathing(delta);
+
+
             const screenPos = this.getHeadScreenPosition();
             this._lastHeadScreenPos = screenPos;
             if (screenPos && this._headPositionListeners.length) {
@@ -736,7 +775,28 @@ export class AvatarRenderer {
         }
     }
 
-    
+    /**
+     * Apply subtle breathing animation using sine-wave on spine/chest/upperChest bones.
+     */
+    _applyBreathing(delta) {
+        if (!this.vrm?.humanoid || !this._breathingEnabled) return;
+        this._breathingPhase += delta * this._breathingSpeed;
+        const breath = Math.sin(this._breathingPhase) * this._breathingAmplitude;
+        const boneConfigs = [
+            ['spine', 1.0],
+            ['chest', 0.7],
+            ['upperChest', 0.4],
+        ];
+        const rotation = new THREE.Quaternion();
+        for (const [name, weight] of boneConfigs) {
+            const bone = this.vrm.humanoid.getNormalizedBoneNode(name);
+            if (!bone) continue;
+            rotation.setFromEuler(new THREE.Euler(breath * weight, 0, 0));
+            bone.quaternion.multiply(rotation);
+        }
+    }
+
+
     _applyLookAtFallback() {
         if (!this._lookAtFallback || !this.vrm?.humanoid || !this._saccadeTarget) return;
 
@@ -822,6 +882,42 @@ export class AvatarRenderer {
         if (EXPRESSION_NAMES.includes(name)) {
             this._targetExpressions[name] = 1.0;
         }
+    }
+
+    /* ── Animation convenience methods ───────────────────────────── */
+
+    /**
+     * Play a greeting (wave) animation.
+     * HIGH priority — interrupts other non-idle animations.
+     * Emotion is set to 'happy' during the gesture.
+     */
+    playGreeting() {
+        this.setEmotion('happy');
+        this._animManager.play('greeting', { priority: ANIM_PRIORITY.HIGH });
+    }
+
+    /** Play a nod animation (head pitch down-and-back). */
+    playNod() {
+        this._animManager.play('nod', { priority: ANIM_PRIORITY.NORMAL });
+    }
+
+    /**
+     * Play a thinking pose (head tilt + lean forward).
+     * Emotion is set to 'thinking' during the gesture.
+     */
+    playThinking() {
+        this.setEmotion('thinking');
+        this._animManager.play('thinking', { priority: ANIM_PRIORITY.NORMAL });
+    }
+
+    /**
+     * Play an excited animation (bounce + torso rock).
+     * HIGH priority — interrupts other non-idle animations.
+     * Emotion is set to 'excited' during the gesture.
+     */
+    playExcited() {
+        this.setEmotion('excited');
+        this._animManager.play('excited', { priority: ANIM_PRIORITY.HIGH });
     }
 
     /**
@@ -969,6 +1065,96 @@ export class AvatarRenderer {
         canvas.addEventListener('touchend', () => {
             this._touchLookTarget = null;
         }, { passive: true });
+    }
+
+    _setupDragAndDrop() {
+        const canvas = this.renderer.domElement;
+        const container = this.container;
+
+        // Create the drop zone overlay
+        this._dropOverlay = document.createElement('div');
+        this._dropOverlay.innerHTML = `
+            <div class="vrm-drop-indicator" style="text-align:center;pointer-events:none">
+                <span class="material-icons-round" style="font-size:3rem;display:block;margin-bottom:0.5rem">file_download</span>
+                Drop VRM file here
+            </div>
+        `;
+        Object.assign(this._dropOverlay.style, {
+            position: 'absolute',
+            top: '0',
+            left: '0',
+            width: '100%',
+            height: '100%',
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.55)',
+            border: '3px dashed var(--accent, #6c5ce7)',
+            color: '#fff',
+            fontSize: '1.1rem',
+            zIndex: '10',
+            pointerEvents: 'none',
+            boxSizing: 'border-box',
+            fontFamily: 'system-ui, sans-serif',
+            borderRadius: 'inherit',
+        });
+        container.appendChild(this._dropOverlay);
+
+        // Bind handlers for cleanup
+        this._boundDragOver = (e) => this._onDragOver(e);
+        this._boundDragLeave = (e) => this._onDragLeave(e);
+        this._boundDrop = (e) => this._onDrop(e);
+
+        canvas.addEventListener('dragover', this._boundDragOver);
+        canvas.addEventListener('dragleave', this._boundDragLeave);
+        canvas.addEventListener('drop', this._boundDrop);
+    }
+
+    _onDragOver(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+        this._showDropOverlay();
+    }
+
+    _onDragLeave(e) {
+        // Only hide when truly leaving the canvas area, not entering child elements
+        if (!this.renderer.domElement.contains(e.relatedTarget)) {
+            this._hideDropOverlay();
+        }
+    }
+
+    _onDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this._hideDropOverlay();
+
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+
+        const file = files[0];
+        if (!file.name.toLowerCase().endsWith('.vrm')) {
+            showToast('Please drop a .vrm file', 'warning', { suggestion: 'The dropped file must have a .vrm extension' });
+            return;
+        }
+
+        const url = URL.createObjectURL(file);
+        showToast(`Loading VRM: ${escHtml(file.name)}`, 'info');
+        this.loadVRM(url);
+    }
+
+    _showDropOverlay() {
+        if (this._dropOverlay) {
+            this._dropOverlay.style.display = 'flex';
+        }
+    }
+
+    _hideDropOverlay() {
+        if (this._dropOverlay) {
+            this._dropOverlay.style.display = 'none';
+        }
     }
 
     _onCanvasClick(event) {
@@ -1166,6 +1352,19 @@ export class AvatarRenderer {
             this._boundTouchHandler = null;
         }
         this._touchLookTarget = null;
+        // Remove drag-and-drop listeners and overlay
+        if (this._boundDragOver && this.renderer) {
+            this.renderer.domElement.removeEventListener('dragover', this._boundDragOver);
+            this.renderer.domElement.removeEventListener('dragleave', this._boundDragLeave);
+            this.renderer.domElement.removeEventListener('drop', this._boundDrop);
+            this._boundDragOver = null;
+            this._boundDragLeave = null;
+            this._boundDrop = null;
+        }
+        if (this._dropOverlay && this._dropOverlay.parentNode) {
+            this._dropOverlay.parentNode.removeChild(this._dropOverlay);
+            this._dropOverlay = null;
+        }
         // Clear emotion timer
         if (this._emotionTimer) {
             clearTimeout(this._emotionTimer);
@@ -1191,6 +1390,11 @@ export class AvatarRenderer {
         if (this._idleBehaviorTimer) {
             clearTimeout(this._idleBehaviorTimer);
             this._idleBehaviorTimer = null;
+        }
+        // Destroy animation manager
+        if (this._animManager) {
+            this._animManager.destroy();
+            this._animManager = null;
         }
         // Clean up lip-sync manager
         if (this._lipsyncManager) {

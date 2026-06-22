@@ -1091,8 +1091,8 @@ class AmalgamTUI(App):
                     # is already typed, hide dropdown so Enter executes the command.
                     prov_prefix = after[len(subcmd):].strip()
                     if subcmd == "add":
-                        from cli.provider import KNOWN_PROVIDERS
-                        items = [(p, "") for p in KNOWN_PROVIDERS]
+                        from backend.core.deps import get_shared
+                        items = [(p, "") for p in get_shared()["known_providers"]]
                     else:  # set, rm
                         providers = get_detected_providers(self._settings)
                         items = [(p, "") for p in providers]
@@ -1108,7 +1108,8 @@ class AmalgamTUI(App):
                 else:
                     # Check if the user typed a provider name directly
                     # (legacy /provider <name> without subcommand).
-                    from cli.provider import KNOWN_PROVIDERS
+                    from backend.core.deps import get_shared
+                    _providers = get_shared()["known_providers"]
                     after_lower = after.strip().lower()
                     if after_lower and after_lower not in ("add", "set", "rm"):
                         # Only hide if it looks like a provider name
@@ -1144,10 +1145,11 @@ class AmalgamTUI(App):
 
                 # Fallback to hardcoded list
                 if not items:
-                    from cli.provider import PROVIDER_MODELS
+                    from backend.core.deps import get_shared
+                    models_map = get_shared()["provider_models"]
                     _rev_map = {"chatgpt": "openai", "claude": "anthropic"}
                     model_key = _rev_map.get(active_provider, active_provider)
-                    models = get_models_for_provider(self._settings, model_key) or PROVIDER_MODELS.get(model_key, [])
+                    models = get_models_for_provider(self._settings, model_key) or models_map.get(model_key, [])
                     items = [(m, "") for m in models]
 
                 if not items:
@@ -1215,11 +1217,12 @@ class AmalgamTUI(App):
                 if self._settings:
                     chars = get_detected_providers(self._settings)
                 try:
-                    from backend.core.paths import CHARACTERS_DIR
+                    from backend.core.deps import get_shared
+                    chars_dir = get_shared()["characters_dir"]
                     import os
-                    if os.path.isdir(str(CHARACTERS_DIR)):
-                        for d in sorted(os.listdir(str(CHARACTERS_DIR))):
-                            if os.path.isdir(os.path.join(str(CHARACTERS_DIR), d)):
+                    if os.path.isdir(str(chars_dir)):
+                        for d in sorted(os.listdir(str(chars_dir))):
+                            if os.path.isdir(os.path.join(str(chars_dir), d)):
                                 char_items.append((d, ""))
                 except Exception:
                     pass
@@ -1363,8 +1366,9 @@ class AmalgamTUI(App):
                 current = self._model() or "?"
                 p = self._prov() or "?"
                 try:
-                    from cli.provider import PROVIDER_MODELS
-                    known = PROVIDER_MODELS.get(p, [])
+                    from backend.core.deps import get_shared
+                    known_models = get_shared()["provider_models"]
+                    known = known_models.get(p, [])
                     if known:
                         self._log_system(f"Current model ({p}): {current}\nKnown: {', '.join(known)}")
                     else:
@@ -1448,9 +1452,10 @@ class AmalgamTUI(App):
                 self._log_error(f"Unknown command: {text}")
 
     def _set_provider(self, name: str) -> None:
-        from cli.provider import KNOWN_PROVIDERS
-        if name not in KNOWN_PROVIDERS:
-            fuzzy = [p for p in KNOWN_PROVIDERS if p.startswith(name.lower())]
+        from backend.core.deps import get_shared
+        _known_providers = get_shared()["known_providers"]
+        if name not in _known_providers:
+            fuzzy = [p for p in _known_providers if p.startswith(name.lower())]
             hint = f" — try {fuzzy[0]}?" if fuzzy else ""
             self._log_error(f"Unknown provider: {name}{hint}")
             return
@@ -1471,9 +1476,10 @@ class AmalgamTUI(App):
 
     def _handle_provider_key(self, action: str, name: str) -> None:
         """Handle /provider add|set|rm <name>."""
-        from cli.provider import KNOWN_PROVIDERS
-        if name not in KNOWN_PROVIDERS:
-            fuzzy = [p for p in KNOWN_PROVIDERS if p.startswith(name)]
+        from backend.core.deps import get_shared
+        _known_providers = get_shared()["known_providers"]
+        if name not in _known_providers:
+            fuzzy = [p for p in _known_providers if p.startswith(name)]
             hint = f" — try {fuzzy[0]}?" if fuzzy else ""
             self._log_error(f"Unknown provider: {name}{hint}")
             return
@@ -1537,8 +1543,8 @@ class AmalgamTUI(App):
 
     async def _do_health_checks(self) -> None:
         try:
-            from backend.core.health import get_registry
-            registry = get_registry()
+            from backend.core.deps import get_shared
+            registry = get_shared()["health_registry"]
             results = await registry.check_all()
             if results:
                 tbl = Table(box=box.SIMPLE, show_header=True, style=_DIM,
@@ -1633,8 +1639,8 @@ class AmalgamTUI(App):
 
     async def _do_stats(self) -> None:
         try:
-            from backend.core.metrics import get_collector
-            collector = get_collector()
+            from backend.core.deps import get_shared
+            collector = get_shared()["metrics_collector"]
             r = await collector.report(days=7)
             tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
             tbl.add_column("", style=_CYAN)
@@ -1679,15 +1685,16 @@ class AmalgamTUI(App):
             if len(parts) > 1:
                 name = parts[1].strip()
                 try:
-                    from backend.core.paths import CHARACTERS_DIR
-                    char_dir = str(CHARACTERS_DIR / name)
+                    from backend.core.deps import get_shared
+                    chars_dir = get_shared()["characters_dir"]
+                    char_dir = str(chars_dir / name)
                     import os
                     if os.path.isdir(char_dir):
                         self._settings.set("character.active", name)
                         self._log_system(f"Character → {name}")
                     else:
-                        chars = [d for d in os.listdir(str(CHARACTERS_DIR))
-                                 if os.path.isdir(os.path.join(str(CHARACTERS_DIR), d))]
+                        chars = [d for d in os.listdir(str(chars_dir))
+                                 if os.path.isdir(os.path.join(str(chars_dir), d))]
                         self._log_error(f"Character '{name}' not found. Available: {', '.join(chars)}")
                 except Exception as e:
                     self._log_error(f"Character error: {e}")
@@ -1711,8 +1718,8 @@ class AmalgamTUI(App):
                     self._log_error(f"Invalid profile: {name}. Valid: {', '.join(sorted(_valid))}")
                     return
                 try:
-                    from backend.core.config.settings import switch_profile
-                    switch_profile(name)
+                    from backend.core.deps import get_shared
+                    get_shared()["switch_profile"](name)
                     self._update_header()
                     self._log_system(f"Profile → {name}")
                 except ValueError as e:

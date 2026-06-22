@@ -16,6 +16,7 @@ import logging
 
 from backend.api.deps import settings as get_settings
 from backend.core.health import get_registry
+from backend.core.deprecated import deprecated
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/setup")
@@ -52,6 +53,7 @@ PROVIDER_CATALOG = [
     {"id": "mistral",          "name": "Mistral",                      "has_free_tier": False, "needs_api_key: "REDACTED"],             "api_key_hint": "starts with Ux... or u... (32 chars)"},
     {"id": "together",         "name": "Together AI",                  "has_free_tier": False, "needs_api_key": True,  "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "models": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],      "api_key_hint": "starts with t1v... or 8x... (40+ chars)"},
     {"id": "opencode",         "name": "OpenCode",                      "has_free_tier": False, "needs_api_key: "REDACTED", "models": [],                     "api_key_hint": "starts with sk- (32+ chars)"},
+    {"id": "opendev",          "name": "OpenDev",                       "has_free_tier": False, "needs_api_key": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "starts with sk- (32+ chars)"},
     {"id": "ollama",           "name": "Ollama (Local)",               "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
     {"id": "llamacpp",         "name": "llama.cpp (Local)",            "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
     {"id": "koboldai",         "name": "KoboldAI (Local)",             "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
@@ -130,6 +132,7 @@ async def list_providers():
             "aws": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
             "gcp": ["GCP_SERVICE_ACCOUNT_JSON"],
             "opencode": ["OPENCODE_API_KEY"],
+            "opendev": ["OPENDEV_API_KEY"],
         }
 
         for p in PROVIDER_CATALOG:
@@ -294,6 +297,7 @@ async def setup_step3(req: Step3Request):
 
 
 @router.post("/save")
+@deprecated()
 async def save_setup(body: dict):
     """Save initial provider configuration from the setup wizard."""
     provider = body.get("provider", "gemini")

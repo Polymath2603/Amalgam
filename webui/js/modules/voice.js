@@ -2,6 +2,7 @@
  * voice.js — Voice input/output management
  */
 import { BASE_URL } from './config.js';
+import { api } from './api-client.js';
 import { showToast, _getNestedValue } from './utils.js';
 import {
     getVoiceInputEnabled, setVoiceInputEnabled,
@@ -153,11 +154,11 @@ export function _applyVoiceInput(enabled, { persist = false, toast = false } = {
         ws.send(JSON.stringify({ type: 'command', command: enabled ? 'voice_input_on' : 'voice_input_off' }));
     }
     if (persist) {
-        fetch(BASE_URL + '/api/settings/set', {
+        api(BASE_URL + '/api/settings/set', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: 'ui.voice_input', value: enabled })
-        }).catch(() => {});
+        });
     }
     if (toast) showToast(enabled ? 'Voice input on' : 'Voice input off');
 }
@@ -176,11 +177,11 @@ export function _applyVoiceOutput(enabled, { persist = false, toast = false } = 
         ws.send(JSON.stringify({ type: 'command', command: enabled ? 'voice_output_on' : 'voice_output_off' }));
     }
     if (persist) {
-        fetch(BASE_URL + '/api/settings/set', {
+        api(BASE_URL + '/api/settings/set', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: 'ui.voice_output', value: enabled })
-        }).catch(() => {});
+        });
     }
     if (toast) showToast(enabled ? 'Voice output on' : 'Voice output off');
 }

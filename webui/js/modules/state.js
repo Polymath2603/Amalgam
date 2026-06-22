@@ -57,6 +57,19 @@ export function setVoiceInputEnabled(v) { _voiceInputEnabled = v; }
 export function getVoiceOutputEnabled() { return _voiceOutputEnabled; }
 export function setVoiceOutputEnabled(v) { _voiceOutputEnabled = v; }
 
+// --- Server info (from server_hello) ---
+let _serverCapabilities = null;
+let _serverPlatform = null;
+export function getServerCapabilities() { return _serverCapabilities; }
+export function setServerCapabilities(v) { _serverCapabilities = v; }
+export function getServerPlatform() { return _serverPlatform; }
+export function setServerPlatform(v) { _serverPlatform = v; }
+
+// --- Wake word ---
+let _wakeWordEnabled = false;
+export function getWakeWordEnabled() { return _wakeWordEnabled; }
+export function setWakeWordEnabled(v) { _wakeWordEnabled = v; }
+
 // --- TTS ---
 let _audioContext = null;
 let _currentAudioSource = null;

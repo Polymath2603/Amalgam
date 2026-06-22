@@ -15,6 +15,8 @@ import {
     getIsPlayingTTS, setIsPlayingTTS,
     getTtsQueue, setTtsQueue,
     getTtsQueuePlaying, setTtsQueuePlaying,
+    setServerCapabilities, setServerPlatform,
+    setWakeWordEnabled,
     resetVoiceState,
 } from './state.js';
 import { isBrowserStt, updateVoiceState, stopBrowserSpeechRec, startBrowserSpeechRec, resetBrowserStt } from './voice.js';
@@ -134,6 +136,11 @@ export function connectWS() {
         if (statusDot) statusDot.className = 'status-dot online';
         if (statusText) statusText.textContent = t('status.connected');
 
+        // Hide offline bar on successful connection (fixes race where
+        // the bar is visible before initial connect or after reconnect).
+        const offlineBar = document.getElementById('offline-bar');
+        if (offlineBar) { offlineBar.classList.add('hidden'); offlineBar.classList.remove('visible'); }
+
         _startHeartbeat(wsInst);
 
         if (!_settingsLoaded) {
@@ -236,8 +243,6 @@ export function connectWS() {
     };
 }
 
-// ws.js already imports all state accessors above
-
 export function handleWSMessage(data) {
     const wsInst = getWs();
     const chatMessages = document.getElementById('chat-messages');
@@ -258,11 +263,17 @@ export function handleWSMessage(data) {
             const avatarView = document.getElementById('vrm-view');
             if (avatarView) avatarView.style.display = visible ? 'block' : 'none';
         }
+    } else if (data.type === 'server_hello') {
+        // Store server platform/capabilities for feature gating
+        setServerCapabilities(data.capabilities);
+        setServerPlatform(data.platform);
     } else if (data.type === 'chat_start') {
         // Race condition fix: flush any playing TTS when new message starts
         flushTTSQueue();
         setCurrentAssistantMessage(_addMessage?.('assistant', ''));
         _setStatus?.('thinking');
+        if (avatarRenderer) avatarRenderer.playGreeting?.();
+        if (avatarPreviewRenderer) avatarPreviewRenderer.playGreeting?.();
     } else if (data.type === 'chat_append') {
         if (data.role === 'assistant') {
             let cam = getCurrentAssistantMessage();
@@ -300,6 +311,8 @@ export function handleWSMessage(data) {
                     if (el) el.innerHTML = formatMessage(text);
                 });
                 streamBuffer.clear();
+                // Auto-scroll after final flush
+                if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
             }
         }
     } else if (data.type === 'tts_audio') {
@@ -333,11 +346,25 @@ export function handleWSMessage(data) {
     } else if (data.type === 'emotion') {
         if (avatarRenderer) avatarRenderer.setExpression?.(data.emotion);
         if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression?.(data.emotion);
+        // Wire procedural animations to emotion events
+        if (data.emotion === 'thinking' || data.emotion === 'think') {
+            if (avatarRenderer) avatarRenderer.playThinking?.();
+            if (avatarPreviewRenderer) avatarPreviewRenderer.playThinking?.();
+        } else if (data.emotion === 'happy' || data.emotion === 'excited') {
+            if (avatarRenderer) avatarRenderer.playExcited?.();
+            if (avatarPreviewRenderer) avatarPreviewRenderer.playExcited?.();
+        }
     } else if (data.type === 'expression') {
         if (avatarRenderer) avatarRenderer.setExpression?.(data.expression);
         if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression?.(data.expression);
+    } else if (data.type === 'viseme') {
+        // Set mouth openness (0.0 = closed, 1.0 = fully open)
+        if (avatarRenderer) avatarRenderer.setMouthOpen(data.value);
+        if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(data.value);
     } else if (data.type === 'thinking') {
         _setStatus?.('thinking');
+        if (avatarRenderer) avatarRenderer.playNod?.();
+        if (avatarPreviewRenderer) avatarPreviewRenderer.playNod?.();
     } else if (data.type === 'roleplay') {
         // Roleplay text display
         const cam = getCurrentAssistantMessage();
@@ -359,8 +386,9 @@ export function handleWSMessage(data) {
     } else if (data.type === 'session_id') {
         setCurrentSessionId(data.session_id);
     } else if (data.type === 'health_update') {
-        updateHealthBar(data);
+        updateHealthBar(data.services);
     } else if (data.type === 'wake_word_state') {
+        setWakeWordEnabled(data.enabled);
         if (data.error) {
             showToast(data.error, 'danger');
         }
@@ -368,6 +396,17 @@ export function handleWSMessage(data) {
         // Animation playback
         if (avatarRenderer && data.url) avatarRenderer.playAnimation?.(data.url);
         if (avatarPreviewRenderer && data.url) avatarPreviewRenderer.playAnimation?.(data.url);
+    } else if (data.type === 'avatar_life_event') {
+        // Server-pushed avatar life state (bored, sleeping, idle)
+        if (data.event === 'bored') {
+            if (avatarRenderer) avatarRenderer.setEmotion?.('bored');
+            if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion?.('bored');
+        } else if (data.event === 'sleeping') {
+            if (avatarRenderer) avatarRenderer.setEmotion?.('sleep');
+            if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion?.('sleep');
+        }
+        // Dispatch DOM event so other components can react
+        document.dispatchEvent(new CustomEvent('avatarLifeState', { detail: { event: data.event } }));
     } else if (data.type === 'interrupt') {
         if (data.action === 'stop_audio_and_animation') {
             flushTTSQueue();

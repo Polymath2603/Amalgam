@@ -6,8 +6,9 @@ import logging
 from typing import Any
 from fastapi import APIRouter ,HTTPException 
 from pydantic import BaseModel 
-from backend .api .deps import settings ,llm ,tts ,agent 
-from backend .core .config .settings import BUILTIN_VOICES 
+from backend .api .deps import settings ,llm ,tts ,agent
+from backend .core .config .settings import BUILTIN_VOICES
+from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["settings"])
@@ -383,6 +384,7 @@ async def test_provider_connection (provider :str ):
 
 
 @router .get ("/api/settings/safe")
+@deprecated()
 async def get_settings_safe ():
     """Return settings with API keys masked (first 4 + last 4 chars).
 
@@ -420,6 +422,7 @@ async def get_settings_safe ():
 
 
 @router .post ("/api/settings/reset")
+@deprecated()
 async def reset_settings (target :str ="voice"):
     """Reset a settings section to defaults.
 

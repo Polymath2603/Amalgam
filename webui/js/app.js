@@ -184,7 +184,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _settingsLoaded = false;
 
     const _hash = window.location.hash.replace('#', '').split('/');
-    if (_hash[0] === 'settings' && _hash[1] && SETTINGS_SCHEMA[_hash[1]]) {
+    if (_hash[0] === 'settings' && _hash[1] && (SETTINGS_SCHEMA[_hash[1]] || _hash[1] === 'Vault' || _hash[1] === 'Rules')) {
         setActiveSettingsTab(_hash[1]);
     }
     switchTab(_hash[0] || 'chat');
@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.location.hash = tabId;
             if (tabId === 'settings') {
                 const sub = h[1];
-                if (sub && SETTINGS_SCHEMA[sub]) setActiveSettingsTab(sub);
+                if (sub && (SETTINGS_SCHEMA[sub] || sub === 'Vault' || sub === 'Rules')) setActiveSettingsTab(sub);
                 loadMCP();
             }
             if (tabId === 'avatar') createMainAvatar();
@@ -675,6 +675,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    // Expose for memory graph and other external modules
+    window.loadChatSession = loadSession;
+
     async function loadCharacters() {
         const grid = document.getElementById('characters-grid');
         if (!grid) return;
@@ -956,6 +959,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     async function init() {
         const settings = await api(BASE_URL + '/api/settings');
         if (settings) { applySettings(settings); _settingsLoaded = true; }
+        initCompanion();
         await loadCharacters();
         await fetchCommands();
         setupKeyboardShortcuts();
@@ -996,6 +1000,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshHealth();
 
     // ─── Online/offline detection ───
+    // Set initial offline-bar state based on navigator.onLine
+    const initBar = document.getElementById('offline-bar');
+    if (initBar) {
+        if (navigator.onLine) {
+            initBar.classList.add('hidden');
+            initBar.classList.remove('visible');
+        } else {
+            initBar.classList.remove('hidden');
+            initBar.classList.add('visible');
+        }
+    }
     window.addEventListener('online', () => {
         const bar = document.getElementById('offline-bar');
         if (bar) { bar.classList.add('hidden'); bar.classList.remove('visible'); }

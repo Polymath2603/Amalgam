@@ -3,8 +3,9 @@ Memory / session / facts API routes.
 """
 import logging 
 
-from fastapi import APIRouter, HTTPException 
-from backend .api .deps import memory 
+from fastapi import APIRouter, HTTPException
+from backend .api .deps import memory
+from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )
 router =APIRouter (tags =["memory"])
@@ -28,6 +29,7 @@ async def get_session_messages (session_id :str ):
 
 
 @router .post ("/api/memory/session/{session_id}/rename")
+@deprecated()
 async def rename_session (session_id :str ,new_title :str ):
     try:
         title = await memory().rename_session(session_id, new_title)
@@ -36,12 +38,14 @@ async def rename_session (session_id :str ,new_title :str ):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router .get ("/api/memory/session/{session_id}/resume")
+@deprecated()
 async def resume_session (session_id :str ,turns :int =5 ):
     messages = memory().get_session_turns(session_id, turns)
     return {"messages": messages}
 
 
 @router .post ("/api/memory/session/{session_id}/activate")
+@deprecated()
 async def activate_session (session_id :str ):
     """Switch the active session to an existing one."""
     memory ().set_current_session (session_id )

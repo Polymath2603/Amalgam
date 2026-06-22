@@ -140,6 +140,69 @@ class TTSRouter :
     "rvc":24000 ,
     }
 
+    async def synthesize_parallel (
+        self,
+        sentences: list[str],
+        *,
+        ref_audio: str | None = None,
+        emotion: str = "neutral",
+        max_concurrent: int = 3,
+        translation_service=None,
+    ) -> list[dict]:
+        """Synthesize multiple sentences concurrently while preserving order.
+
+        Each result dict has keys:
+          idx       — original index in *sentences*
+          text      — the input text (or translated text if translation_service given)
+          audio     — numpy array of audio samples
+          visemes   — viseme schedule list or None
+          sr        — sample rate
+          error     — error string or None
+
+        When *translation_service* is provided, each sentence is translated
+        before synthesis (concurrently with other translations).
+        """
+        sem = asyncio.Semaphore(max_concurrent)
+
+        async def _work(idx: int, text: str) -> dict:
+            async with sem:
+                # Translate if service is available
+                synth_text = text
+                if translation_service is not None:
+                    try:
+                        synth_text = await translation_service.translate(text)
+                    except Exception as e:
+                        logger.warning("Translation error for sentence %d: %s", idx, e)
+                        synth_text = text  # fall back to original
+
+                try:
+                    result = await self.synthesize(synth_text, ref_audio=ref_audio, emotion=emotion)
+                    audio_np, visemes, sr = result
+                    return {
+                        "idx": idx,
+                        "text": synth_text,
+                        "audio": audio_np,
+                        "visemes": visemes,
+                        "sr": sr,
+                        "error": None,
+                    }
+                except Exception as e:
+                    logger.error("Parallel TTS sentence %d failed: %s", idx, e)
+                    return {
+                        "idx": idx,
+                        "text": synth_text,
+                        "audio": np.zeros(0, dtype=np.float32),
+                        "visemes": [],
+                        "sr": 16000,
+                        "error": str(e),
+                    }
+
+        tasks = [_work(i, s) for i, s in enumerate(sentences)]
+        results = await asyncio.gather(*tasks)
+        # Sort by original index to guarantee ordering
+        results.sort(key=lambda r: r["idx"])
+        return results
+
     async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         if not text .strip ():
             return np .zeros (0 ,dtype =np .float32 ),[],16000 

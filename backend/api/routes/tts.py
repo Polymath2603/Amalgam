@@ -11,6 +11,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from backend.api.deps import settings
 from backend.core.voice.tts import TTS
+from backend.core.deprecated import deprecated
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["tts"])
@@ -21,6 +22,7 @@ class TTSPreviewRequest(BaseModel):
 
 
 @router.post("/api/tts/preview")
+@deprecated()
 async def tts_preview(body: TTSPreviewRequest):
     text = body.text
     engine = settings().get("voice.engine", "edge-tts")

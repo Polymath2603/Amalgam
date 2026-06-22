@@ -23,6 +23,7 @@ export const PROVIDER_DISPLAY_NAMES = {
     'aws': 'AWS Bedrock',
     'gcp': 'GCP Vertex AI',
     'opencode': 'OpenCode',
+    'opendev': 'OpenDev',
 };
 
 export const SETTINGS_SCHEMA = {
@@ -71,6 +72,39 @@ export const SETTINGS_SCHEMA = {
                 type: "textarea",
                 key: "character.system_prompt",
                 description: "Extra instructions appended to every conversation",
+            },
+            // Companion settings
+            companion_enabled: {
+                label: "Companion Enabled",
+                type: "toggle",
+                key: "companion.enabled",
+                description: "Enable proactive companion interactions",
+            },
+            companion_idle_check_delay: {
+                label: "Idle Check-In Delay (min)",
+                type: "number",
+                key: "companion.idle_check_delay",
+                min: 1, max: 120, step: 1,
+                description: "Minutes of inactivity before the companion checks in",
+            },
+            companion_proactive_interval: {
+                label: "Proactive Interval (min)",
+                type: "number",
+                key: "companion.proactive_interval",
+                min: 10, max: 480, step: 10,
+                description: "Minutes between proactive time-aware messages",
+            },
+            companion_time_awareness: {
+                label: "Time Awareness",
+                type: "toggle",
+                key: "companion.time_awareness",
+                description: "Send messages that acknowledge time of day",
+            },
+            companion_personality_notes: {
+                label: "Personality Notes",
+                type: "textarea",
+                key: "companion.personality_notes",
+                description: "Extra personality instructions for the companion",
             },
         }
     },
@@ -344,6 +378,37 @@ export const SETTINGS_SCHEMA = {
             },
         }
     },
+    "Translation": {
+        icon: "translate",
+        fields: {
+            translation_enabled: {
+                label: "Translation Enabled",
+                type: "toggle",
+                key: "translation.enabled",
+                description: "Translate assistant responses via DeepLX before TTS",
+            },
+            translation_source_lang: {
+                label: "Source Language",
+                type: "select",
+                key: "translation.source_lang",
+                options: ["auto", "en", "zh", "ja", "ko", "fr", "de", "es", "pt", "ru", "ar", "th", "vi"],
+                description: "Language of the original text (auto = detect)",
+            },
+            translation_target_lang: {
+                label: "Target Language",
+                type: "select",
+                key: "translation.target_lang",
+                options: ["en", "zh", "ja", "ko", "fr", "de", "es", "pt", "ru", "ar", "th", "vi"],
+                description: "Language to translate responses into",
+            },
+            translation_base_url: {
+                label: "DeepLX Server URL",
+                type: "text",
+                key: "translation.base_url",
+                description: "Self-hosted DeepLX API endpoint (default: http://localhost:1188/translate)",
+            },
+        }
+    },
     "Memory": {
         icon: "memory",
         fields: {
@@ -417,43 +482,6 @@ export const SETTINGS_SCHEMA = {
             },
         }
     },
-    "Companion": {
-        icon: "pets",
-        fields: {
-            companion_enabled: {
-                label: "Enable Companion",
-                type: "toggle",
-                key: "companion.enabled",
-                description: "Enable proactive companion interactions",
-            },
-            companion_idle_check_delay: {
-                label: "Idle Check-In Delay (min)",
-                type: "number",
-                key: "companion.idle_check_delay",
-                min: 1, max: 120, step: 1,
-                description: "Minutes of inactivity before the companion checks in",
-            },
-            companion_proactive_interval: {
-                label: "Proactive Interval (min)",
-                type: "number",
-                key: "companion.proactive_interval",
-                min: 10, max: 480, step: 10,
-                description: "Minutes between proactive time-aware messages",
-            },
-            companion_time_awareness: {
-                label: "Time Awareness",
-                type: "toggle",
-                key: "companion.time_awareness",
-                description: "Send messages that acknowledge time of day",
-            },
-            companion_personality_notes: {
-                label: "Personality Notes",
-                type: "textarea",
-                key: "companion.personality_notes",
-                description: "Extra personality instructions for the companion",
-            },
-        }
-    },
     "Advanced": {
         icon: "tune",
         fields: {
@@ -516,4 +544,43 @@ export const PROVIDER_MODELS = {
     'gcp': ['gemini-2.0-flash-001', 'gemini-2.5-flash-001', 'gemini-2.5-pro-001'],
     'azure-openai': [],
     'alibaba': [],
+    'opencode': [],
+    'opendev': [],
 };
+
+// ── Provider data from /api/providers (single source of truth) ────────
+
+let _initPromise = null;
+
+/**
+ * Fetch provider data from the backend and update PROVIDER_DISPLAY_NAMES
+ * and PROVIDER_MODELS in-place.  This is called automatically at module
+ * load time.  Hardcoded fallback values are preserved and used when the
+ * API is unreachable.
+ *
+ * Calling this function multiple times is safe — only the first call
+ * triggers a network request; subsequent calls return the cached promise.
+ */
+export async function initProviderData() {
+    if (_initPromise) return _initPromise;
+    _initPromise = (async () => {
+        try {
+            const resp = await fetch('/api/providers');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const providers = data.providers || [];
+            for (const p of providers) {
+                PROVIDER_DISPLAY_NAMES[p.id] = p.name;
+                if (Array.isArray(p.models)) {
+                    PROVIDER_MODELS[p.id] = p.models;
+                }
+            }
+        } catch (e) {
+            console.warn('initProviderData: failed to fetch, using fallbacks:', e);
+        }
+    })();
+    return _initPromise;
+}
+
+// Start fetching at module load time so data is ready before first render.
+initProviderData();

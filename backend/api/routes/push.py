@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
+from backend.core.deprecated import deprecated
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ def _save_tokens(tokens: dict[str, dict]):
 
 
 @router.post("/api/push/register")
+@deprecated()
 async def register_token(body: PushRegisterRequest):
     token = body.token.strip()
     platform = body.platform
@@ -60,6 +62,7 @@ async def register_token(body: PushRegisterRequest):
 
 
 @router.post("/api/push/unregister")
+@deprecated()
 async def unregister_token(body: PushUnregisterRequest):
     token = body.token.strip()
     tokens = _load_tokens()
@@ -69,6 +72,7 @@ async def unregister_token(body: PushUnregisterRequest):
 
 
 @router.get("/api/push/tokens")
+@deprecated()
 async def list_tokens():
     """Admin endpoint — list registered tokens (not exposed in production)."""
     tokens = _load_tokens()

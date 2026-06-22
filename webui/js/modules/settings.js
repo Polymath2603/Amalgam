@@ -4,13 +4,15 @@
 import { BASE_URL } from './config.js';
 import { escHtml, _getNestedValue, showToast, applyTheme, applyAccentColor } from './utils.js';
 import { api } from './api-client.js';
-import { PROVIDER_DISPLAY_NAMES, PROVIDER_MODELS, SETTINGS_SCHEMA } from './settings-schema.js';
+import { PROVIDER_DISPLAY_NAMES, PROVIDER_MODELS, SETTINGS_SCHEMA, initProviderData } from './settings-schema.js';
 import { getSettings, setSettingsCache } from './state.js';
 import { t } from '../i18n.js';
 
 let activeSettingsTab = 'Character';
 let _providerList = null;
 let _charList = null;
+let _vaultFiles = [];
+let _currentVaultFile = null;
 
 export function getActiveSettingsTab() { return activeSettingsTab; }
 export function setActiveSettingsTab(v) { activeSettingsTab = v; }
@@ -118,6 +120,11 @@ export function renderField(fieldId, field) {
                     <span class="material-icons-round">cloud_sync</span>
                 </button>`;
             }
+            if (fieldId === 'tts_engine') {
+                actionBtn += `<button class="icon-btn test-voice-btn" onclick="testVoice()" title="Test Voice">
+                    <span class="material-icons-round">volume_up</span>
+                </button>`;
+            }
             return `
                 <div class="settings-field" data-field="${fieldId}">
                     <label for="field-${fieldId}">${field.label}</label>
@@ -221,6 +228,12 @@ export function renderField(fieldId, field) {
 }
 
 export function renderCategory(category) {
+    if (category === 'Vault') {
+        return _renderVaultTab();
+    }
+    if (category === 'Rules') {
+        return _renderRulesTab();
+    }
     const catData = SETTINGS_SCHEMA[category];
     if (!catData) return '<p class="settings-no-results">Unknown category</p>';
 
@@ -235,6 +248,46 @@ export function renderCategory(category) {
         <span class="material-icons-round">save</span> Save ${category} Settings
     </button>`;
 
+    // Reset section for the Advanced tab
+    if (category === 'Advanced') {
+        html += `
+            <h3 class="settings-category-title" style="margin-top:24px">Reset to Defaults</h3>
+            <p class="field-desc">Reset a settings section to its default values. Provider API keys are preserved.</p>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+                <button class="btn btn-sm" onclick="confirmReset('voice')">Reset Voice</button>
+                <button class="btn btn-sm" onclick="confirmReset('agent')">Reset Agent</button>
+                <button class="btn btn-sm" onclick="confirmReset('ui')">Reset UI</button>
+                <button class="btn btn-sm btn-danger" onclick="confirmReset('all')">Reset All</button>
+            </div>
+        `;
+    }
+
+    // Memory Graph section
+    if (category === 'Memory') {
+        html += `
+            <h3 class="settings-category-title" style="margin-top:24px">
+                Memory Graph
+                <button class="icon-btn" id="memory-graph-refresh" title="Refresh graph">
+                    <span class="material-icons-round" style="font-size:1rem;">refresh</span>
+                </button>
+            </h3>
+            <p class="field-desc">Visualize your conversations, topics, and memory connections.</p>
+            <div id="memory-graph-container" style="width:100%;height:400px;position:relative;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--bg);">
+                <canvas id="memory-graph-canvas" style="width:100%;height:100%;display:block;"></canvas>
+                <div id="memory-graph-tooltip" style="display:none;position:absolute;background:var(--bg-card);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;pointer-events:none;border:1px solid var(--border);z-index:10;max-width:220px;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>
+                <div id="memory-graph-legend" style="position:absolute;bottom:8px;left:8px;display:flex;gap:14px;font-size:11px;color:var(--text-muted);pointer-events:none;">
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);vertical-align:middle;margin-right:4px;"></span>Session</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--warning);vertical-align:middle;margin-right:4px;"></span>Topic</span>
+                    <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--text-muted);vertical-align:middle;margin-right:4px;"></span>Fact</span>
+                </div>
+                <div id="memory-graph-empty" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--text-muted);font-size:14px;text-align:center;">
+                    <span class="material-icons-round" style="font-size:2rem;display:block;margin:0 auto 8px;">hub</span>
+                    No memory data yet.<br>Start chatting to see your memory graph.
+                </div>
+            </div>
+        `;
+    }
+
     return html;
 }
 
@@ -245,7 +298,7 @@ export function renderSettings() {
     if (!getSettings()) {
         container.innerHTML = `
             <div class="settings-sidebar">
-                ${['Character','Provider','Voice','Memory','Appearance','Privacy','Advanced'].map(c => `
+                ${['Character','Provider','Voice','Memory','Vault','Rules','Appearance','Privacy','Advanced'].map(c => `
                     <div class="skeleton" style="height:36px;margin-bottom:4px;border-radius:8px"></div>
                 `).join('')}
             </div>
@@ -261,7 +314,7 @@ export function renderSettings() {
 
     const categories = Object.keys(SETTINGS_SCHEMA);
     let sidebarHtml = categories.map(cat => `
-        <button class="settings-cat-btn ${cat === activeSettingsTab ? 'active' : ''}" 
+        <button class="settings-cat-btn ${cat === activeSettingsTab ? 'active' : ''}"
                 data-category="${cat}"
                 onclick="switchSettingsTab('${cat}')"
                 aria-label="${cat} settings"
@@ -270,6 +323,23 @@ export function renderSettings() {
             <span>${cat}</span>
         </button>
     `).join('');
+    sidebarHtml += `
+        <button class="settings-cat-btn ${activeSettingsTab === 'Vault' ? 'active' : ''}"
+                data-category="Vault"
+                onclick="switchSettingsTab('Vault')"
+                aria-label="Vault files"
+                aria-current="${activeSettingsTab === 'Vault' ? 'page' : 'false'}">
+            <span class="material-icons-round" aria-hidden="true">folder</span>
+            <span>Vault</span>
+        </button>
+        <button class="settings-cat-btn ${activeSettingsTab === 'Rules' ? 'active' : ''}"
+                data-category="Rules"
+                onclick="switchSettingsTab('Rules')"
+                aria-label="Rules"
+                aria-current="${activeSettingsTab === 'Rules' ? 'page' : 'false'}">
+            <span class="material-icons-round" aria-hidden="true">description</span>
+            <span>Rules</span>
+        </button>`;
 
     const searchHtml = `
         <div class="settings-search">
@@ -278,6 +348,9 @@ export function renderSettings() {
         </div>
     `;
 
+    // Destroy memory graph before re-rendering to clean up event listeners and animation
+    import('./memory-graph.js').then(mg => mg.destroyMemoryGraph()).catch(() => {});
+
     container.innerHTML = `
         <div class="settings-sidebar">${sidebarHtml}</div>
         <div class="settings-content">
@@ -285,6 +358,22 @@ export function renderSettings() {
             <div id="settings-form-area">${renderCategory(activeSettingsTab)}</div>
         </div>
     `;
+
+    // Load companion settings when the Character tab is active
+    if (activeSettingsTab === 'Character') {
+        setTimeout(loadCompanionSettings, 0);
+    }
+    if (activeSettingsTab === 'Vault') {
+        setTimeout(loadVaultList, 0);
+    }
+    if (activeSettingsTab === 'Rules') {
+        setTimeout(loadRules, 0);
+    }
+    if (activeSettingsTab === 'Memory') {
+        setTimeout(() => {
+            import('./memory-graph.js').then(mg => mg.initMemoryGraph()).catch(() => {});
+        }, 50);
+    }
 }
 
 export function switchSettingsTab(category) {
@@ -332,7 +421,7 @@ export function filterSettings() {
     _attachSettingsDelegates();
 }
 
-export function saveCategory(category) {
+export async function saveCategory(category) {
     const catData = SETTINGS_SCHEMA[category];
     if (!catData) return;
 
@@ -362,23 +451,46 @@ export function saveCategory(category) {
         }
     }
 
-    fetch(`${BASE_URL}/api/settings/batch`, {
+    const data = await api(`${BASE_URL}/api/settings/batch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings: changed }),
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.status === 'ok') {
-            showToast(`${category} settings saved`, 'success');
-            fetch(`${BASE_URL}/api/settings`).then(r => r.json()).then(s => {
-                setSettingsCache(s);
-            }).catch(() => {});
-        } else {
-            showToast(`Failed to save: ${data.error || 'unknown error'}`, 'danger');
+    });
+    if (data?.status === 'ok') {
+        showToast(`${category} settings saved`, 'success');
+        const s = await api(`${BASE_URL}/api/settings`);
+        if (s) setSettingsCache(s);
+
+        // Also save companion fields via the dedicated companion endpoint
+        if (category === 'Character') {
+            _saveCompanionSettings(changed);
         }
-    })
-    .catch(e => showToast(`Save failed: ${e.message}`, 'danger'));
+    } else {
+        showToast(`Failed to save: ${data?.error || 'unknown error'}`, 'danger');
+    }
+}
+
+function _saveCompanionSettings(changed) {
+    const companionFields = {};
+    const keyMap = {
+        'companion.enabled': 'enabled',
+        'companion.idle_check_delay': 'idle_check_delay',
+        'companion.proactive_interval': 'proactive_interval',
+        'companion.time_awareness': 'time_awareness',
+        'companion.personality_notes': 'personality_notes',
+    };
+    for (const [fullKey, shortKey] of Object.entries(keyMap)) {
+        if (fullKey in changed) {
+            companionFields[shortKey] = changed[fullKey];
+        }
+    }
+    if (Object.keys(companionFields).length > 0) {
+        fetch(`${BASE_URL}/api/companion/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(companionFields),
+        }).catch(() => {});
+    }
 }
 
 export function toggleFieldVisibility(id) {
@@ -390,7 +502,7 @@ export function toggleFieldVisibility(id) {
     if (btn) btn.textContent = isPassword ? 'visibility_off' : 'visibility';
 }
 
-export function testConnection(key) {
+export async function testConnection(key) {
     const match = key.match(/^provider\.([^.]+)\./);
     const provider = match ? match[1] : null;
     if (!provider) {
@@ -405,29 +517,20 @@ export function testConnection(key) {
         btn.disabled = true;
         btn.innerHTML = '<span class="material-icons-round" style="animation:spin 1s linear infinite">sync</span>';
     }
-    fetch(`${BASE_URL}/api/settings/test/${provider}`, { method: 'POST' })
-        .then(r => r.json())
-        .then(result => {
-            if (result.ok) {
-                if (btn) btn.innerHTML = '<span class="material-icons-round" style="color:var(--success)">check_circle</span>';
-                showToast(`Connected (${result.latency_ms}ms)`, 'success');
-            } else {
-                if (btn) btn.innerHTML = '<span class="material-icons-round" style="color:var(--danger)">error</span>';
-                showToast(`Failed: ${result.error}`, 'danger');
-            }
-        })
-        .catch(e => {
-            if (btn) btn.innerHTML = '<span class="material-icons-round" style="color:var(--danger)">error</span>';
-            showToast(`Connection test failed: ${e.message}`, 'danger');
-        })
-        .finally(() => {
-            setTimeout(() => {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<span class="material-icons-round">wifi_find</span>';
-                }
-            }, 3000);
-        });
+    const result = await api(`${BASE_URL}/api/settings/test/${provider}`, { method: 'POST' });
+    if (result?.ok) {
+        if (btn) btn.innerHTML = '<span class="material-icons-round" style="color:var(--success)">check_circle</span>';
+        showToast(`Connected (${result.latency_ms}ms)`, 'success');
+    } else {
+        if (btn) btn.innerHTML = '<span class="material-icons-round" style="color:var(--danger)">error</span>';
+        showToast(`Failed: ${result?.error || 'Connection failed'}`, 'danger');
+    }
+    setTimeout(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-icons-round">wifi_find</span>';
+        }
+    }, 3000);
 }
 
 export function fetchModels(provider) {
@@ -475,20 +578,101 @@ export function fetchModels(provider) {
 }
 
 export async function refreshProviderList() {
-    try {
-        const resp = await fetch(`${BASE_URL}/api/providers`);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-        _providerList = (data.providers || []).map(p => ({
-            value: p.id,
-            label: PROVIDER_DISPLAY_NAMES[p.id] || p.name || p.id,
-        }));
-    } catch (e) {
-        console.warn('Failed to fetch providers:', e);
-        _providerList = Object.keys(PROVIDER_DISPLAY_NAMES).map(id => ({
-            value: id,
-            label: PROVIDER_DISPLAY_NAMES[id] || id,
-        }));
+    await initProviderData();
+    _providerList = Object.keys(PROVIDER_DISPLAY_NAMES).map(id => ({
+        value: id,
+        label: PROVIDER_DISPLAY_NAMES[id] || id,
+    }));
+}
+
+export function testVoice() {
+    const btn = document.querySelector('.test-voice-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-icons-round" style="animation:spin 1s linear infinite">sync</span>';
+    }
+    fetch(`${BASE_URL}/api/tts/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Hello, this is my voice.' }),
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result && result.audio) {
+            const audio = new Audio(`data:audio/${result.format || 'wav'};base64,${result.audio}`);
+            audio.play().catch(e => showToast(`Playback failed: ${e.message}`, 'danger'));
+            if (btn) {
+                btn.innerHTML = '<span class="material-icons-round" style="color:var(--success)">check_circle</span>';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="material-icons-round">volume_up</span>';
+                }, 2000);
+            }
+        } else {
+            showToast(result?.error || 'TTS preview failed', 'danger');
+            if (btn) {
+                btn.innerHTML = '<span class="material-icons-round" style="color:var(--danger)">error</span>';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="material-icons-round">volume_up</span>';
+                }, 3000);
+            }
+        }
+    })
+    .catch(e => {
+        showToast(`TTS preview failed: ${e.message}`, 'danger');
+        if (btn) {
+            btn.innerHTML = '<span class="material-icons-round" style="color:var(--danger)">error</span>';
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="material-icons-round">volume_up</span>';
+            }, 3000);
+        }
+    });
+}
+
+export function confirmReset(target) {
+    const targetNames = { voice: 'Voice', agent: 'Agent', ui: 'UI', all: 'All Settings' };
+    const name = targetNames[target] || target;
+    if (!confirm(`Reset ${name} settings to defaults? This cannot be undone.`)) return;
+    fetch(`${BASE_URL}/api/settings/reset?target=${target}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'ok') {
+                showToast(`${name} settings reset to defaults`, 'success');
+                fetch(`${BASE_URL}/api/settings`).then(r => r.json()).then(s => {
+                    if (s) setSettingsCache(s);
+                    renderSettings();
+                    _attachSettingsDelegates();
+                }).catch(() => {});
+            } else {
+                showToast(`Reset failed: ${data.error || 'unknown error'}`, 'danger');
+            }
+        })
+        .catch(e => showToast(`Reset failed: ${e.message}`, 'danger'));
+}
+
+export async function loadCompanionSettings() {
+    const data = await api(`${BASE_URL}/api/companion/settings`);
+    if (!data) return;
+    const fieldMap = {
+        enabled: 'companion_enabled',
+        idle_check_delay: 'companion_idle_check_delay',
+        proactive_interval: 'companion_proactive_interval',
+        time_awareness: 'companion_time_awareness',
+        personality_notes: 'companion_personality_notes',
+    };
+    for (const [apiKey, fieldId] of Object.entries(fieldMap)) {
+        const el = document.getElementById(`field-${fieldId}`);
+        if (!el) continue;
+        const val = data[apiKey];
+        if (el.type === 'checkbox') {
+            el.checked = val === true;
+        } else if (el.type === 'number') {
+            el.value = val ?? '';
+        } else {
+            el.value = val ?? '';
+        }
     }
 }
 
@@ -521,12 +705,11 @@ export async function refreshCharacterInfo() {
         const activeId = sR?.character?.active || 'amalgam';
         const c = charsR?.[activeId];
         if (c) {
-            const { escHtml: eH } = await import('./utils.js');
-            const desc = eH(c.description || 'No description');
-            const personality = eH(c.personality || '');
-            const voice = c.voice ? eH(String(c.voice).split('-').pop().replace('Neural', '')) : 'default';
+            const desc = escHtml(c.description || 'No description');
+            const personality = escHtml(c.personality || '');
+            const voice = c.voice ? escHtml(String(c.voice).split('-').pop().replace('Neural', '')) : 'default';
             preview.innerHTML = `
-                <div class="char-info-row"><span class="char-info-label">Name</span><span>${eH(c.name || activeId)}</span></div>
+                <div class="char-info-row"><span class="char-info-label">Name</span><span>${escHtml(c.name || activeId)}</span></div>
                 ${personality ? `<div class="char-info-row"><span class="char-info-label">Personality</span><span>${personality}</span></div>` : ''}
                 <div class="char-info-row"><span class="char-info-label">Voice</span><span>${voice}</span></div>
                 <div class="char-info-desc">${desc}</div>
@@ -537,6 +720,268 @@ export async function refreshCharacterInfo() {
     } catch (e) {
         console.warn('[Settings] Character info load failed:', e);
         preview.innerHTML = '<span class="muted">Could not load character info</span>';
+    }
+}
+
+// ─── Vault Tab ────────────────────────────────────────────────────────
+
+function _formatBytes(bytes) {
+    if (!bytes && bytes !== 0) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function _formatDate(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleDateString(); }
+    catch (_) { return String(ts); }
+}
+
+function _renderVaultTab() {
+    return `
+        <div id="vault-tab" class="vault-tab">
+            <div class="vault-toolbar">
+                <div class="settings-search" style="flex:1;margin-bottom:0">
+                    <span class="material-icons-round">search</span>
+                    <input type="text" id="vault-search-input" placeholder="${escHtml(t('settings.vault_search_placeholder'))}" oninput="searchVault()">
+                </div>
+                <button class="btn-sm" onclick="newVaultFile()" style="display:flex;align-items:center;gap:4px;white-space:nowrap">
+                    <span class="material-icons-round" style="font-size:16px">add</span>
+                    ${escHtml(t('settings.new'))}
+                </button>
+            </div>
+            <div id="vault-body"></div>
+        </div>
+    `;
+}
+
+export async function loadVaultList() {
+    const body = document.getElementById('vault-body');
+    if (!body) return;
+    _currentVaultFile = null;
+    body.innerHTML = '<div class="vault-loading"><div class="skeleton" style="height:40px;margin-bottom:4px;border-radius:8px"></div>'.repeat(3) + '</div>';
+
+    const data = await api(`${BASE_URL}/api/vault/files`);
+    if (!data || !data.files) {
+        body.innerHTML = `<p class="muted vault-empty">${escHtml(t('vault.no_files'))}</p>`;
+        return;
+    }
+
+    _vaultFiles = data.files;
+    _renderVaultFileList(body);
+}
+
+function _renderVaultFileList(container) {
+    if (_vaultFiles.length === 0) {
+        container.innerHTML = `<p class="muted vault-empty">${escHtml(t('vault.no_files'))}</p>`;
+        return;
+    }
+
+    container.innerHTML = _vaultFiles.map(f => {
+        const name = escHtml(f.name);
+        const size = _formatBytes(f.size);
+        const modified = f.modified ? _formatDate(f.modified) : '';
+        const bytesLabel = t('vault.bytes', { size });
+        return `
+            <div class="vault-file-item" data-vault-file="${escHtml(f.name)}">
+                <span class="material-icons-round vault-file-icon">description</span>
+                <div class="vault-file-info">
+                    <div class="vault-file-name">${name}</div>
+                    <div class="vault-file-meta">${escHtml(bytesLabel)}${modified ? ' &middot; ' + escHtml(modified) : ''}</div>
+                </div>
+                <button class="vault-file-delete" data-vault-file-delete="${escHtml(f.name)}" title="Delete">
+                    <span class="material-icons-round">delete</span>
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+export function showVaultList() {
+    _currentVaultFile = null;
+    loadVaultList();
+}
+
+export async function viewVaultFile(filename) {
+    const body = document.getElementById('vault-body');
+    if (!body) return;
+    _currentVaultFile = filename;
+
+    body.innerHTML = `
+        <div class="vault-editor-header">
+            <button class="btn-ghost" onclick="showVaultList()">
+                <span class="material-icons-round">arrow_back</span>
+                Back
+            </button>
+            <span class="vault-editor-filename">${escHtml(filename)}</span>
+        </div>
+        <div class="skeleton" style="height:200px;margin-top:8px;border-radius:8px"></div>
+    `;
+
+    const data = await api(`${BASE_URL}/api/vault/files/${encodeURIComponent(filename)}`);
+    if (!data) {
+        body.innerHTML = '<p class="muted vault-empty">Failed to load file</p>';
+        return;
+    }
+
+    body.innerHTML = `
+        <div class="vault-editor-header">
+            <button class="btn-ghost" onclick="showVaultList()">
+                <span class="material-icons-round">arrow_back</span>
+                Back
+            </button>
+            <span class="vault-editor-filename">${escHtml(data.name || filename)}</span>
+        </div>
+        <textarea id="vault-editor-textarea" class="vault-editor-textarea" rows="20">${escHtml(data.content || '')}</textarea>
+        <div class="vault-editor-actions">
+            <button class="save-category-btn" onclick="saveVaultFile()">
+                <span class="material-icons-round">save</span> ${escHtml(t('settings.save'))}
+            </button>
+            <button class="btn btn-danger" onclick="deleteCurrentVaultFile()">
+                <span class="material-icons-round">delete</span> ${escHtml(t('settings.delete'))}
+            </button>
+        </div>
+    `;
+}
+
+export async function saveVaultFile() {
+    if (!_currentVaultFile) return;
+    const textarea = document.getElementById('vault-editor-textarea');
+    if (!textarea) return;
+    const data = await api(`${BASE_URL}/api/vault/files/${encodeURIComponent(_currentVaultFile)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: textarea.value }),
+    });
+    if (data?.status === 'ok') {
+        showToast(t('toast.file_saved'), 'success');
+    } else {
+        showToast('Failed to save file', 'danger');
+    }
+}
+
+export async function deleteCurrentVaultFile() {
+    if (!_currentVaultFile) return;
+    await _deleteVaultFile(_currentVaultFile);
+}
+
+export async function deleteVaultFile(filename) {
+    await _deleteVaultFile(filename);
+}
+
+async function _deleteVaultFile(filename) {
+    if (!confirm(t('confirm.delete_file', { filename }))) return;
+    const data = await api(`${BASE_URL}/api/vault/files/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+    });
+    if (data?.status === 'ok') {
+        showToast(t('toast.file_deleted'), 'success');
+        showVaultList();
+    } else {
+        showToast('Failed to delete file', 'danger');
+    }
+}
+
+export async function newVaultFile() {
+    const filename = prompt(t('toast.enter_filename'));
+    if (!filename) return;
+    let finalName = filename.trim();
+    if (!finalName.endsWith('.md')) {
+        if (!confirm(t('toast.filename_md'))) return;
+        finalName += '.md';
+    }
+    viewVaultFile(finalName);
+}
+
+export async function searchVault() {
+    const input = document.getElementById('vault-search-input');
+    if (!input) return;
+    const query = input.value.trim();
+    const body = document.getElementById('vault-body');
+    if (!body) return;
+
+    if (document.getElementById('vault-editor-textarea')) return; // don't search while editing
+
+    if (!query) {
+        _renderVaultFileList(body);
+        return;
+    }
+
+    body.innerHTML = '<div class="vault-loading"><div class="skeleton" style="height:40px;margin-bottom:4px;border-radius:8px"></div>'.repeat(3) + '</div>';
+
+    const data = await api(`${BASE_URL}/api/vault/search?q=${encodeURIComponent(query)}`);
+    if (!data || !data.results) {
+        body.innerHTML = '<p class="muted vault-empty">Search failed</p>';
+        return;
+    }
+
+    if (data.results.length === 0) {
+        body.innerHTML = '<p class="muted vault-empty">No results found</p>';
+        return;
+    }
+
+    const modeLabel = data.mode === 'semantic' ? t('settings.semantic') : 'Keyword';
+    body.innerHTML = `
+        <p class="vault-search-info">${escHtml(modeLabel)} &middot; ${data.results.length} results</p>
+        ${data.results.map(r => {
+            const name = escHtml(r.filename || r.name || 'unknown');
+            const snippet = escHtml((r.snippet || r.content || '').substring(0, 200));
+            return `
+                <div class="vault-file-item" data-vault-file="${escHtml(r.filename || r.name)}">
+                    <span class="material-icons-round vault-file-icon">description</span>
+                    <div class="vault-file-info">
+                        <div class="vault-file-name">${name}</div>
+                        <div class="vault-file-meta vault-file-snippet">${snippet}</div>
+                    </div>
+                </div>
+            `;
+        }).join('')}
+    `;
+}
+
+// ─── Rules Tab ────────────────────────────────────────────────────────
+
+function _renderRulesTab() {
+    return `
+        <div id="rules-tab" class="rules-tab">
+            <h3 class="settings-category-title">${escHtml(t('settings.persistent_rules'))}</h3>
+            <p class="field-desc">This file contains persistent system prompt rules that are prepended to every conversation. Changes take effect on the next message.</p>
+            <textarea id="rules-textarea" class="vault-editor-textarea" rows="20" placeholder="${escHtml(t('settings.rules_placeholder'))}"></textarea>
+            <button class="save-category-btn" onclick="saveRules()" style="align-self:flex-start">
+                <span class="material-icons-round">save</span> ${escHtml(t('settings.save_rules'))}
+            </button>
+        </div>
+    `;
+}
+
+export async function loadRules() {
+    const textarea = document.getElementById('rules-textarea');
+    if (!textarea) return;
+    textarea.value = 'Loading...';
+    textarea.disabled = true;
+    const data = await api(`${BASE_URL}/api/rules`);
+    if (data && data.content !== undefined) {
+        textarea.value = data.content;
+    } else {
+        textarea.value = '';
+        showToast('Failed to load rules', 'warning');
+    }
+    textarea.disabled = false;
+}
+
+export async function saveRules() {
+    const textarea = document.getElementById('rules-textarea');
+    if (!textarea) return;
+    const data = await api(`${BASE_URL}/api/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: textarea.value }),
+    });
+    if (data?.status === 'ok') {
+        showToast(t('toast.rules_saved'), 'success');
+    } else {
+        showToast('Failed to save rules', 'danger');
     }
 }
 
@@ -616,6 +1061,19 @@ export function _attachSettingsDelegates() {
             }
         }
     });
+
+    // Vault file item click delegation
+    body.addEventListener('click', (e) => {
+        const fileItem = e.target.closest('[data-vault-file]');
+        if (fileItem && !e.target.closest('[data-vault-file-delete]')) {
+            viewVaultFile(fileItem.dataset.vaultFile);
+            return;
+        }
+        const delBtn = e.target.closest('[data-vault-file-delete]');
+        if (delBtn) {
+            deleteVaultFile(delBtn.dataset.vaultFileDelete);
+        }
+    });
 }
 
 // Expose to window for onclick handlers in generated HTML
@@ -625,12 +1083,27 @@ window.saveCategory = saveCategory;
 window.toggleFieldVisibility = toggleFieldVisibility;
 window.testConnection = testConnection;
 window.fetchModels = fetchModels;
+window.testVoice = testVoice;
+window.confirmReset = confirmReset;
+window.loadCompanionSettings = loadCompanionSettings;
 window.testConnectionFromField = function(fieldId) {
     const inp = document.getElementById(fieldId);
     if (!inp) return;
     const key = inp.dataset.key || '';
     testConnection(key);
 };
+
+// Vault & Rules window exports
+window.loadVaultList = loadVaultList;
+window.viewVaultFile = viewVaultFile;
+window.showVaultList = showVaultList;
+window.saveVaultFile = saveVaultFile;
+window.deleteVaultFile = deleteVaultFile;
+window.deleteCurrentVaultFile = deleteCurrentVaultFile;
+window.newVaultFile = newVaultFile;
+window.searchVault = searchVault;
+window.loadRules = loadRules;
+window.saveRules = saveRules;
 
 // Settings open/close (tab-based)
 window.openSettings = function() {

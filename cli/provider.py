@@ -11,6 +11,13 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+# TODO dedup: KNOWN_PROVIDERS, PROVIDER_MODELS, and resolve_display_name
+# duplicate data from backend/api/routes/setup.py::PROVIDER_CATALOG and
+# webui/js/modules/settings-schema.js.  The /api/providers endpoint is
+# the single source of truth.  When adding a new provider, update the
+# PROVIDER_CATALOG dict in setup.py first, then keep the CLI lists in
+# sync for offline/CLI-only use.
+#
 # ── Known providers and their models ───────────────────────────────────
 KNOWN_PROVIDERS: list[str] = [
     "gemini", "openai", "anthropic", "groq", "ollama", "openrouter",
