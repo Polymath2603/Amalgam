@@ -143,8 +143,8 @@ def main ():
                 with open (index_path ,'r')as f :
                     data =yaml .safe_load (f )or {}
                 name =data .get ('name',char_dir )
-            except Exception :
-                pass 
+            except Exception as e:
+                print(f"  Warning: failed to read index.yaml for {char_dir}: {e}")
 
         letter =name [0 ].upper ()if name else '?'
 

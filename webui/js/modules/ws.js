@@ -407,6 +407,14 @@ export function handleWSMessage(data) {
         }
         // Dispatch DOM event so other components can react
         document.dispatchEvent(new CustomEvent('avatarLifeState', { detail: { event: data.event } }));
+    } else if (data.type === 'companion') {
+        // Companion proactive message — display as a special assistant message
+        const cam = _addMessage?.('assistant', data.content || '');
+        if (cam) {
+            cam.classList.add('msg-companion');
+            if (data.context) cam.dataset.companionContext = data.context;
+        }
+        _setStatus?.('ready');
     } else if (data.type === 'interrupt') {
         if (data.action === 'stop_audio_and_animation') {
             flushTTSQueue();

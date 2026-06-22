@@ -57,10 +57,10 @@ class Agent:
         self.strategy_selector = strategy_selector
 
     def update_emotion_tags(self, tags):
-        pass
+        """No-op — avatar emotion is now controlled via MCP tools, not tags."""
 
     def update_expression_names(self, names):
-        pass
+        """No-op — avatar expressions are now controlled via MCP tools, not tags."""
 
     def update_settings(self, settings):
         self.settings = settings

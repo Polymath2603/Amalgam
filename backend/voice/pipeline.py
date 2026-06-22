@@ -568,8 +568,8 @@ class VoicePipeline:
         if self._stream is not None:
             try:
                 self._stream.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to close voice stream on stop: %s", e)
         self._stt_executor.shutdown(wait=False)
         # Create a fresh executor for next use
         self._stt_executor = concurrent.futures.ThreadPoolExecutor(

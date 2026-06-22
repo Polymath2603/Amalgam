@@ -161,8 +161,8 @@ def create_app ():
             fts = FTSSearch(CONVERSATIONS_DIR)
             fts.search("probe")  # synchronous — no await
             db_ok = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Ready check — FTS probe failed: %s", e)
         status = 200 if db_ok else 503
         return JSONResponse(
             {"status": "ok" if db_ok else "degraded", "database": db_ok},
@@ -227,8 +227,8 @@ def create_app ():
             sched = companion_fn ()
             if sched :
                 await sched .stop ()
-        except Exception :
-            pass
+        except Exception as e:
+            logger.debug("Failed to stop companion scheduler on shutdown: %s", e)
         from backend .core .startup import shutdown_application 
         await shutdown_application ()
 

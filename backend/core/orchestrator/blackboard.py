@@ -162,7 +162,23 @@ class Blackboard:
                 if self._lock_ttl > 0:
                     # Stale-lock check: if the holder hasn't been seen
                     # recently enough, let the new agent take over.
-                    pass  # Further refinement possible; see lock_ttl notes.
+                    lock_key = key
+                    lock_owner = holder
+                    # Check all entries for this lock's author timestamp.
+                    # If the lock holder hasn't posted to the blackboard
+                    # within the TTL window, force-release the stale lock.
+                    stale = True
+                    for entry in self._entries.values():
+                        if entry.author == lock_owner and (time.time() - entry.timestamp) < self._lock_ttl:
+                            stale = False
+                            break
+                    if stale:
+                        logger.warning(
+                            "Blackboard: forcing stale lock '%s' (holder %s, ttl %.1fs)",
+                            key, lock_owner, self._lock_ttl,
+                        )
+                        self._locks[key] = agent_id
+                        return True
 
             if time.time() >= deadline:
                 return False

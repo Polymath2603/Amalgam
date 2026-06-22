@@ -54,8 +54,8 @@ class OpenWakeWordProvider (WakeWordProvider ):
         if self ._stream :
             try :
                 self ._stream .close ()
-            except Exception :
-                pass 
+            except Exception as e:
+                logger.debug("Failed to close wake word stream: %s", e)
             self ._stream =None 
         if self ._thread and self ._thread .is_alive ():
             self ._thread .join (timeout =2 )

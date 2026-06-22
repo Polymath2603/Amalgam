@@ -43,12 +43,6 @@ export const SETTINGS_SCHEMA = {
                 key: "_char_info",
                 description: "Name, personality and voice of the active character",
             },
-            companion_mode: {
-                label: "Companion Mode",
-                type: "toggle",
-                key: "behavior.companion_enabled",
-                description: "Enable proactive companion interactions",
-            },
             thinking: {
                 label: "Show Thinking",
                 type: "toggle",

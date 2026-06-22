@@ -59,8 +59,10 @@ Examples:
     sp.add_argument("--days", type=int, default=7, help="Number of days to report (default: 7)")
 
     subparsers.add_parser("curate", help="Run skill curator manually")
-    subparsers.add_parser("server", help="Start the FastAPI server")
-    subparsers.add_parser("health", help="Print live service status (repeating)")
+    sp = subparsers.add_parser("server", help="Start the FastAPI server")
+    sp.add_argument("--no-launch", "--no-browser", action="store_true",
+                     help="Don't auto-open browser on server start")
+    sp = subparsers.add_parser("health", help="Print live service status (repeating)")
     subparsers.add_parser("setup", help="Run interactive setup wizard")
 
     args = parser.parse_args()
@@ -97,6 +99,9 @@ Examples:
 
     # Default: run server (also when command is "server" or no command at all)
     import uvicorn
+
+    if getattr(args, 'no_launch', False) or getattr(args, 'no_browser', False):
+        os.environ["NO_BROWSER"] = "1"
 
     uvicorn.run(
         "backend.app:app",

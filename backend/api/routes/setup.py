@@ -278,6 +278,7 @@ async def setup_step3(req: Step3Request):
     s.set("character.active", req.character)
     s.set("behavior.permission_level", req.permission_level)
     s.set("behavior.companion_enabled", req.companion_enabled)
+    s.set("companion.enabled", req.companion_enabled)
     s.set("behavior.thinking_enabled", req.thinking_enabled)
     
     # Mark setup as fully completed

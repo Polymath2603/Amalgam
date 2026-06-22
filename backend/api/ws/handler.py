@@ -996,8 +996,8 @@ class ChatSession:
                         ),
                     )
                 )
-        except Exception:
-            pass  # never block shutdown
+        except Exception as e:
+            logger.debug("Failed to save conversation history on shutdown: %s", e)
 
     async def handle_client_hello(self, data: dict):
         """Handle client_hello — acknowledge capabilities from native shell."""

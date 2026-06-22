@@ -85,7 +85,7 @@ def _print_help():
     opt_table.add_row("--log-format FMT", "Output format: console|json [dim](default: console)[/dim]")
     opt_table.add_row("--port PORT", "Web UI port [dim](default: 8000)[/dim]")
     opt_table.add_row("--host HOST", "Web UI bind host [dim](default: 0.0.0.0)[/dim]")
-    opt_table.add_row("--no-browser", "Don't auto-open browser on webui start")
+    opt_table.add_row("--no-browser, --no-launch", "Don't auto-open browser on webui start")
     con.print(opt_table)
     con.print()
 
@@ -205,7 +205,7 @@ def main():
     )
     parser.add_argument("--port", type=int, default=None, help="Web UI port (default: 8000)")
     parser.add_argument("--host", default=None, help="Web UI bind host (default: 0.0.0.0)")
-    parser.add_argument("--no-browser", action="store_true",
+    parser.add_argument("--no-browser", "--no-launch", action="store_true",
         help="Don't auto-open browser on webui start",
     )
     parser.add_argument("--stats-days", type=int, default=7,
