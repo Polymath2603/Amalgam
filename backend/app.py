@@ -213,6 +213,23 @@ def create_app ():
                 asyncio .create_task (sched .start ())
         except Exception as e :
             logger .warning (f"Companion scheduler start failed: {e}")
+
+        # Start Telegram bot (if configured)
+        try :
+            from backend .api .telegram import run_telegram
+            asyncio .create_task (run_telegram ())
+        except Exception as e :
+            logger .debug (f"Telegram bot not available: {e}")
+
+        # Start gRPC server (if grpc package available)
+        try :
+            from backend .grpc .server import serve_grpc
+            asyncio .create_task (serve_grpc ())
+        except ImportError :
+            pass  # grpc package not installed
+        except Exception as e :
+            logger .debug (f"gRPC server start failed: {e}")
+
         port =os .environ .get ("AMALGAM_PORT","8000")
         host =os .environ .get ("AMALGAM_HOST","0.0.0.0")
         logger .warning (f"\n  Server ready on http://localhost:{port }\n")
