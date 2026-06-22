@@ -9,7 +9,8 @@ import pytest
 import asyncio
 import time
 import threading
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 from backend.core.memory import Memory
 
@@ -27,6 +28,19 @@ def memory(tmp_path):
     }.get(key, default)
     m = Memory(llm_router=None, db_path=conv_dir, settings=mock_settings)
     return m
+
+
+_FAKE_EPOCH = datetime(2030, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+def _make_unique_dt_generator():
+    """Return a callable that produces a new datetime each call."""
+    counter = [0]
+
+    def _next_dt(*args, **kwargs):
+        from datetime import timedelta
+        counter[0] += 1
+        return _FAKE_EPOCH + timedelta(seconds=counter[0])
+    return _next_dt
 
 
 def _run(coro):
@@ -50,8 +64,8 @@ class TestSessionLifecycle:
 
     def test_set_current_session(self, memory):
         sid1 = memory.start_session()
-        time.sleep(1.1)
-        sid2 = memory.start_session()
+        with patch('backend.core.memory.manager.datetime', side_effect=_make_unique_dt_generator()):
+            sid2 = memory.start_session()
         memory.set_current_session(sid1)
         assert memory.get_current_session() == sid1
 
@@ -68,8 +82,8 @@ class TestSessionLifecycle:
 
     def test_get_sessions_after_creation(self, memory):
         memory.start_session()
-        time.sleep(1.1)
-        memory.start_session()
+        with patch('backend.core.memory.manager.datetime', side_effect=_make_unique_dt_generator()):
+            memory.start_session()
         sessions = memory.get_sessions()
         assert len(sessions) >= 2
 
@@ -110,8 +124,8 @@ class TestMultipleSessions:
     def test_sessions_isolated(self, memory):
         sid1 = memory.start_session()
         _run(memory.add_turn("user", "session 1 message"))
-        time.sleep(1.1)
-        sid2 = memory.start_session()
+        with patch('backend.core.memory.manager.datetime', side_effect=_make_unique_dt_generator()):
+            sid2 = memory.start_session()
         _run(memory.add_turn("user", "session 2 message"))
         memory.set_current_session(sid1)
         recent1 = memory.get_recent()
@@ -144,12 +158,11 @@ class TestSessionBrutal:
 
     def test_start_session_uniqueness(self, memory):
         """Sessions created at different times should have unique IDs."""
-        import time
         ids = set()
-        for _ in range(5):
-            sid = memory.start_session()
-            ids.add(sid)
-            time.sleep(1.1)  # ensure different second for each ID
+        with patch('backend.core.memory.manager.datetime', side_effect=_make_unique_dt_generator()):
+            for _ in range(5):
+                sid = memory.start_session()
+                ids.add(sid)
         assert len(ids) == 5, f"Session ID collision detected: only {len(ids)} unique IDs for 5 sessions"
 
     def test_set_current_session_nonexistent(self, memory):
@@ -267,8 +280,8 @@ class TestMultipleSessionsBrutal:
         """Rapidly switching sessions should not lose data."""
         sid1 = memory.start_session()
         _run(memory.add_turn("user", "s1 msg"))
-        time.sleep(1.1)
-        sid2 = memory.start_session()
+        with patch('backend.core.memory.manager.datetime', side_effect=_make_unique_dt_generator()):
+            sid2 = memory.start_session()
         _run(memory.add_turn("user", "s2 msg"))
 
         # Switch back and forth
@@ -306,9 +319,9 @@ class TestMemoryResourceManagement:
     def test_start_stop_many_sessions(self, memory):
         """Start and switch between 50 sessions without crash."""
         sids = []
-        for _ in range(50):
-            sids.append(memory.start_session())
-            time.sleep(0.01)  # Brief pause to avoid timestamp collision
+        with patch('backend.core.memory.manager.datetime', side_effect=_make_unique_dt_generator()):
+            for _ in range(50):
+                sids.append(memory.start_session())
 
         for sid in sids:
             memory.set_current_session(sid)

@@ -38,6 +38,22 @@ class LLMRouter:
     def reload_settings(self):
         self._provider.reload_settings()
 
+    LOCAL_ONLY_PROVIDERS = {"ollama", "llamacpp", "koboldai"}
+
+    def _check_local_only(self):
+        """Raise if local_only_mode is enabled and current provider is external."""
+        if not self.settings:
+            return
+        if not self.settings.get("privacy.local_only_mode", False):
+            return
+        provider = self.settings.get("provider.active", "")
+        if provider and provider.lower() not in self.LOCAL_ONLY_PROVIDERS:
+            raise RuntimeError(
+                f"Local-only mode is enabled but provider '{provider}' is external. "
+                f"Switch to a local provider ({', '.join(sorted(self.LOCAL_ONLY_PROVIDERS))}) "
+                f"or disable local-only mode in Settings > Privacy."
+            )
+
     def supports_native_tools(self) -> bool:
         return self._provider.supports_native_tools()
 
@@ -51,12 +67,14 @@ class LLMRouter:
         return self._provider.get_model_name()
 
     async def stream(self, messages: list, temperature: float = None) -> AsyncIterator[str]:
+        self._check_local_only()
         async for token in self._provider.stream(messages, temperature):
             yield token
 
     async def stream_with_tools(
         self, messages: list, tools: List[Dict[str, Any]], temperature: float = None,
     ) -> AsyncIterator:
+        self._check_local_only()
         if self.supports_native_tools():
             async for item in self._provider.stream_with_tools(messages, tools, temperature):
                 yield item
@@ -69,6 +87,7 @@ class LLMRouter:
                 yield token
 
     async def generate(self, messages: list, temperature: float = None) -> str:
+        self._check_local_only()
         return await self._provider.generate(messages, temperature)
 
     async def complete(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
@@ -76,6 +95,7 @@ class LLMRouter:
 
         Used by PlanningAgent._decompose(), ReflectiveAgent._try_create_skill(), etc.
         """
+        self._check_local_only()
         messages = [{"role": "user", "content": prompt}]
         return await self.generate(messages, temperature)
 

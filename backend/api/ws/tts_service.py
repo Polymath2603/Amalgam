@@ -222,6 +222,8 @@ class OrderedTTSScheduler:
 
         duration = len(wav_np) / sample_rate if sample_rate else 0
 
+        lipsync_enabled = settings().get("voice.lipsync_enabled", True)
+
         return {
             "type": "tts_audio",
             "audio": b64,
@@ -230,7 +232,7 @@ class OrderedTTSScheduler:
             "duration": duration,
             "emotion": emotion,
             "sentence_idx": sentence_idx,
-            "viseme_schedule": viseme_schedule if viseme_schedule else [],
+            "viseme_schedule": (viseme_schedule if viseme_schedule else []) if lipsync_enabled else [],
         }
 
     async def _deliver_ready(

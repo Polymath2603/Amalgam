@@ -101,7 +101,7 @@ class TestMakeWavBytesBrutal:
         """1M samples should produce valid WAV."""
         audio = np.random.randn(1_000_000).astype(np.float32) * 0.1
         result = _make_wav_bytes(audio, 16000)
-        assert len(result) > 44 + 2_000_000  # 44 header + 2 bytes per sample
+        assert len(result) >= 44 + 2_000_000  # 44 header + 2 bytes per sample
 
     def test_negative_values(self):
         audio = np.array([-0.5, -0.8, -1.0, -0.1], dtype=np.float32)

@@ -75,7 +75,7 @@ class VaultManager:
         if not path or not path.exists() or not path.is_file():
             return None
         try:
-            return path.read_text(encoding="utf-8")
+            return path.read_bytes().decode("utf-8")
         except Exception as e:
             logger.error(f"Failed to read vault file {filename}: {e}")
             return None
@@ -86,7 +86,7 @@ class VaultManager:
             return False
         self._vault_path.mkdir(parents=True, exist_ok=True)
         try:
-            path.write_text(content, encoding="utf-8")
+            path.write_bytes(content.encode("utf-8"))
             return True
         except Exception as e:
             logger.error(f"Failed to write vault file {filename}: {e}")

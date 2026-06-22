@@ -93,6 +93,18 @@ class Memory:
         # EpisodicMemory is created per-session lazily (needs session_id)
         self._episodic_memories: Dict[str, EpisodicMemory] = {}
 
+    def _memory_enabled(self) -> bool:
+        """Check if memory persistence is enabled in settings. Defaults to True."""
+        if self.settings:
+            return bool(self.settings.get("memory.enabled", True))
+        return True
+
+    def _fact_extraction_enabled(self) -> bool:
+        """Check if long-term fact extraction is enabled in settings. Defaults to True."""
+        if self.settings:
+            return bool(self.settings.get("memory.fact_extraction", True))
+        return True
+
     def _maybe_migrate(self):
         """Migrate legacy session embeddings to ChromaDB (runs once).
         
@@ -350,10 +362,15 @@ class Memory:
 
     async def add_turn(self, role: str, content: str):
         session_id = self.get_current_session()
-        embedding = await self._get_embedding(content)
 
-        # Add to working memory (in-memory ring buffer)
+        # Add to working memory (always — needed for conversation flow)
         self._working.add(role, content)
+
+        # If memory persistence is disabled, skip disk/embedding/ChromaDB writes
+        if not self._memory_enabled():
+            return
+
+        embedding = await self._get_embedding(content)
 
         with self._lock:
             data = self._read_sync(session_id)

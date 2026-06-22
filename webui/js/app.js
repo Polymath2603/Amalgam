@@ -28,6 +28,7 @@ import { _applyVoiceInput, _applyVoiceOutput, isBrowserStt, initVoiceToggles, up
 import { connectWS, getPendingMessages } from './modules/ws.js';
 import { loadMCP } from './modules/mcp.js';
 import { initCompanion, updateCompanionSettings } from './modules/companion.js';
+import { initMemoryGraph, destroyMemoryGraph } from './modules/memory-graph.js';
 import { initMcpCommand, openMcpPanel, isMcpPanelOpen, handleMcpKeydown } from './modules/mcp-command.js';
 import { updateHealthBar, refreshHealth } from './modules/health.js';
 import { loadHistory, initHistoryEvents, setHistoryDeps, updateHistoryToggle } from './modules/history.js';
@@ -220,6 +221,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (tabId === 'metrics') loadMetrics();
             if (tabId === 'swarm' && !window.swarmGraph) {
                 if (typeof window.initSwarmTab === 'function') window.initSwarmTab();
+            }
+            if (tabId === 'memory') {
+                initMemoryGraph();
+            } else {
+                // Clean up memory graph animation when leaving the tab
+                destroyMemoryGraph();
             }
         }
     }

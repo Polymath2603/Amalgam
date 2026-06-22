@@ -43,7 +43,10 @@ def orch():
 
 @pytest.fixture
 def blackboard():
-    return Blackboard()
+    bb = Blackboard()
+    # Disable stale-lock TTL so lock tests aren't affected by entry timestamps.
+    bb._lock_ttl = 0.0
+    return bb
 
 
 @pytest.fixture

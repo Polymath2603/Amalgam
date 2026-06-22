@@ -245,6 +245,7 @@ class TestMetricsSQLiteBrutal:
         ))
         import aiosqlite
         async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
             row = await (await db.execute("SELECT * FROM turns")).fetchone()
             assert row["input_tokens"] == 100_000_000
 

@@ -251,6 +251,24 @@ textarea, input { background-color: var(--bg-input); color: var(--text); }
 }
 .msg-action .material-icons-round { font-size: 16px; }
 
+/* Companion proactive messages */
+.msg-companion {
+    align-self: flex-start;
+    background: linear-gradient(135deg, rgba(129, 199, 132, 0.12), rgba(100, 181, 246, 0.12));
+    border: 1px solid rgba(129, 199, 132, 0.3);
+    border-radius: var(--radius);
+    border-bottom-left-radius: 2px;
+    padding: 0.2rem 0.7rem;
+    max-width: 80%;
+    position: relative;
+}
+.msg-companion::before {
+    content: '💚';
+    position: absolute;
+    top: -12px;
+    left: 4px;
+    font-size: 12px;
+}
 
 .history-panel {
     display: none;

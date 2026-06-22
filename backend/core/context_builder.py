@@ -344,6 +344,12 @@ class ContextBuilder:
         if additional_prompt and additional_prompt.strip():
             character_style += f"\n\n{additional_prompt}"
 
+        # --- Character behavior rules (from settings UI) ---
+        if self.settings:
+            behavior_rules = self.settings.get("character.rules", "")
+            if behavior_rules and behavior_rules.strip():
+                character_style += f"\n\n### Behavior Rules\n{behavior_rules.strip()}"
+
         # --- Avatar section ---
         anims = self._get_available_animations(character_id)
         if anims:

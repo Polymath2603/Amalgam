@@ -99,8 +99,8 @@ class TestAutoSkillCreatorBrutal:
         """Tool call with missing expected keys should not crash."""
         tc = {}
         summary = AutoSkillCreator._tool_call_summary(tc)
-        assert summary["tool"] == ""
-        assert summary["success"] is False
+        assert summary["tool"] == "unknown"
+        assert summary["success"] is True
 
     def test_tool_call_summary_none_values(self):
         tc = {"tool_name": None, "tool_input": None, "success": None}

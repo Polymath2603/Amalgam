@@ -1045,6 +1045,15 @@ class ChatSession:
         if sched:
             session_id = memory().get_current_session()
             sched.register_session(session_id, self.send)
+            # Notify companion that user joined
+            try:
+                from backend.core.companion.events import CompanionEvent, CompanionEventType
+                await sched.on_event(CompanionEvent(
+                    event_type=CompanionEventType.USER_JOINED,
+                    data={"session_id": session_id},
+                ))
+            except Exception as e:
+                logger.debug("Companion USER_JOINED event failed: %s", e)
         try:
             while True:
                 data = await self.ws.receive_json()

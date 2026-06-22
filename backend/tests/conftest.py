@@ -13,9 +13,18 @@ os.environ.setdefault("LITELLM_DISABLE_TELEMETRY", "true")
 
 @pytest.fixture
 def settings():
-    from backend.core.config.settings import Settings
-    s = Settings()
-    return s
+    import tempfile
+    import json
+    from backend.core.config.settings import Settings, DEFAULTS
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        json.dump(DEFAULTS, f)
+        tmp_path = f.name
+    s = Settings(path=tmp_path)
+    yield s
+    try:
+        os.unlink(tmp_path)
+    except OSError:
+        pass
 
 
 @pytest.fixture
