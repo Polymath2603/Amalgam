@@ -42,3 +42,10 @@ class WorkingMemory:
     @property
     def capacity(self) -> int:
         return self._capacity
+
+    @capacity.setter
+    def capacity(self, value: int):
+        self._capacity = max(1, value)
+        # Evict oldest turns if over new capacity
+        while len(self._turns) > self._capacity:
+            self._turns.popitem(last=False)

@@ -533,6 +533,12 @@ class Memory:
         if n <= 0:
             return []
 
+        # If memory persistence is disabled, ensure working memory can hold enough
+        if not self._memory_enabled():
+            if self._working.capacity < n:
+                self._working.capacity = n
+            return self._working.recent(n)
+
         # Prefer working memory (always in memory, most recent turns)
         working_turns = self._working.recent(n)
         if len(working_turns) >= n:

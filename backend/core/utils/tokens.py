@@ -102,11 +102,15 @@ def truncate_to_token_limit (text :str ,max_tokens :int ,model :Optional [str ]=
     if tokens <=max_tokens :
         return text 
 
+    suffix ="\n...[truncated]"
+    suffix_tokens =estimate_tokens (suffix ,model )
+    content_budget =max (0 ,max_tokens -suffix_tokens )
+
     lo ,hi =0 ,len (text )
     while lo <hi :
         mid =(lo +hi +1 )//2 
         t =estimate_tokens (text [:mid ],model )
-        if t <=max_tokens :
+        if t <=content_budget :
             lo =mid 
         else :
             hi =mid -1 
@@ -115,7 +119,10 @@ def truncate_to_token_limit (text :str ,max_tokens :int ,model :Optional [str ]=
     last_space =truncated .rfind (" ")
     if last_space >len (truncated )*0.7 :
         truncated =truncated [:last_space ]
-    return truncated +"\n...[truncated]"
+    result =truncated +suffix
+    if len (result )>=len (text ):
+        return suffix
+    return result
 
 
 def estimate_message_list_tokens (messages :list ,model :Optional [str ]=None )->int :
@@ -138,6 +145,8 @@ model :Optional [str ]=None
     
     Returns messages in chronological order.
     """
+    if budget <= 0 :
+        return []
     total =0 
     selected =[]
     for msg in reversed (messages ):
@@ -145,8 +154,11 @@ model :Optional [str ]=None
         if total +msg_tokens >budget :
 
             if not selected :
-                truncated =truncate_to_token_limit (msg .get ("content",""),budget -estimate_tokens (msg .get ("role",""),model )-4 ,model )
-                selected .insert (0 ,{**msg ,"content":truncated })
+                role_tokens =estimate_tokens (msg .get ("role",""),model )
+                content_budget =budget -role_tokens -4
+                if content_budget >0 :
+                    truncated =truncate_to_token_limit (msg .get ("content",""),content_budget ,model )
+                    selected .insert (0 ,{**msg ,"content":truncated })
             break 
         total +=msg_tokens 
         selected .insert (0 ,msg )
