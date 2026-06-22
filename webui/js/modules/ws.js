@@ -344,16 +344,8 @@ export function handleWSMessage(data) {
     } else if (data.type === 'voice_state') {
         updateVoiceState(data.state);
     } else if (data.type === 'emotion') {
-        if (avatarRenderer) avatarRenderer.setExpression?.(data.emotion);
-        if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression?.(data.emotion);
-        // Wire procedural animations to emotion events
-        if (data.emotion === 'thinking' || data.emotion === 'think') {
-            if (avatarRenderer) avatarRenderer.playThinking?.();
-            if (avatarPreviewRenderer) avatarPreviewRenderer.playThinking?.();
-        } else if (data.emotion === 'happy' || data.emotion === 'excited') {
-            if (avatarRenderer) avatarRenderer.playExcited?.();
-            if (avatarPreviewRenderer) avatarPreviewRenderer.playExcited?.();
-        }
+        if (avatarRenderer) avatarRenderer.setEmotion?.(data.emotion);
+        if (avatarPreviewRenderer) avatarPreviewRenderer.setEmotion?.(data.emotion);
     } else if (data.type === 'expression') {
         if (avatarRenderer) avatarRenderer.setExpression?.(data.expression);
         if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression?.(data.expression);

@@ -844,7 +844,10 @@ export class AvatarRenderer {
 
         this.currentEmotion = emotion;
 
-        // Step 3: Auto-reset to neutral after a delay
+        // Step 3: Trigger procedural body animation based on emotion category
+        this._playEmotionAnimation(emotion);
+
+        // Step 4: Auto-reset to neutral after a delay
         if (this._emotionTimer) {
             clearTimeout(this._emotionTimer);
             this._emotionTimer = null;
@@ -858,14 +861,57 @@ export class AvatarRenderer {
     }
 
     setExpression(name) {
-        const em = this.vrm?.expressionManager;
-        if (!em) return;
-        for (const expr of EXPRESSION_NAMES) {
-            this._targetExpressions[expr] = 0;
-        }
-        if (name === 'neutral' || !name) return;
-        if (EXPRESSION_NAMES.includes(name)) {
-            this._targetExpressions[name] = 1.0;
+        // Forward to setEmotion so all callers get the full 26-emotion system
+        // with VRM expression candidate fallbacks.
+        return this.setEmotion(name);
+    }
+
+    /**
+     * Map extended emotions to procedural body animations.
+     * Called by setEmotion() to add physical expressiveness beyond
+     * VRM facial expression morphs.
+     *
+     * Categories:
+     *   - sad/troubled/depressed → subtle nod
+     *   - angry/frustrated/annoyed → slight forward lean
+     *   - shy/embarrassed → head tilt down
+     *   - excited/happy → bounce
+     *   - bored/tired → slower idle (skip animation, handled by idle speed)
+     *   - thinking → thinking pose
+     */
+    _playEmotionAnimation(emotion) {
+        if (!this._animManager) return;
+
+        switch (emotion) {
+            // Subtle nod for sadness
+            case 'sad':
+            case 'troubled':
+            case 'depressed':
+                this._animManager.play('nod', { priority: ANIM_PRIORITY.LOW });
+                break;
+            // Slight forward lean for anger
+            case 'angry':
+            case 'frustrated':
+            case 'annoyed':
+                this._animManager.play('leanForward', { priority: ANIM_PRIORITY.LOW });
+                break;
+            // Head tilt down for shyness
+            case 'shy':
+            case 'embarrassed':
+                this._animManager.play('headTiltDown', { priority: ANIM_PRIORITY.LOW });
+                break;
+            // Bounce for excitement
+            case 'excited':
+            case 'happy':
+                this._animManager.play('excited', { priority: ANIM_PRIORITY.NORMAL });
+                break;
+            // Thinking pose
+            case 'thinking':
+                this._animManager.play('thinking', { priority: ANIM_PRIORITY.NORMAL });
+                break;
+            // bored/tired: no animation, idle manager handles slower breathing
+            default:
+                break;
         }
     }
 

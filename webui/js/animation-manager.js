@@ -306,6 +306,12 @@ export class AnimationManager {
 
         const e = this._createExcitedClip();
         if (e) this._clips.excited = e;
+
+        const lf = this._createLeanForwardClip();
+        if (lf) this._clips.leanForward = lf;
+
+        const htd = this._createHeadTiltDownClip();
+        if (htd) this._clips.headTiltDown = htd;
     }
 
     /* ── Greeting: hand wave ──────────────────────────────────────── */
@@ -412,5 +418,52 @@ export class AnimationManager {
 
         if (tracks.length === 0) return null;
         return new THREE.AnimationClip('excited', 1.2, tracks);
+    }
+
+    /* ── Lean forward: anger / frustration ────────────────────────── */
+
+    _createLeanForwardClip() {
+        const tracks = [];
+
+        // Upper chest lean forward
+        const chestNode = this._vrm.humanoid.getNormalizedBoneNode('upperChest');
+        if (chestNode) {
+            tracks.push(makeQuatTrack(chestNode.name, [
+                { time: 0.0,  euler: [0, 0, 0] },
+                { time: 0.4,  euler: [0.06, 0, 0] },   // lean forward
+                { time: 1.2,  euler: [0.06, 0, 0] },   // hold
+                { time: 1.8,  euler: [0, 0, 0] },       // return
+            ]));
+        }
+
+        // Head slight forward pitch (emphasize lean)
+        const headNode = this._vrm.humanoid.getNormalizedBoneNode('head');
+        if (headNode) {
+            tracks.push(makeQuatTrack(headNode.name, [
+                { time: 0.0,  euler: [0, 0, 0] },
+                { time: 0.4,  euler: [0.04, 0, 0] },   // slight nod forward
+                { time: 1.2,  euler: [0.04, 0, 0] },   // hold
+                { time: 1.8,  euler: [0, 0, 0] },       // return
+            ]));
+        }
+
+        if (tracks.length === 0) return null;
+        return new THREE.AnimationClip('leanForward', 1.8, tracks);
+    }
+
+    /* ── Head tilt down: shyness / embarrassment ──────────────────── */
+
+    _createHeadTiltDownClip() {
+        const headNode = this._vrm.humanoid.getNormalizedBoneNode('head');
+        if (!headNode) return null;
+
+        const track = makeQuatTrack(headNode.name, [
+            { time: 0.0,  euler: [0, 0, 0] },
+            { time: 0.5,  euler: [0.15, 0, 0.04] },   // tilt down + slight roll
+            { time: 1.5,  euler: [0.15, 0, 0.04] },   // hold
+            { time: 2.2,  euler: [0, 0, 0] },           // return
+        ]);
+
+        return new THREE.AnimationClip('headTiltDown', 2.2, [track]);
     }
 }
