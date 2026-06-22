@@ -190,7 +190,7 @@ def create_app ():
     async def serve_character_asset (file_path :str ):
         # Prevent path traversal: resolve and verify the path stays inside CHARACTERS_DIR
         full_path =(CHARACTERS_DIR /file_path ).resolve ()
-        if not str (full_path ).startswith (str (CHARACTERS_DIR .resolve ())):
+        if not full_path .is_relative_to (CHARACTERS_DIR .resolve ()):
             return Response (status_code =403 )
         if full_path .exists ()and full_path .is_file ():
             return FileResponse (str (full_path ))
@@ -241,7 +241,7 @@ def create_app ():
         async def serve_webui (path :str ):
             # Prevent path traversal: resolve and verify the path stays inside WEBUI_DIR
             file_path =(WEBUI_DIR /path ).resolve ()
-            if not str (file_path ).startswith (str (WEBUI_DIR .resolve ())):
+            if not file_path .is_relative_to (WEBUI_DIR .resolve ()):
                 return Response (status_code =403 )
             if file_path .exists ()and file_path .is_file ():
                 return FileResponse (str (file_path ))
