@@ -49,11 +49,12 @@ class CompanionMode:
         self.last_interaction_time = time.time()
         self.timeout_duration = 46.0
         self.session_id = None
-        self.base_url = "ws://localhost:8000/ws/chat"
+        self.base_url = os.environ.get("AMALGAM_WS_URL", "ws://localhost:8000/ws/chat")
         self._stop_event = asyncio.Event()
         self.current_response = ""
         self.is_thinking = False
         self._connected = False
+        self._stt_timeout = float(os.environ.get("AMALGAM_STT_TIMEOUT", "30"))
 
     async def connect(self):
         """Connect with retry and a spinner showing progress."""

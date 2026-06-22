@@ -270,7 +270,14 @@ export function handleWSMessage(data) {
     } else if (data.type === 'chat_start') {
         // Race condition fix: flush any playing TTS when new message starts
         flushTTSQueue();
-        setCurrentAssistantMessage(_addMessage?.('assistant', ''));
+        const assistantMsg = _addMessage?.('assistant', '');
+        if (assistantMsg) {
+            const body = assistantMsg.querySelector('.msg-body');
+            if (body) {
+                body.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+            }
+        }
+        setCurrentAssistantMessage(assistantMsg);
         _setStatus?.('thinking');
         if (avatarRenderer) avatarRenderer.playGreeting?.();
         if (avatarPreviewRenderer) avatarPreviewRenderer.playGreeting?.();
@@ -294,8 +301,11 @@ export function handleWSMessage(data) {
                     });
                     streamBuffer.clear();
                     setStreamBufferTimer(null);
-                    // Auto-scroll
-                    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+                    // Auto-scroll only if user is near the bottom (within 150px)
+                    if (chatMessages) {
+                        const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 150;
+                        if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
+                    }
                 }));
             }
             // If this append is marked finished, finalize the assistant message
@@ -311,7 +321,7 @@ export function handleWSMessage(data) {
                     if (el) el.innerHTML = formatMessage(text);
                 });
                 streamBuffer.clear();
-                // Auto-scroll after final flush
+                // Auto-scroll after final flush (always scroll on completion)
                 if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
             }
         }
@@ -339,7 +349,7 @@ export function handleWSMessage(data) {
         flushTTSQueue();
         _setStatus?.('ready');
         if (data.message) {
-            showToast(`TTS: ${data.message}`, 'warn');
+            showToast(`TTS: ${data.message}`, 'warning');
         }
     } else if (data.type === 'voice_state') {
         updateVoiceState(data.state);

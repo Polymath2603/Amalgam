@@ -11,7 +11,8 @@ logger =logging .getLogger (__name__ )
 class CoquiLocalProvider (TTSProvider ):
     def __init__ (self ,voice ="default"):
         super ().__init__ (voice )
-        self ._url ="http://127.0.0.1:5002"
+        import os
+        self ._url =os .environ .get ("AMALGAM_COQUI_URL","http://127.0.0.1:5002")
         self ._speaker_id =""
         self ._client =httpx .AsyncClient (timeout =httpx .Timeout (60.0 ,connect =10.0 ))
 

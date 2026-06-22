@@ -8,12 +8,13 @@ Translation is optional — all errors are logged and the original
 text is returned so the conversation is never interrupted.
 """
 import logging
+import os
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DEEPLX_URL = "http://localhost:1188/translate"
+DEFAULT_DEEPLX_URL = os.environ.get("AMALGAM_DEEPLX_URL", "http://localhost:1188/translate")
 
 
 async def translate_text(

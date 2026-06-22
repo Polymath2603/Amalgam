@@ -11,7 +11,8 @@ logger =logging .getLogger (__name__ )
 class PiperProvider (TTSProvider ):
     def __init__ (self ,voice ="en_US-lessac-medium"):
         super ().__init__ (voice )
-        self ._url ="http://127.0.0.1:5000"
+        import os
+        self ._url =os .environ .get ("AMALGAM_PIPER_URL","http://127.0.0.1:5000")
         self ._client =httpx .AsyncClient (timeout =httpx .Timeout (60.0 ,connect =10.0 ))
 
     def configure (self ,url :str =None ):

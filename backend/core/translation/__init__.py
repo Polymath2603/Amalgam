@@ -5,8 +5,9 @@ from backend.core.translation.deeplx import translate_text
 class TranslationService:
     """Thin wrapper around translate_text for handler compatibility."""
 
-    def __init__(self, base_url: str = "http://localhost:1188/translate") -> None:
-        self._url = base_url
+    def __init__(self, base_url: str = None) -> None:
+        import os
+        self._url = base_url or os.environ.get("AMALGAM_DEEPLX_URL", "http://localhost:1188/translate")
 
     async def translate(
         self, text: str, source_lang: str = "auto", target_lang: str = "en"

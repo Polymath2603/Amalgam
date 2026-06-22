@@ -425,6 +425,14 @@ export async function saveCategory(category) {
     const catData = SETTINGS_SCHEMA[category];
     if (!catData) return;
 
+    // Disable save button during save
+    const saveBtn = document.querySelector('.save-category-btn');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.dataset.originalText = saveBtn.innerHTML;
+        saveBtn.innerHTML = '<span class="material-icons-round" style="animation:spin 0.8s linear infinite">sync</span> Saving...';
+    }
+
     const changed = {};
     for (const [fieldId, field] of Object.entries(catData.fields)) {
         if (!_shouldShowField(fieldId, field)) continue;
@@ -451,22 +459,32 @@ export async function saveCategory(category) {
         }
     }
 
-    const data = await api(`${BASE_URL}/api/settings/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: changed }),
-    });
-    if (data?.status === 'ok') {
-        showToast(`${category} settings saved`, 'success');
-        const s = await api(`${BASE_URL}/api/settings`);
-        if (s) setSettingsCache(s);
+    try {
+        const data = await api(`${BASE_URL}/api/settings/batch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: changed }),
+        });
+        if (data?.status === 'ok') {
+            showToast(`${category} settings saved`, 'success');
+            const s = await api(`${BASE_URL}/api/settings`);
+            if (s) setSettingsCache(s);
 
-        // Also save companion fields via the dedicated companion endpoint
-        if (category === 'Character') {
-            _saveCompanionSettings(changed);
+            // Also save companion fields via the dedicated companion endpoint
+            if (category === 'Character') {
+                _saveCompanionSettings(changed);
+            }
+        } else {
+            showToast(`Failed to save: ${data?.error || 'unknown error'}`, 'danger');
         }
-    } else {
-        showToast(`Failed to save: ${data?.error || 'unknown error'}`, 'danger');
+    } catch (e) {
+        showToast(`Failed to save: ${e.message || 'network error'}`, 'danger');
+    } finally {
+        // Re-enable save button
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = saveBtn.dataset.originalText || saveBtn.innerHTML;
+        }
     }
 }
 

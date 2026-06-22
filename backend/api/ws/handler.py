@@ -5,6 +5,7 @@ import asyncio
 import json
 import re
 import logging
+import os
 import time
 
 from collections.abc import AsyncGenerator
@@ -157,7 +158,7 @@ class ChatSession:
         if not hasattr(self, "_translation_service"):
             self._translation_service = None
             try:
-                base_url = settings().get("translation.base_url", "http://localhost:1188/translate")
+                base_url = settings().get("translation.base_url", None) or os.environ.get("AMALGAM_DEEPLX_URL", "http://localhost:1188/translate")
                 if base_url:
                     from backend.core.translation import TranslationService as _TS
                     self._translation_service = _TS(base_url=base_url)

@@ -47,7 +47,7 @@ if _origins_env:
     CORS_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
 else:
     CORS_ORIGINS = [
-        "http://localhost:8000",
+        os.environ.get("AMALGAM_BACKEND_URL", "http://localhost:8000"),
         "http://localhost:5173",
         "http://localhost:3000",
         "tauri://localhost",

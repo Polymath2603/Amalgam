@@ -12,7 +12,8 @@ logger =logging .getLogger (__name__ )
 class RVCProvider (TTSProvider ):
     def __init__ (self ,voice =""):
         super ().__init__ (voice )
-        self ._url ="http://127.0.0.1:7897"
+        import os
+        self ._url =os .environ .get ("AMALGAM_RVC_URL","http://127.0.0.1:7897")
         self ._f0_up_key =0 
         self ._f0_method ="rmvpe"
         self ._client =httpx .AsyncClient (timeout =httpx .Timeout (120.0 ,connect =10.0 ))

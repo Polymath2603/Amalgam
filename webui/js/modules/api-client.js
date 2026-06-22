@@ -3,16 +3,17 @@
  * Zero dependencies.
  *
  * Options:
- *   - timeout:  ms before abort (default 30_000). Ignored when signal is provided.
+ *   - timeout:  ms before abort (default: DEFAULT_API_TIMEOUT_MS from config.js). Ignored when signal is provided.
  *   - signal:   external AbortSignal for caller-driven cancellation.
  *   - rawResponse: if true, return the Response object instead of parsing JSON.
  */
+import { DEFAULT_API_TIMEOUT_MS } from './config.js';
 
 export async function api(url, opts = {}) {
     // When the caller provides their own signal, skip the internal timeout
     // so their AbortController is the sole cancellation mechanism.
     const controller = opts.signal ? null : new AbortController();
-    const timeout = controller ? setTimeout(() => controller.abort(), opts.timeout || 30000) : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), opts.timeout || DEFAULT_API_TIMEOUT_MS) : null;
     const signal = opts.signal || controller?.signal;
 
     try {

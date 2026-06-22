@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 class WhisperCppProvider(STTProvider):
     def __init__(self):
         super().__init__()
-        self._url = "http://127.0.0.1:8080"
+        import os
+        self._url = os.environ.get("AMALGAM_WHISPERCPP_URL", "http://127.0.0.1:8080")
 
     def configure(self, url: str = None):
         if url:

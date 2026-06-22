@@ -2,6 +2,15 @@
  * config.js — Application constants and URL derivation
  * Zero dependencies.
  */
+
+// ── Named constants for timeouts and polling intervals ─────────────
+export const DEFAULT_API_TIMEOUT_MS = 30000;
+export const WS_HEARTBEAT_INTERVAL_MS = 30000;
+export const WS_PONG_TIMEOUT_MS = 10000;
+export const WS_RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000];
+export const HEALTH_POLL_INTERVAL_MS = 30000;
+export const METRICS_POLL_INTERVAL_MS = 10000;
+
 export const IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
 
 /**

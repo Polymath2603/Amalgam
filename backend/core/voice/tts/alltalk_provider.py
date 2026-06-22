@@ -11,7 +11,8 @@ logger =logging .getLogger (__name__ )
 class AllTalkProvider (TTSProvider ):
     def __init__ (self ,voice ="female_01.wav"):
         super ().__init__ (voice )
-        self ._url ="http://127.0.0.1:7851"
+        import os
+        self ._url =os .environ .get ("AMALGAM_ALLTALK_URL","http://127.0.0.1:7851")
         self ._api_key =""
         self ._language ="en"
         self ._version ="v2"

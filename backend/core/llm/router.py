@@ -6,6 +6,7 @@ delegating all inference to LiteLLM.
 """
 
 import logging
+import os
 from typing import AsyncIterator, List, Dict, Any
 
 import litellm
@@ -111,6 +112,8 @@ class LLMRouter:
         if self.settings:
             base_url = self.settings.get("provider.ollama.base_url", base_url)
             timeout = self.settings.get("llm.ollama_timeout", timeout)
+        else:
+            base_url = os.environ.get("AMALGAM_OLLAMA_URL", base_url)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.get(f"{base_url.rstrip('/')}/api/tags")
@@ -137,6 +140,8 @@ class LLMRouter:
             base_url = self.settings.get("provider.opencode.base_url", base_url)
             timeout = self.settings.get("llm.opencode_timeout", timeout)
             api_key = self.settings.get("provider.opencode.api_key", "")
+        else:
+            base_url = os.environ.get("AMALGAM_OPENCODE_URL", base_url)
         try:
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             async with httpx.AsyncClient(timeout=timeout) as client:

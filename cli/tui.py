@@ -1133,7 +1133,9 @@ class AmalgamTUI(App):
                 if active_provider:
                     try:
                         import urllib.request, json as _json
-                        url = f"http://localhost:8000/api/models/{active_provider}"
+                        _backend_host = os.environ.get("AMALGAM_HOST", "localhost")
+                        _backend_port = os.environ.get("AMALGAM_PORT", "8000")
+                        url = f"http://{_backend_host}:{_backend_port}/api/models/{active_provider}"
                         req = urllib.request.Request(url, headers={"Accept": "application/json"})
                         with urllib.request.urlopen(req, timeout=3) as resp:
                             data = _json.loads(resp.read())

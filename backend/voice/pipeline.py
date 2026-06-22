@@ -252,9 +252,9 @@ class VoicePipeline:
             max_workers=1, thread_name_prefix="stt"
         )
         # STT timeout in seconds — prevents hanging transcription
-        self._stt_timeout = 30.0
         self._stream = None
         self._settings = settings or {}
+        self._stt_timeout = float(self._settings.get("voice.stt_timeout", 30.0))
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
 
     # ── Convenience properties (delegate to state machine) ──────────────
