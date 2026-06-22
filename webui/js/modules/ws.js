@@ -21,7 +21,7 @@ import {
 } from './state.js';
 import { isBrowserStt, updateVoiceState, stopBrowserSpeechRec, startBrowserSpeechRec, resetBrowserStt } from './voice.js';
 import { processTTSQueue, flushTTSQueue } from './tts.js';
-import { stripMarkers, formatMessage, updateToolCall } from './markdown.js';
+import { stripMarkers, formatMessage, updateToolCall, highlightCodeBlocks } from './markdown.js';
 import { updateHealthBar } from './health.js';
 import { t } from '../i18n.js';
 
@@ -301,6 +301,9 @@ export function handleWSMessage(data) {
                     });
                     streamBuffer.clear();
                     setStreamBufferTimer(null);
+                    // Apply syntax highlighting to code blocks
+                    const msgEl = document.querySelector('.msg-assistant:last-child .msg-body');
+                    if (msgEl) highlightCodeBlocks(msgEl);
                     // Auto-scroll only if user is near the bottom (within 150px)
                     if (chatMessages) {
                         const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 150;
@@ -321,6 +324,9 @@ export function handleWSMessage(data) {
                     if (el) el.innerHTML = formatMessage(text);
                 });
                 streamBuffer.clear();
+                // Apply syntax highlighting to code blocks
+                const finalMsg = document.querySelector('.msg-assistant:last-child .msg-body');
+                if (finalMsg) highlightCodeBlocks(finalMsg);
                 // Auto-scroll after final flush (always scroll on completion)
                 if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
             }

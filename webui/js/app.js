@@ -21,7 +21,7 @@ import {
     getSpeakingMsgId, setSpeakingMsgId,
     getIsPlayingTTS,
 } from './modules/state.js';
-import { stripMarkers, _isErrorText, formatMessage, getMessageHtml, renderMarkdown } from './modules/markdown.js';
+import { stripMarkers, _isErrorText, formatMessage, getMessageHtml, renderMarkdown, highlightCodeBlocks } from './modules/markdown.js';
 import { refreshProviderList, refreshCharacterList, refreshCharacterInfo, renderSettings, renderCategory, filterSettings, saveCategory, toggleFieldVisibility, testConnection, fetchModels, _attachSettingsDelegates, setActiveSettingsTab } from './modules/settings.js';
 import { processTTSQueue, flushTTSQueue, setTtsCallbacks } from './modules/tts.js';
 import { _applyVoiceInput, _applyVoiceOutput, isBrowserStt, initVoiceToggles, updateVoiceState, setVoiceStatusCallback } from './modules/voice.js';
@@ -274,6 +274,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 updateSpeakButtons();
                 ws.send(JSON.stringify({ type: 'command', command: 'speak', text: body }));
             }
+        } else if (action === 'delete') {
+            const msgId = msg.dataset.msgId;
+            msg.remove();
+            const ws = getWs();
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'delete_message', msg_id: msgId }));
+            }
         }
     });
 
@@ -476,6 +483,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         bodyDiv.innerHTML = getMessageHtml(role, text);
         while (bodyDiv.firstChild) div.appendChild(bodyDiv.firstChild);
         chatMessages.appendChild(div);
+        highlightCodeBlocks(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
         if (!getSessionHasMessages()) {
             setSessionHasMessages(true);
@@ -664,6 +672,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     while (msgBody.firstChild) div.appendChild(msgBody.firstChild);
                     chatMessages.appendChild(div);
                 });
+                highlightCodeBlocks(chatMessages);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             } else {
                 setSessionHasMessages(false);

@@ -150,23 +150,37 @@ export function getMessageHtml(role, text) {
     let bodyHtml;
     if (role === 'assistant') {
         bodyHtml = formatMessage(text || '');
+        // Wrap code blocks in .code-block-wrapper with copy button
         bodyHtml = bodyHtml.replace(
-            /<pre><code(?:\s+class="[^"]*")?>([\s\S]*?)<\/code><\/pre>/g,
-            '<pre><code>$1</code><button class="copy-code-btn" onclick="' +
-                'var t=this;var c=t.previousElementSibling;' +
-                'navigator.clipboard.writeText(c.textContent||c.innerText).then(function(){' +
-                    't.classList.add(\'copied\');t.textContent=\'Copied\';' +
-                    'setTimeout(function(){t.classList.remove(\'copied\');t.textContent=\'\';},2000);' +
-                '});" aria-label="Copy code"></button></pre>'
+            /<pre><code(?:\s+class="([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g,
+            (match, langClass, codeContent) => {
+                const langAttr = langClass ? ` class="${langClass}"` : '';
+                return '<div class="code-block-wrapper">' +
+                    '<button class="copy-code-btn" aria-label="Copy code" onclick="' +
+                        'var t=this;var pre=t.nextElementSibling;var c=pre&&pre.querySelector(\'code\');' +
+                        'if(c)navigator.clipboard.writeText(c.textContent||c.innerText).then(function(){' +
+                            't.classList.add(\'copied\');t.textContent=\'Copied\';' +
+                            'setTimeout(function(){t.classList.remove(\'copied\');t.textContent=\'\';},2000);' +
+                        '});">' +
+                        '<span class="material-icons-round" style="font-size:14px;vertical-align:middle">content_copy</span>' +
+                    '</button>' +
+                    `<pre><code${langAttr}>${codeContent}</code></pre>` +
+                    '</div>';
+            }
         );
     } else {
         const escaped = escHtml(text || '');
         bodyHtml = escaped;
     }
-    return `<div class="msg-body">${bodyHtml}</div>` +
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    return `<div class="msg-body">${bodyHtml}<span class="msg-timestamp">${timeStr}</span></div>` +
         `<div class="msg-actions">` +
             `<button class="msg-action" data-action="copy" title="Copy" aria-label="Copy message">` +
                 `<span class="material-icons-round">content_copy</span>` +
+            `</button>` +
+            `<button class="msg-action" data-action="delete" title="Delete" aria-label="Delete message">` +
+                `<span class="material-icons-round">delete</span>` +
             `</button>` +
             `${role === 'user' ? `
                 <button class="msg-action" data-action="edit" title="Edit" aria-label="Edit message">
@@ -182,4 +196,16 @@ export function getMessageHtml(role, text) {
                 </button>
             ` : ''}` +
         `</div>`;
+}
+
+/**
+ * Apply highlight.js to all code blocks inside a container.
+ * Safe to call multiple times — hljs skips already-highlighted elements.
+ */
+export function highlightCodeBlocks(container) {
+    if (typeof window === 'undefined' || !window.hljs) return;
+    const root = container || document;
+    root.querySelectorAll('.msg-body pre code').forEach(el => {
+        hljs.highlightElement(el);
+    });
 }
