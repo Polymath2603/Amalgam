@@ -14,7 +14,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import Any, Callable, Awaitable, Optional
+from typing import Any, Callable, Awaitable, Optional, List
 
 from .events import CompanionEvent, CompanionEventType
 
@@ -52,9 +52,10 @@ WSSendFn = Callable[[dict[str, Any]], Awaitable[None]]
 class CompanionScheduler:
     """Background scheduler that watches idle state and sends companion messages."""
 
-    def __init__(self, settings_provider, llm_provider) -> None:
+    def __init__(self, settings_provider, llm_provider, memory_provider=None) -> None:
         self._settings = settings_provider
         self._llm = llm_provider
+        self._memory = memory_provider
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -63,6 +64,7 @@ class CompanionScheduler:
         self._idle_since: dict[str, float] = {}        # session_id -> timestamp
         self._idle_checked: dict[str, bool] = {}       # session_id -> already sent check-in?
         self._is_idle: dict[str, bool] = {}            # session_id -> idle state
+        self._last_companion_time: dict[str, float] = {}  # session_id -> last message timestamp (rate limiting)
         self._last_proactive_tick: float = 0.0
         self._last_hour: int = -1
 
@@ -99,6 +101,7 @@ class CompanionScheduler:
         self._idle_since.pop(session_id, None)
         self._idle_checked.pop(session_id, None)
         self._is_idle.pop(session_id, None)
+        self._last_companion_time.pop(session_id, None)
 
     # -- Event handlers -----------------------------------------------------
 
@@ -265,10 +268,40 @@ class CompanionScheduler:
         else:
             user_parts.append("Send a brief, natural companion message.")
 
+        # --- Inject recent conversation context from memory ---
+        recent_msgs = await self._fetch_recent_conversation(session_id)
+        if recent_msgs:
+            user_parts.append(
+                "Recent conversation context:\n"
+                + "\n".join(
+                    f"{m['role']}: {m['content']}" for m in recent_msgs
+                )
+            )
+
         return [
             {"role": "system", "content": system_msg},
             {"role": "user", "content": "\n".join(user_parts)},
         ]
+
+    async def _fetch_recent_conversation(self, session_id: str) -> List[dict]:
+        """Fetch the most recent conversation turns from memory for context."""
+        mem = self._memory() if self._memory else None
+        if not mem:
+            return []
+        try:
+            turns = mem.get_recent(n=10)
+            if not turns:
+                return []
+            # Only include user/assistant turns, skip system/tool messages
+            filtered = [
+                {"role": t["role"], "content": t["content"]}
+                for t in turns
+                if t.get("role") in ("user", "assistant")
+            ]
+            return filtered[-6:]  # last 6 user/assistant exchanges
+        except Exception as e:
+            logger.debug("Companion: failed to fetch conversation context: %s", e)
+            return []
 
     async def _generate_companion_text(self, messages: list[dict[str, str]]) -> Optional[str]:
         """Call the LLM to generate a companion message."""
@@ -287,6 +320,15 @@ class CompanionScheduler:
         extra: str = "",
     ) -> Optional[str]:
         """Generate a companion message and send it over WebSocket."""
+        # --- Rate limiting: skip if less than 60s since last message ---
+        last_time = self._last_companion_time.get(session_id, 0.0)
+        if time.time() - last_time < 60.0:
+            logger.debug(
+                "Companion: rate-limited [%s] — %.1fs since last message",
+                context, time.time() - last_time,
+            )
+            return None
+
         send_fn = self._ws_sessions.get(session_id)
         if not send_fn:
             return None
@@ -303,6 +345,7 @@ class CompanionScheduler:
         }
         try:
             await send_fn(payload)
+            self._last_companion_time[session_id] = time.time()
             logger.debug("Companion message sent [%s]: %s", context, text[:80])
         except Exception as e:
             logger.warning("Companion WS send failed: %s", e)
@@ -311,27 +354,39 @@ class CompanionScheduler:
     # -- Event-specific handlers --------------------------------------------
 
     async def _on_user_joined(self, session_id: str) -> None:
-        # Slight delay so greeting arrives after connection is settled
-        await asyncio.sleep(2.0)
-        await self._generate_and_send(session_id, context="user_joined")
+        try:
+            # Slight delay so greeting arrives after connection is settled
+            await asyncio.sleep(2.0)
+            await self._generate_and_send(session_id, context="user_joined")
+        except Exception as e:
+            logger.error("Companion: _on_user_joined failed: %s", e, exc_info=True)
 
     async def _on_idle_check_in(self, session_id: str, elapsed: float) -> None:
-        idle_mins = int(elapsed / 60)
-        await self._generate_and_send(
-            session_id,
-            context="idle_check_in",
-            extra=str(idle_mins),
-        )
+        try:
+            idle_mins = int(elapsed / 60)
+            await self._generate_and_send(
+                session_id,
+                context="idle_check_in",
+                extra=str(idle_mins),
+            )
+        except Exception as e:
+            logger.error("Companion: _on_idle_check_in failed: %s", e, exc_info=True)
 
     async def _on_welcome_back(self, session_id: str) -> None:
-        # Brief delay to let UI settle
-        await asyncio.sleep(1.0)
-        await self._generate_and_send(session_id, context="welcome_back")
+        try:
+            # Brief delay to let UI settle
+            await asyncio.sleep(1.0)
+            await self._generate_and_send(session_id, context="welcome_back")
+        except Exception as e:
+            logger.error("Companion: _on_welcome_back failed: %s", e, exc_info=True)
 
     async def _on_time_change(self, session_id: str, hour: int) -> None:
-        label = _time_of_day_label(hour)
-        await self._generate_and_send(
-            session_id,
-            context="time_change",
-            extra=label,
-        )
+        try:
+            label = _time_of_day_label(hour)
+            await self._generate_and_send(
+                session_id,
+                context="time_change",
+                extra=label,
+            )
+        except Exception as e:
+            logger.error("Companion: _on_time_change failed: %s", e, exc_info=True)
