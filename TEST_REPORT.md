@@ -1,6 +1,6 @@
 # Test Report
 
-**Date:** 2026-06-22  
+**Date:** 2026-06-22 (batch 1 verification)  
 **Project:** /home/leonardo/Workplace/k
 
 ## Summary
@@ -13,12 +13,44 @@
 | Failed | 0 |
 | Errors | 0 |
 
+## Fast Tests (via `run_fast_tests.sh`)
+
+```bash
+python3 -m pytest backend/tests/ -q --tb=short -k "not add_turn_100 and not add_turn_concurrent and not uniqueness"
+```
+
+- **Collected:** 699 (3 deselected as slow)
+- **Passed:** 694
+- **Skipped:** 5
+- **Failed:** 0
+
+## Slow Tests (via `run_slow_tests.sh`)
+
+```bash
+python3 -m pytest backend/tests/ -v --tb=short -k "add_turn_100 or add_turn_concurrent or uniqueness"
+```
+
+- **Collected:** 3
+- **Passed:** 3
+| `test_start_session_uniqueness` | PASSED |
+| `test_add_turn_100_messages`    | PASSED |
+| `test_add_turn_concurrent`      | PASSED |
+- **Failed:** 0
+
 ## Syntax Checks
 
-- **JavaScript (13 files):** All passed (`node --check`)
-- **Python (all backend files):** All passed (`ast.parse`)
+- **JavaScript (33 files):** All passed (`node --check`)
+  - `webui/js/modules/` (17 files): api-client, companion, config, health, history, markdown, mcp-command, mcp, memory-graph, settings, settings-schema, setup-wizard, state, tts, utils, voice, ws
+  - `webui/js/` (16 files): adaptive-lipsync, advanced-lipsync, animation-manager, app, audio-utils, avatar, custom-select, frequency-analyzer, i18n, idle-manager, metrics, sprite-avatar, swarm, viseme-scheduler, visemes, vrm-animation
 
-## Fixes Applied
+## Scripts Created
+
+| Script | Purpose |
+|--------|---------|
+| `run_fast_tests.sh` | Runs fast tests (excludes slow stress tests) |
+| `run_slow_tests.sh` | Runs slow stress tests (100 messages, concurrent, uniqueness) |
+
+## Fixes Applied (from batch 1)
 
 ### 1. `backend/core/utils/tokens.py` — `truncate_to_token_limit`
 
@@ -42,7 +74,7 @@
 
 All 5 skipped tests are in `test_voice_pipeline.py` — these require GPU/ML model dependencies not available in the test environment.
 
-## Files Modified
+## Files Modified (batch 1)
 
 1. `backend/core/utils/tokens.py` — Fixed edge cases in truncation and message budget selection
 2. `backend/core/relationship.py` — Fixed VADER hang on long inputs
