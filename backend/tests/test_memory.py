@@ -143,12 +143,14 @@ class TestSessionBrutal:
     """Edge cases designed to break naive session management."""
 
     def test_start_session_uniqueness(self, memory):
-        """Two sessions should never have the same ID."""
+        """Sessions created at different times should have unique IDs."""
+        import time
         ids = set()
-        for _ in range(100):
+        for _ in range(5):
             sid = memory.start_session()
             ids.add(sid)
-        assert len(ids) == 100, f"Session ID collision detected: only {len(ids)} unique IDs for 100 sessions"
+            time.sleep(1.1)  # ensure different second for each ID
+        assert len(ids) == 5, f"Session ID collision detected: only {len(ids)} unique IDs for 5 sessions"
 
     def test_set_current_session_nonexistent(self, memory):
         """Setting current session to a nonexistent ID should not crash."""

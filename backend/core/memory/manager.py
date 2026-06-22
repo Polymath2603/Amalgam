@@ -513,6 +513,8 @@ class Memory:
     def get_recent(self, n: int = None) -> List[Dict[str, str]]:
         if n is None:
             n = self._setting("memory.context_window", 50)
+        if n <= 0:
+            return []
 
         # Prefer working memory (always in memory, most recent turns)
         working_turns = self._working.recent(n)

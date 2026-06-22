@@ -49,8 +49,11 @@ def _normalize_error(error_text: str) -> str:
         "401": "Authentication failed. Check your API key.",
         "402": "Payment required. Check your account billing.",
     }
+    # Collapse all whitespace so "rate\nlimit\nexceeded" matches "rate limit"
+    normalized = _re.sub(r'\s+', ' ', error_text.lower()).strip()
+
     for key, msg in friendly.items():
-        if key.lower() in error_text.lower():
+        if key.lower() in normalized:
             return msg
     return error_text
 

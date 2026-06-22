@@ -19,7 +19,9 @@ class HybridRetrieval:
         for msg in messages:
             tokens = re.findall(r'\b\w+\b', msg.get('content', '').lower())
             corpus.append(tokens)
-        self._bm25 = BM25Okapi(corpus) if corpus else None
+        # Filter out empty token lists to avoid ZeroDivisionError in BM25Okapi
+        non_empty = [doc for doc in corpus if doc]
+        self._bm25 = BM25Okapi(non_empty) if non_empty else None
 
     async def retrieve(self, query: str, query_emb: list[float],
                        session_id: str, top_k: int = 5) -> list[dict]:
