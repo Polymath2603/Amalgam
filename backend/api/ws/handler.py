@@ -286,18 +286,32 @@ class ChatSession:
                 except Exception as e:
                     logger.warning(f"Relationship tracking error: {e}")
 
-                # TODO: Wire self-learning into the agent loop
-                # CorrectionStore: detect user corrections, extract and store them
-                # PreferenceLearner: observe interactions, infer preferences
-                # See backend.core.self_learning for built-but-unwired modules.
-                # Example wiring:
-                #   from backend.core.self_learning.corrections import CorrectionStore
-                #   from backend.core.self_learning.preferences import PreferenceLearner
-                #   cs = CorrectionStore(data_dir=str(DATA_DIR))
-                #   if cs.detect_correction(full_response, text):
-                #       cs.extract_correction(full_response, text)
-                #   pl = PreferenceLearner(data_dir=str(DATA_DIR))
-                #   pl.observe_interaction(text, full_response)
+                # Wire self-learning into the agent loop
+                try:
+                    from backend.core.self_learning.corrections import CorrectionStore
+                    from backend.core.self_learning.preferences import PreferenceLearner
+                    from backend.core.paths import DATA_DIR
+
+                    # AutoSkillCreator: extract skill patterns from complex tool sequences
+                    if hasattr(self, '_auto_skill') and self._auto_skill:
+                        # tool_calls tracking not yet wired in this loop; pass empty list
+                        asyncio.create_task(self._auto_skill.maybe_create_skill(
+                            user_message=text,
+                            tool_calls=[],
+                            full_response=full_response,
+                        ))
+
+                    # CorrectionStore: detect user corrections (e.g., "no, I meant...")
+                    cs = CorrectionStore(data_dir=str(DATA_DIR))
+                    if cs.detect_correction(text, full_response):
+                        sid = memory().get_current_session()
+                        cs.extract_correction(sid, text, full_response)
+
+                    # PreferenceLearner: observe interactions for preference patterns
+                    pl = PreferenceLearner(data_dir=str(DATA_DIR))
+                    pl.observe_interaction(text, full_response)
+                except Exception as e:
+                    logger.debug(f"Self-learning error (non-blocking): {e}")
 
             # Final TTS + cleanup
             if this_stream == self.stream_idx:
