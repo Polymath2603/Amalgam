@@ -434,6 +434,7 @@ export async function saveCategory(category) {
     }
 
     const changed = {};
+    const cachedSettings = getSettings();
     for (const [fieldId, field] of Object.entries(catData.fields)) {
         if (!_shouldShowField(fieldId, field)) continue;
         if (field.type === 'info') continue;
@@ -449,6 +450,9 @@ export async function saveCategory(category) {
         } else {
             value = input.value;
         }
+        // Skip fields whose value matches the cached settings
+        const cachedValue = _getNestedValue(cachedSettings, key);
+        if (cachedValue !== undefined && value == cachedValue) continue;
         changed[key] = value;
     }
 
@@ -469,11 +473,6 @@ export async function saveCategory(category) {
             showToast(`${category} settings saved`, 'success');
             const s = await api(`${BASE_URL}/api/settings`);
             if (s) setSettingsCache(s);
-
-            // Also save companion fields via the dedicated companion endpoint
-            if (category === 'Character') {
-                _saveCompanionSettings(changed);
-            }
         } else {
             showToast(`Failed to save: ${data?.error || 'unknown error'}`, 'danger');
         }
@@ -485,29 +484,6 @@ export async function saveCategory(category) {
             saveBtn.disabled = false;
             saveBtn.innerHTML = saveBtn.dataset.originalText || saveBtn.innerHTML;
         }
-    }
-}
-
-function _saveCompanionSettings(changed) {
-    const companionFields = {};
-    const keyMap = {
-        'companion.enabled': 'enabled',
-        'companion.idle_check_delay': 'idle_check_delay',
-        'companion.proactive_interval': 'proactive_interval',
-        'companion.time_awareness': 'time_awareness',
-        'companion.personality_notes': 'personality_notes',
-    };
-    for (const [fullKey, shortKey] of Object.entries(keyMap)) {
-        if (fullKey in changed) {
-            companionFields[shortKey] = changed[fullKey];
-        }
-    }
-    if (Object.keys(companionFields).length > 0) {
-        fetch(`${BASE_URL}/api/companion/settings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(companionFields),
-        }).catch(() => {});
     }
 }
 
