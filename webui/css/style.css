@@ -1143,7 +1143,14 @@ html {
 /* --- Toast notification improvements --- */
 /* (handled by tiered toast CSS above) */
 
-/* --- Code block copy button --- */
+/* --- Code block wrapper and copy button --- */
+.code-block-wrapper {
+    position: relative;
+    margin: 0.5rem 0;
+}
+.code-block-wrapper pre {
+    margin: 0;
+}
 .copy-code-btn {
     position: absolute;
     top: 4px;
@@ -1159,13 +1166,25 @@ html {
     transition: opacity 0.2s;
     min-height: auto;
     line-height: 1.5;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 3px;
 }
-.msg-body pre:hover .copy-code-btn {
+.code-block-wrapper:hover .copy-code-btn {
     opacity: 1;
 }
 .copy-code-btn.copied {
     color: var(--success);
     border-color: var(--success);
+}
+
+/* --- Message timestamps --- */
+.msg-timestamp {
+    font-size: 0.7rem;
+    opacity: 0.5;
+    display: block;
+    margin-top: 0.3rem;
 }
 
 /* --- Collapsible long messages --- */
