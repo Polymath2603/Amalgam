@@ -134,12 +134,14 @@ class MCPClient:
         if hasattr(agent, 'spawn_subagent'):
             self._subagent_spawner = agent.spawn_subagent
             self._subagent_capable = True
+            self._agent = None  # Break circular reference; spawner is now self-contained
         else:
             # Check for common sub-agent method names
             for attr_name in ('run_subagent', 'execute_subtask', 'spawn'):
                 if hasattr(agent, attr_name):
                     self._subagent_spawner = getattr(agent, attr_name)
                     self._subagent_capable = True
+                    self._agent = None  # Break circular reference
                     break
             else:
                 # No spawn method found; agent ref kept for legacy compatibility
@@ -170,15 +172,15 @@ class MCPClient:
         if old_stack:
             try:
                 await old_stack.aclose()
-            except BaseException as e:
+            except Exception as e:
                 logger.debug(f"Error closing server {name} stack: {e}")
         self.sessions.pop(name, None)
 
     async def connect_servers(self, config_path: str) -> None:
         """Connect to MCP servers defined in a JSON config file."""
         try:
-            loop = asyncio.get_event_loop()
-            config = await loop.run_in_executor(None, self._load_config_sync, config_path)
+            loop = asyncio.get_running_loop()
+            config = await asyncio.to_thread(self._load_config_sync, config_path)
         except Exception as e:
             logger.error(f"Failed to load MCP config: {e}")
             return
@@ -197,8 +199,7 @@ class MCPClient:
 
     async def connect_from_settings(self, servers: List[Dict]) -> None:
         """Connect to MCP servers from settings config (parallel)."""
-        coros = []
-        names = []
+        tasks = {}
         for server_config in servers:
             if not isinstance(server_config, dict):
                 logger.warning(f"Skipping invalid server config: {server_config}")
@@ -209,11 +210,10 @@ class MCPClient:
             if not name:
                 logger.warning("Skipping server config without 'name' field")
                 continue
-            coros.append(self._connect_from_config(name, server_config))
-            names.append(name)
-        if coros:
-            results = await asyncio.gather(*coros, return_exceptions=True)
-            for name, r in zip(names, results):
+            tasks[name] = self._connect_from_config(name, server_config)
+        if tasks:
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            for name, r in zip(tasks, results):
                 if isinstance(r, Exception):
                     logger.error(f"MCP server {name} connection failed: {r}")
 

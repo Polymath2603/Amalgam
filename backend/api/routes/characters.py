@@ -50,6 +50,13 @@ def _list_anim_files (base_dir :Path )->list :
 @deprecated()
 async def get_animations (char_id :str =None ):
     """Return available VRMA animation files."""
+    # Sanitize char_id to prevent path traversal
+    if char_id:
+        import os as _os
+        if '..' in char_id or '/' in char_id or '\\' in char_id or not char_id.isprintable():
+            logger.warning("Path traversal attempt in get_animations: %r", char_id)
+            char_id = None
+    
     animations ={"default":[],"character":[]}
 
     seen =set ()
@@ -117,34 +124,50 @@ async def get_gemini_models ():
 @router .get ("/api/models/{provider}")
 async def get_provider_models (provider :str ):
     if provider =="ollama":
-        models =await llm ().fetch_ollama_models ()
-        return {"models":models }
+        try:
+            models =await llm ().fetch_ollama_models ()
+            return {"models":models }
+        except Exception as e:
+            logger.error("Failed to fetch ollama models: %s", e)
+            return {"models":[], "error": str(e)}
     if provider =="gemini":
-        models =await llm ().fetch_gemini_models ()
-        return {"models":models }
+        try:
+            models =await llm ().fetch_gemini_models ()
+            return {"models":models }
+        except Exception as e:
+            logger.error("Failed to fetch gemini models: %s", e)
+            return {"models":[], "error": str(e)}
     if provider =="opencode":
         fresh_llm =LLMRouter (settings =settings ())
-        models =await fresh_llm .fetch_opencode_models ()
-        await fresh_llm .close ()
-        return {"models":models }
+        try:
+            models =await fresh_llm .fetch_opencode_models ()
+            return {"models":models }
+        finally:
+            await fresh_llm .close ()
     if provider in LLMRouter .OPENAI_COMPAT :
         fresh_llm =LLMRouter (settings =settings ())
-        models =await fresh_llm .fetch_openai_compat_models (provider )
-        await fresh_llm .close ()
-        return {"models":models }
+        try:
+            models =await fresh_llm .fetch_openai_compat_models (provider )
+            return {"models":models }
+        finally:
+            await fresh_llm .close ()
     if provider =="claude":
         return {"models":["claude-sonnet-4-20250514","claude-3-5-sonnet-20241022",
         "claude-3-opus-20240229","claude-3-haiku-20240307"]}
     if provider =="aws":
         fresh_llm =LLMRouter (settings =settings ())
-        models =await fresh_llm .fetch_bedrock_models ()
-        await fresh_llm .close ()
-        return {"models":models }
+        try:
+            models =await fresh_llm .fetch_bedrock_models ()
+            return {"models":models }
+        finally:
+            await fresh_llm .close ()
     if provider =="gcp":
         fresh_llm =LLMRouter (settings =settings ())
-        models =await fresh_llm .fetch_vertex_models ()
-        await fresh_llm .close ()
-        return {"models":models }
+        try:
+            models =await fresh_llm .fetch_vertex_models ()
+            return {"models":models }
+        finally:
+            await fresh_llm .close ()
     return JSONResponse (status_code =400 ,content ={"error":f"Unknown provider: {provider }"})
 
 
@@ -175,7 +198,8 @@ async def regenerate_icons ():
             cwd =str (PROJECT_ROOT )
             )
             stdout ,stderr =await asyncio .wait_for (proc .communicate (),timeout =300 )
-            vrm_output =stdout .decode ()+stderr .decode ()
+            # Limit output to prevent memory exhaustion
+            vrm_output =(stdout .decode ()+stderr .decode ())[:100_000]
             vrm_ok =proc .returncode ==0 
             logger .debug (f"VRM icon gen result (ok={vrm_ok }): {vrm_output }")
         except Exception as e :

@@ -370,6 +370,8 @@ function _showEmpty(graph, container, msg) {
 // ── Module-level state ─────────────────────────────────────────────────
 
 let _graphInstance = null;
+let _resizeObserver = null;
+const _debounceTimers = new Map();
 
 export async function initMemoryGraph() {
     destroyMemoryGraph();
@@ -424,14 +426,18 @@ export async function initMemoryGraph() {
     _graphInstance = new ForceGraph(canvas);
 
     // Resize observer — store ref so it can be disconnected in destroyMemoryGraph()
-    const ro = new ResizeObserver(() => _graphInstance.resize());
-    ro.observe(wrap);
-    _graphInstance._resizeObserver = ro;
+    if (_resizeObserver) _resizeObserver.disconnect();
+    _resizeObserver = new ResizeObserver(() => _graphInstance.resize());
+    _resizeObserver.observe(wrap);
 
     // Search
     document.getElementById('memory-graph-search')?.addEventListener('input', (e) => {
-        clearTimeout(e.target._debounce);
-        e.target._debounce = setTimeout(() => _searchMemory(e.target.value, _graphInstance, container), 300);
+        const existingTimer = _debounceTimers.get(e.target);
+        clearTimeout(existingTimer);
+        _debounceTimers.set(e.target, setTimeout(() => {
+            _debounceTimers.delete(e.target);
+            _searchMemory(e.target.value, _graphInstance, container);
+        }, 300));
     });
 
     // Refresh
@@ -445,6 +451,15 @@ export async function initMemoryGraph() {
 }
 
 export function destroyMemoryGraph() {
+    if (_resizeObserver) {
+        _resizeObserver.disconnect();
+        _resizeObserver = null;
+    }
+    // Clear any pending debounce timers
+    for (const [el, timer] of _debounceTimers) {
+        clearTimeout(timer);
+    }
+    _debounceTimers.clear();
     if (_graphInstance) {
         _graphInstance.stop();
         _graphInstance = null;

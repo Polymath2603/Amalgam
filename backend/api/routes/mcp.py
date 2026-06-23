@@ -38,6 +38,7 @@ async def get_mcp_servers ():
 @router.post("/api/mcp/servers")
 async def update_mcp_servers (body :MCPServersUpdate ):
     """Update MCP server configuration."""
+    # TODO: Add authentication check once auth system is implemented
     servers =body .servers
     settings ().set ("mcp.servers",servers )
     return {"status":"ok","message":"MCP settings saved. Restart to apply changes."}
@@ -46,7 +47,11 @@ async def update_mcp_servers (body :MCPServersUpdate ):
 @router.get("/api/mcp/tools")
 async def get_mcp_tools ():
     """Get all available MCP tools."""
-    tools =mcp ().get_tool_schema ()if mcp ()else []
+    try:
+        tools =mcp ().get_tool_schema ()if mcp ()else []
+    except Exception as e:
+        logger.error("Failed to get MCP tools: %s", e)
+        tools = []
     return {"tools":tools }
 
 
@@ -66,7 +71,11 @@ async def approve_command (body :ShellApproveRequest ):
     if not cmd :
         return {"status":"error","message":"cmd is required"}
 
-    if mode in ("prefix","exact")and mcp ():
+    # Validate mode first, regardless of mcp() state
+    if mode not in ("once", "prefix", "exact"):
+        return {"status": "error", "message": f"Invalid mode: {mode}. Valid: once, prefix, exact"}
+
+    if mode in ("prefix","exact")and mcp():
         tool_name ="approve_command"
         if tool_name in mcp ().server_tool_map :
             try :

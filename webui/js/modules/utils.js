@@ -75,7 +75,10 @@ export function showToast(message, type = 'system', options = {}) {
 
     const duration = autoDismiss[type];
     if (duration) {
+        let _dismissed = false;
+        toast.addEventListener('click', () => { _dismissed = true; });
         setTimeout(() => {
+            if (_dismissed) return;
             toast.style.animation = 'toast-out 0.3s ease forwards';
             setTimeout(() => toast.remove(), 300);
         }, duration);

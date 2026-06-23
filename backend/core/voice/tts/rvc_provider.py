@@ -56,7 +56,7 @@ class RVCProvider (TTSProvider ):
             wf .setnchannels (1 )
             wf .setsampwidth (2 )
             wf .setframerate (source_sr )
-            int_audio =(source_audio *32767.0 ).astype (np .int16 )
+            int_audio =(source_audio *32768.0 ).astype (np .int16 )
             wf .writeframes (int_audio .tobytes ())
         wav_bytes =buf .getvalue ()
 
@@ -83,7 +83,7 @@ class RVCProvider (TTSProvider ):
                 logger .error ("RVC error or request failed")
                 return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
-            audio_np =np .frombuffer (resp .content ,dtype =np .int16 ).astype (np .float32 )/32767.0 
+            audio_np =np .frombuffer (resp .content ,dtype =np .int16 ).astype (np .float32 )/32768.0 
             return audio_np ,None ,24000 
         except httpx .HTTPStatusError as e :
             logger .error (f"RVC HTTP error: {e }")

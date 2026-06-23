@@ -62,7 +62,6 @@ prefersReducedMotion.addEventListener('change', _reducedMotionHandler);
 // ─── CSS animation for spin ───
 const _styleSheet = document.createElement('style');
 _styleSheet.textContent = `
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     .test-conn-btn .material-icons-round { font-size: 18px; }
 `;
 document.head.appendChild(_styleSheet);

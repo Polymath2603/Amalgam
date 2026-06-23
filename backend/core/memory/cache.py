@@ -26,7 +26,7 @@ class FACTCache:
 
     def _make_key(self, text: str) -> str:
         normalized = text.lower().strip()
-        return hashlib.sha256(normalized.encode()).hexdigest()[:16]
+        return hashlib.sha256(normalized.encode()).hexdigest()[:32]
 
     def _maybe_cleanup(self):
         """Periodically evict expired entries to prevent unbounded growth."""

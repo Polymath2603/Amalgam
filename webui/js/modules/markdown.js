@@ -156,14 +156,9 @@ export function getMessageHtml(role, text) {
             (match, langClass, codeContent) => {
                 const langAttr = langClass ? ` class="${langClass}"` : '';
                 return '<div class="code-block-wrapper">' +
-                    '<button class="copy-code-btn" aria-label="Copy code" onclick="' +
-                        'var t=this;var pre=t.nextElementSibling;var c=pre&&pre.querySelector(\'code\');' +
-                        'if(c)navigator.clipboard.writeText(c.textContent||c.innerText).then(function(){' +
-                            't.classList.add(\'copied\');t.textContent=\'Copied\';' +
-                            'setTimeout(function(){t.classList.remove(\'copied\');t.textContent=\'\';},2000);' +
-                        '});">' +
+                    '<button class="copy-code-btn" aria-label="Copy code">' +
                         '<span class="material-icons-round" style="font-size:14px;vertical-align:middle">content_copy</span>' +
-                    '</button>' +
+                    '</button>'
                     `<pre><code${langAttr}>${codeContent}</code></pre>` +
                     '</div>';
             }
@@ -201,11 +196,33 @@ export function getMessageHtml(role, text) {
 /**
  * Apply highlight.js to all code blocks inside a container.
  * Safe to call multiple times — hljs skips already-highlighted elements.
+ * Also wires up copy-code-btn click delegation once via module flag.
  */
+let _copyBtnDelegationReady = false;
 export function highlightCodeBlocks(container) {
     if (typeof window === 'undefined' || !window.hljs) return;
     const root = container || document;
     root.querySelectorAll('.msg-body pre code').forEach(el => {
         hljs.highlightElement(el);
     });
+
+    // Wire copy button click delegation once per document
+    if (!_copyBtnDelegationReady) {
+        _copyBtnDelegationReady = true;
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.copy-code-btn');
+            if (!btn) return;
+            const pre = btn.nextElementSibling;
+            const code = pre?.querySelector('code');
+            if (!code) return;
+            navigator.clipboard.writeText(code.textContent || code.innerText).then(() => {
+                btn.classList.add('copied');
+                btn.innerHTML = 'Copied';
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                    btn.innerHTML = '<span class="material-icons-round" style="font-size:14px;vertical-align:middle">content_copy</span>';
+                }, 2000);
+            });
+        });
+    }
 }

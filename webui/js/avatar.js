@@ -287,7 +287,7 @@ export class AvatarRenderer {
                 if (abandoned) return;
                 clearTimeout(timeout);
 
-                console.log(`[Avatar] Model loaded successfully: ${loadPath}`);
+                console.debug(`[Avatar] Model loaded successfully: ${loadPath}`);
                 const vrm = gltf.userData.vrm;
                 if (!vrm) {
                     console.error(`[Avatar] Loaded file but no VRM data found in: ${loadPath}`);

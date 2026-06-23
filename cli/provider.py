@@ -30,9 +30,10 @@ def _load_catalog():
     except ImportError:
         # Fallback: hardcoded data kept in sync with PROVIDER_CATALOG
         ids = [
-            "gemini", "openai", "anthropic", "groq", "ollama", "openrouter",
+            "gemini", "openai", "chatgpt", "anthropic", "claude", "groq", "ollama", "openrouter",
             "deepseek", "siliconflow", "zai", "mistral", "together",
             "huggingface", "llamacpp", "koboldai", "aws", "gcp",
+            "azure-openai", "alibaba",
             "opencode", "opendev",
         ]
         models = {
@@ -108,7 +109,6 @@ def detect_providers(settings) -> list[ProviderInfo]:
     """
     providers: list[ProviderInfo] = []
     known_set = set(KNOWN_PROVIDERS)
-    checked = set()
 
     # Check all known providers
     for name in KNOWN_PROVIDERS:
@@ -140,7 +140,7 @@ def detect_providers(settings) -> list[ProviderInfo]:
         if not api_key and name == "anthropic" and "ANTHROPIC_API_KEY" in os.environ:
             api_key = os.environ["ANTHROPIC_API_KEY"].strip()
 
-        display = name
+        display = _catalog_names.get(name, name)
         source = "config"
         if api_key:
             source = "env" if env_key in os.environ or any(
@@ -157,7 +157,6 @@ def detect_providers(settings) -> list[ProviderInfo]:
             model=model,
             source=source,
         ))
-        checked.add(name)
 
     return providers
 

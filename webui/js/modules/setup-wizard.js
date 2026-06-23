@@ -3,6 +3,7 @@
  */
 import { BASE_URL } from './config.js';
 import { escHtml, trapFocus } from './utils.js';
+import { setSettingsCache } from './state.js';
 
 let _setupMode = null;
 let _setupProviders = [];
@@ -283,7 +284,7 @@ async function saveSetupWizard() {
             setTimeout(hideSetupWizard, 2000);
 
             fetch(`${BASE_URL}/api/settings`).then(r => r.json()).then(s => {
-                window._settingsCache = s;
+                setSettingsCache(s);
             }).catch(() => {});
         } else {
             if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save & Start Chatting'; }

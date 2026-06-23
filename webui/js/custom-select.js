@@ -1,5 +1,17 @@
 
+let _documentClickListenerAdded = false;
+
 export function initCustomSelects() {
+    // Single delegated document click handler to close all open custom selects
+    if (!_documentClickListenerAdded) {
+        _documentClickListenerAdded = true;
+        document.addEventListener('click', (e) => {
+            document.querySelectorAll('.custom-select.open').forEach(w => {
+                if (!w.contains(e.target)) w.classList.remove('open');
+            });
+        });
+    }
+
     document.querySelectorAll('select').forEach(sel => {
         if (sel.dataset.custom) return;
         sel.dataset.custom = 'true';
@@ -55,10 +67,6 @@ export function initCustomSelects() {
         wrapper.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); wrapper.classList.contains('open') ? close() : open(); }
             if (e.key === 'Escape') close();
-        });
-
-        document.addEventListener('click', (e) => {
-            if (!wrapper.contains(e.target)) close();
         });
 
         wrapper.appendChild(btn);

@@ -41,4 +41,4 @@ def wav_bytes_to_numpy(wav_bytes: bytes) -> tuple[np.ndarray, int]:
         frames = wf.readframes(wf.getnframes())
         sr = wf.getframerate()
     pcm = np.frombuffer(frames, dtype=np.int16)
-    return pcm.astype(np.float32) / 32767.0, sr
+    return pcm.astype(np.float32) / 32768.0, sr

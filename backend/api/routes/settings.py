@@ -144,16 +144,22 @@ async def update_settings (body :dict ):
     tts ().engine =engine 
 
     if engine =="elevenlabs":
-        elevenlabs_key =settings ().get ("voice.elevenlabs.api_key","")
-        if elevenlabs_key :
-            elevenlabs_model =settings ().get ("voice.elevenlabs.model","eleven_multilingual_v2")
-            tts ().configure_elevenlabs (elevenlabs_key ,elevenlabs_model )
+        try:
+            elevenlabs_key =settings ().get ("voice.elevenlabs.api_key","")
+            if elevenlabs_key :
+                elevenlabs_model =settings ().get ("voice.elevenlabs.model","eleven_multilingual_v2")
+                tts ().configure_elevenlabs (elevenlabs_key ,elevenlabs_model )
+        except Exception as e:
+            logger.error("Failed to configure elevenlabs: %s", e)
     elif engine =="openai-tts":
-        oa_key =settings ().get ("voice.openai_tts.api_key","")
-        oa_model =settings ().get ("voice.openai_tts.model","tts-1")
-        oa_url =settings ().get ("voice.openai_tts.base_url",None )
-        if oa_key :
-            tts ().configure_openai_tts (oa_key ,oa_model ,oa_url )
+        try:
+            oa_key =settings ().get ("voice.openai_tts.api_key","")
+            oa_model =settings ().get ("voice.openai_tts.model","tts-1")
+            oa_url =settings ().get ("voice.openai_tts.base_url",None )
+            if oa_key :
+                tts ().configure_openai_tts (oa_key ,oa_model ,oa_url )
+        except Exception as e:
+            logger.error("Failed to configure openai-tts: %s", e)
     elif engine =="alltalk":
         url =settings ().get ("voice.alltalk.url",None )
         lang =settings ().get ("voice.alltalk.language","en")
@@ -288,9 +294,16 @@ async def batch_set_settings (body :BatchSettingsRequest ):
 
 @router .get ("/api/settings/get/{key:path}")
 async def get_setting (key: str ):
-    """Get a single setting value by dot-notation key."""
+    """Get a single setting value by dot-notation key. Masks API keys."""
     s =settings ()
     value =s .get (key )
+    # Mask API keys
+    if key.endswith("api_key") or key.endswith("_key"):
+        if value and isinstance(value, str):
+            if len(value) < 12:
+                value = "****"
+            else:
+                value = f"{value[:4]}{'*' * (len(value) - 8)}{value[-4:]}"
     return {"key":key ,"value":value }
 
 
@@ -330,11 +343,11 @@ async def test_provider_connection (provider :str ):
 
             async with httpx .AsyncClient (timeout =10.0 )as client :
                 if provider_key =="ollama":
-                    resp =await client .get (f"{base_url }/api/tags")
+                    resp =await asyncio.wait_for(client .get (f"{base_url }/api/tags"), timeout=15.0)
                 elif provider_key =="llamacpp":
-                    resp =await client .get (f"{base_url }/health")
+                    resp =await asyncio.wait_for(client .get (f"{base_url }/health"), timeout=15.0)
                 else :
-                    resp =await client .get (f"{base_url }/")
+                    resp =await asyncio.wait_for(client .get (f"{base_url }/"), timeout=15.0)
 
                 elapsed =(time .monotonic ()-start )*1000 
                 if resp .status_code <500 :
@@ -380,7 +393,7 @@ async def test_provider_connection (provider :str ):
                     headers ["Authorization"]=f"Bearer {api_key }"
                     url =f"{base_url }/models"
 
-                resp =await client .get (url ,headers =headers )
+                resp =await asyncio.wait_for(client .get (url ,headers =headers ), timeout=15.0)
                 elapsed =(time .monotonic ()-start )*1000 
 
                 if resp .status_code ==200 :
@@ -396,6 +409,9 @@ async def test_provider_connection (provider :str ):
                     error =f"HTTP {resp .status_code }: {resp .text [:200 ]}",
                 )
 
+    except asyncio.TimeoutError:
+        elapsed = (time.monotonic() - start) * 1000
+        return TestConnectionResponse(ok=False, latency_ms=round(elapsed, 1), error="Connection timed out")
     except httpx .TimeoutException :
         elapsed =(time .monotonic ()-start )*1000 
         return TestConnectionResponse (ok =False ,latency_ms =round (elapsed ,1 ),error ="Connection timed out")
@@ -417,7 +433,7 @@ async def get_settings_safe ():
     import re as _re
 
     def _mask(val: str) -> str:
-        if not val or not isinstance(val, str) or len(val) < 12:
+        if not val or not isinstance(val, str) or len(val) < 8:
             return "****"
         return f"{val[:4]}{'*' * (len(val) - 8)}{val[-4:]}"
 
@@ -430,15 +446,15 @@ async def get_settings_safe ():
                 if isinstance(nv, dict):
                     safe[k][nk] = {}
                     for ik, iv in nv.items():
-                        if ik == "api_key" or (ik.endswith("_key") and isinstance(iv, str) and len(iv) > 10):
+                        if ik == "api_key" or (ik.endswith("_key") and isinstance(iv, str) and len(iv) >= 8):
                             safe[k][nk][ik] = _mask(str(iv))
                         else:
                             safe[k][nk][ik] = iv
-                elif nk == "api_key" or (nk.endswith("_key") and isinstance(nv, str) and len(nv) > 10):
+                elif nk == "api_key" or (nk.endswith("_key") and isinstance(nv, str) and len(nv) >= 8):
                     safe[k][nk] = _mask(str(nv))
                 else:
                     safe[k][nk] = nv
-        elif k == "api_key" or (k.endswith("_key") and isinstance(v, str) and len(v) > 10):
+        elif k == "api_key" or (k.endswith("_key") and isinstance(v, str) and len(v) >= 8):
             safe[k] = _mask(str(v))
         else:
             safe[k] = v
@@ -489,4 +505,11 @@ async def reset_settings (target :str ="voice"):
         return {"status": "error", "message": f"Unknown target: {target}. Use voice, agent, ui, or all"}
 
     llm().reload_settings()
+    # Propagate to TTS subsystem
+    try:
+        tts_obj = tts()
+        if hasattr(tts_obj, 'reload_settings'):
+            tts_obj.reload_settings(settings())
+    except Exception as e:
+        logger.warning("Failed to propagate settings to TTS: %s", e)
     return {"status": "ok", "reset": target}

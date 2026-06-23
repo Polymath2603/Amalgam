@@ -28,6 +28,6 @@ export async function refreshHealth() {
             }
         }
     } catch (e) {
-        // Silently fail — health bar just stays unknown
+        console.warn('Health refresh failed (first failure logged):', e?.message || e);
     }
 }

@@ -36,6 +36,7 @@ class CoquiLocalProvider (TTSProvider ):
             return audio_np ,None ,sr 
         except httpx .HTTPStatusError as e :
             logger .error (f"Coqui TTS HTTP error: {e }")
+            return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
         except httpx .RequestError as e :
             logger .error (f"Coqui TTS request error: {e }")

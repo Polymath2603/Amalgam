@@ -197,7 +197,7 @@ export function renderField(fieldId, field) {
         case 'text': {
             const isProviderField = field.key_dynamic && field.key_suffix === 'base_url';
             const actionBtn = isProviderField ? `
-                <button class="icon-btn test-conn-btn" onclick="testConnectionFromField('field-${fieldId}')" title="Test connection">
+                <button class="icon-btn test-conn-btn" data-key="${escHtml(key)}" title="Test connection">
                     <span class="material-icons-round">wifi_find</span>
                 </button>
             ` : '';
@@ -1108,7 +1108,8 @@ export function _attachSettingsDelegates() {
             const area = document.getElementById('settings-form-area');
             if (area && !document.getElementById('settings-search-input')?.value) {
                 area.innerHTML = renderCategory(activeSettingsTab);
-                _delegatesAttached = false;
+                // Don't reset _delegatesAttached — the delegated listeners on #settings-body persist
+                // and will catch events from the new form elements without accumulating duplicates.
                 _attachSettingsDelegates();
             }
             if (fieldId === 'active_provider') {
@@ -1144,19 +1145,6 @@ export function _attachSettingsDelegates() {
                 const suffix = e.target.dataset?.field === 'font_size' ? 'px' : '';
                 rv.textContent = e.target.value + suffix;
             }
-        }
-    });
-
-    // Vault file item click delegation
-    body.addEventListener('click', (e) => {
-        const fileItem = e.target.closest('[data-vault-file]');
-        if (fileItem && !e.target.closest('[data-vault-file-delete]')) {
-            viewVaultFile(fileItem.dataset.vaultFile);
-            return;
-        }
-        const delBtn = e.target.closest('[data-vault-file-delete]');
-        if (delBtn) {
-            deleteVaultFile(delBtn.dataset.vaultFileDelete);
         }
     });
 }

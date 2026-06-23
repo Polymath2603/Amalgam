@@ -1,7 +1,10 @@
 from mcp .server import Server 
 from mcp .types import Tool ,TextContent ,ImageContent 
 import base64 
+import logging
 from io import BytesIO 
+
+logger = logging.getLogger(__name__)
 
 app =Server ("screenshot-server")
 
@@ -19,17 +22,27 @@ async def list_tools ()->list [Tool ]:
     ]
 
 @app .call_tool ()
-async def call_tool (name :str ,arguments :dict )->list :
+async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
     if name =="capture_screen":
         try :
             import mss 
             import mss .tools 
             from PIL import Image 
 
-            with mss .mss ()as sct :
+            try:
+                sct = mss.mss()
+            except Exception as e:
+                return [TextContent(type="text", text=f"Screenshot not available (display server not found): {e}")]
+
+            with sct:
                 monitor =sct .monitors [1 ]
                 sct_img =sct .grab (monitor )
-                img =Image .frombytes ("RGB",sct_img .size ,sct_img .bgra ,"raw","BGRX")
+                # Try BGRX first, fall back to BGRA or RGB
+                raw_mode = "BGRX"
+                try:
+                    img =Image .frombytes ("RGB",sct_img .size ,sct_img .bgra ,"raw", raw_mode)
+                except ValueError:
+                    img =Image .frombytes ("RGB",sct_img .size ,sct_img .bgra ,"raw", "BGRA")
 
                 buffered =BytesIO ()
                 img .save (buffered ,format ="PNG")

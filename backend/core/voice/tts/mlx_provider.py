@@ -50,8 +50,13 @@ class MLXProvider (TTSProvider ):
             audio =self ._model .generate (text )
             if isinstance (audio ,tuple ):
                 audio =audio [0 ]
-            if hasattr (audio ,"numpy"):
-                audio =audio .numpy ()
+            # Handle both mlx.core.array and numpy.ndarray
+            try :
+                audio =np .asarray (audio ,dtype =np .float32 )
+            except Exception :
+                if hasattr (audio ,"numpy"):
+                    audio =audio .numpy ()
+                audio =np .asarray (audio ,dtype =np .float32 )
             return audio .astype (np .float32 )
 
         try :

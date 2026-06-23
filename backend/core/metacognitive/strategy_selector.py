@@ -1,8 +1,11 @@
 """Strategy selection — maps intents to LLM configurations and adapts based on outcome history."""
 
+import logging
 from collections import deque
 from dataclasses import dataclass
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 Intent = Literal["conversation", "tool_execution", "code", "reflection", "memory_op", "vault_op"]
 
@@ -46,8 +49,11 @@ class StrategySelector:
         if delta_history is None:
             return base
 
-        # Filter out None / non-float entries silently
+        # Filter out None / non-float entries
+        original_len = len(delta_history)
         cleaned = [d for d in delta_history if isinstance(d, (int, float))]
+        if len(cleaned) < original_len:
+            logger.debug("Filtered %d non-numeric entries from delta_history", original_len - len(cleaned))
         if len(cleaned) < DELTA_HISTORY_MIN:
             return base
 
@@ -65,6 +71,7 @@ class StrategySelector:
         """Record a turn outcome for future adaptation."""
         # Guard against invalid inputs
         if not isinstance(delta, (int, float)):
+            logger.warning("record_outcome received non-numeric delta %r — coercing to 0.0", delta)
             delta = 0.0
         self._history.append({
             "intent": intent,

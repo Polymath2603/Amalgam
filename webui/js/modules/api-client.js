@@ -24,9 +24,12 @@ export async function api(url, opts = {}) {
             return null;
         }
         if (opts.rawResponse) return r;
-        const text = await r.text();
-        if (!text) return null;
-        return JSON.parse(text);
+        try {
+            return await r.json();
+        } catch (jsonErr) {
+            console.warn(`API non-JSON response (${url}):`, jsonErr);
+            return null;
+        }
     } catch (e) {
         if (timeout) clearTimeout(timeout);
         console.error(`API error (${url}):`, e);

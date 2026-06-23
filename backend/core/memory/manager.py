@@ -60,7 +60,7 @@ class Memory:
         self._summarize_lock = asyncio.Lock()
         self._current_session: Optional[str] = None
         # Per-session locks for thread-safe write+cache operations
-        self._session_locks: Dict[str, threading.Lock] = {}
+        self._session_locks: Dict[str, threading.RLock] = {}
         self._session_locks_lock = threading.Lock()
         self._session_data_cache: OrderedDict[str, Dict] = OrderedDict()
         self._executor = concurrent.futures.ThreadPoolExecutor(
@@ -97,11 +97,11 @@ class Memory:
         # EpisodicMemory is created per-session lazily (needs session_id)
         self._episodic_memories: Dict[str, EpisodicMemory] = {}
 
-    def _get_session_lock(self, session_id: str) -> threading.Lock:
+    def _get_session_lock(self, session_id: str) -> threading.RLock:
         """Get or create a per-session lock for thread-safe operations."""
         with self._session_locks_lock:
             if session_id not in self._session_locks:
-                self._session_locks[session_id] = threading.Lock()
+                self._session_locks[session_id] = threading.RLock()
             return self._session_locks[session_id]
 
     def _cache_get(self, session_id: str) -> Optional[Dict]:
@@ -429,6 +429,11 @@ class Memory:
         if any(s.get("title") == new_title and s.get("id") != session_id for s in all_sessions):
             raise ValueError(f"Session title '{new_title}' already exists.")
 
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self._rename_session_sync, session_id, new_title)
+
+    def _rename_session_sync(self, session_id: str, new_title: str) -> str:
+        """Synchronous rename helper — runs in executor to avoid blocking event loop."""
         lock = self._get_session_lock(session_id)
         with lock:
             data = self._read_sync(session_id)
@@ -526,11 +531,17 @@ class Memory:
         # 8. Index into FTS5 for keyword search
         msg_index = len(data["messages"]) - 1
         msg_id = f"{session_id}_{msg_index}"
-        self._fts.index_message(session_id, msg_id, role, content, timestamp)
+        try:
+            self._fts.index_message(session_id, msg_id, role, content, timestamp)
+        except Exception as e:
+            logger.warning(f"FTS index failed for {session_id}: {e}")
 
         # 9. Store in episodic memory for per-session recall
         ep = self._get_episodic(session_id)
-        ep.add_episode({"role": role, "content": content, "timestamp": timestamp})
+        try:
+            ep.add_episode({"role": role, "content": content, "timestamp": timestamp})
+        except Exception as e:
+            logger.warning(f"Episodic add_episode failed for {session_id}: {e}")
 
     async def _safe_summarize(self):
         """Wrapper that catches and logs summarization errors."""
@@ -660,6 +671,11 @@ class Memory:
         """Store a cross-session fact in semantic memory. Returns fact ID."""
         return self._semantic.add_fact(content, metadata)
 
+    async def store_semantic_fact_async(self, content: str, metadata: Optional[Dict] = None) -> str:
+        """Async wrapper for store_semantic_fact — offloads I/O to executor."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, self.store_semantic_fact, content, metadata)
+
     def search_semantic(self, query: str, k: int = 5) -> List[Dict]:
         """Search semantic memory for relevant facts (BM25)."""
         return self._semantic.search(query, k)
@@ -736,7 +752,7 @@ class Memory:
             session_id = self.get_current_session()
 
         # 1. Check FACT cache first — instant, no DB call
-        cache_key = f"{session_id[:8]}:{query[:80]}"
+        cache_key = f"{session_id}:{query[:80]}"
         cached = self._fact_cache.get_key(cache_key)
         if cached is not None:
             return cached
@@ -762,6 +778,9 @@ class Memory:
 
         Returns list of dicts with session_id, role, content, timestamp, distance.
         """
+        if self.chroma_col is None:
+            return []
+
         if not self.llm and _get_local_embedding() is None:
             return []
 

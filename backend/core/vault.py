@@ -343,9 +343,7 @@ class VaultManager:
             return ""
 
         sections = []
-        chars_used = 0
-
-        chars_budget = max_tokens * 4
+        token_usage = 0
 
         for f in sorted(self._vault_path.rglob("*.md")):
             if not f.is_file():
@@ -357,19 +355,22 @@ class VaultManager:
             if not content:
                 continue
 
-            remaining = chars_budget - chars_used
-            if remaining <= 0:
-                break
-
-            if len(content) > remaining:
-                content = truncate_to_token_limit(content, estimate_tokens(content[:remaining]) or 1)
+            # Estimate token count of this file's content
+            file_tokens = estimate_tokens(content)
+            if token_usage + file_tokens > max_tokens:
+                # Truncate this file to fit remaining budget
+                remaining = max_tokens - token_usage
+                if remaining > 0:
+                    content = truncate_to_token_limit(content, remaining)
+                else:
+                    break
 
             section_name = f.stem.replace("_", " ").title()
             sections.append(f"\n\n### {section_name}\n{content}")
-            chars_used += len(content)
+            token_usage += estimate_tokens(content)
 
         if sections:
             result = "".join(sections)
-            logger.debug(f"Injected {len(sections)} vault file(s) ({chars_used} chars)")
+            logger.debug(f"Injected {len(sections)} vault file(s) ({token_usage} tokens)")
             return result
         return ""

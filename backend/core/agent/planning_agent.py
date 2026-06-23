@@ -7,7 +7,7 @@ import re
 import json
 import logging
 from typing import Any, AsyncGenerator
-from .base import BaseAgent, LLMType
+from .base import BaseAgent, LLMType, SignalTuple
 from .basic_agent import BasicAgent
 
 logger = logging.getLogger(__name__)
@@ -50,11 +50,29 @@ class PlanningAgent(BaseAgent):
         return await agent.generate_idle_prompt()
 
     async def subconscious_reflect(self) -> str:
-        """Run subconscious reflection — delegate to BasicAgent."""
+        """Run subconscious reflection on recent conversation history.
+
+        Delegates to a BasicAgent so the inner agent's reflection logic
+        (including history loading from memory) is reused.
+        """
         agent = BasicAgent(
             self.llm, self.tools, self.memory, self.config,
             mcp_client=self.mcp_client, strategy_selector=self.strategy_selector
         )
+        # Pre-load history so the sub-agent has context even when called
+        # outside of a run() loop.
+        if hasattr(self.memory, 'get_recent'):
+            try:
+                recent = self.memory.get_recent(10)
+                if hasattr(recent, '__await__'):
+                    recent = await recent
+                if recent:
+                    agent._history = [
+                        {"role": m.get("role", ""), "content": m.get("content", "")}
+                        for m in recent
+                    ]
+            except Exception:
+                pass
         return await agent.subconscious_reflect()
 
     def update_settings(self, settings):
@@ -67,7 +85,7 @@ class PlanningAgent(BaseAgent):
 
     async def run(
         self, user_message: str, context: dict
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | SignalTuple, None]:
 
         # Fast path: if simple, skip decomposition entirely
         if not self._is_compound(user_message):

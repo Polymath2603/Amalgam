@@ -12,7 +12,7 @@ from typing import AsyncIterator, List, Dict, Any, Optional, Union
 import httpx
 import litellm
 
-from .litellm_provider import LiteLLMProvider, OPENAI_COMPAT_PROVIDERS
+from .litellm_provider import LiteLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,6 @@ LITELLM_MODEL_ATTRS: dict[str, str] = {
 
 class LLMRouter:
     """Unified LLM router backed by LiteLLM."""
-
-    # Providers that use an OpenAI-compatible API format
-    # (kept for reference but no longer needs special routing — LiteLLM handles it)
 
     def __init__(self, settings=None):
         if settings is not None and not hasattr(settings, "get"):

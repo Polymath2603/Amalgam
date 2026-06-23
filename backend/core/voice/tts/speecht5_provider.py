@@ -1,6 +1,9 @@
 """SpeechT5 provider — Hugging Face model for local TTS."""
+import asyncio 
 import logging 
+
 import numpy as np 
+import torch 
 
 from .base import TTSProvider 
 
@@ -23,7 +26,6 @@ class SpeechT5Provider (TTSProvider ):
             return 
         try :
             from transformers import SpeechT5Processor ,SpeechT5ForTextToSpeech ,SpeechT5HifiGan 
-            import torch 
             logger .debug ("Loading SpeechT5 model...")
             self ._processor =SpeechT5Processor .from_pretrained ("microsoft/speecht5_tts")
             self ._model =SpeechT5ForTextToSpeech .from_pretrained ("microsoft/speecht5_tts")
@@ -42,8 +44,6 @@ class SpeechT5Provider (TTSProvider ):
 
     async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
         try :
-            import torch 
-            import asyncio 
             loop =asyncio .get_event_loop ()
             result =await loop .run_in_executor (None ,self ._synthesize_sync ,text )
             return result 
@@ -53,7 +53,6 @@ class SpeechT5Provider (TTSProvider ):
 
     def _synthesize_sync (self ,text :str )->tuple :
         self ._ensure_model ()
-        import torch 
         inputs =self ._processor (text =text ,return_tensors ="pt")
         with torch .no_grad ():
             speech =self ._model .generate_speech (

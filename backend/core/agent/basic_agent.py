@@ -2,9 +2,9 @@
 
 import asyncio
 import logging
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncGenerator, AsyncIterator, Dict, List, Optional, Union
 
-from backend.core.agent.base import BaseAgent, AgentTrace, ToolCall, LLMType
+from backend.core.agent.base import BaseAgent, AgentTrace, ToolCall, LLMType, SignalTuple
 from backend.core.plugin import get_registry
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class BasicAgent(BaseAgent):
             self.llm.reload_settings()
         logger.debug("BasicAgent.update_settings called")
 
-    async def run(self, user_message: str, context: dict) -> AsyncIterator[str]:
+    async def run(self, user_message: str, context: dict) -> AsyncGenerator[str | SignalTuple, None]:
         """Stream a response with tool execution loop."""
         session_id = context.get("session_id", "unknown")
         await self.load_history(session_id)
@@ -145,11 +145,7 @@ class BasicAgent(BaseAgent):
                                 relationship_context: str = "") -> AsyncIterator[Any]:
         """Legacy streaming interface — delegates to run()."""
         ctx = {
-            "session_id": (
-                getattr(self.memory, 'get_current_session', lambda: '')()
-                if hasattr(self.memory, 'get_current_session')
-                else ''
-            ),
+            "session_id": self.memory.get_current_session(),
             "relationship_context": relationship_context,
             "images": images or [],
         }
@@ -188,18 +184,10 @@ class BasicAgent(BaseAgent):
             return f"Error: {e}"
 
     async def load_history(self, session_id: str):
-        """Load prior turns from memory into ``self._history``.
-
-        Handles both sync and async memory backends transparently:
-        if ``get_session_messages()`` returns a coroutine it is awaited.
-        """
+        """Load prior turns from memory into ``self._history``."""
         stored = []
-        if hasattr(self.memory, "get_session_messages"):
-            msgs = self.memory.get_session_messages(session_id)
-            # Support both sync and async memory backends
-            if asyncio.iscoroutine(msgs):
-                msgs = await msgs
-            stored = [{"role": m["role"], "content": m["content"]} for m in msgs[-20:]]
+        msgs = self.memory.get_session_messages(session_id)
+        stored = [{"role": m["role"], "content": m["content"]} for m in msgs[-20:]]
         self._history = stored
 
     async def generate_idle_prompt(self) -> str:
@@ -220,11 +208,28 @@ class BasicAgent(BaseAgent):
             return ""
 
     async def subconscious_reflect(self) -> str:
-        """Run subconscious reflection on recent conversation history."""
-        if not self._history:
+        """Run subconscious reflection on recent conversation history.
+
+        Loads recent turns from memory if ``_history`` is empty (e.g. when
+        called outside of ``run()``), so the method works in any context.
+        """
+        history = []
+        if self._history:
+            history = self._history
+        elif self.memory is not None and hasattr(self.memory, 'get_recent'):
+            try:
+                recent = self.memory.get_recent(10)
+                if asyncio.iscoroutine(recent):
+                    recent = await recent
+                history = [{"role": m.get("role", ""), "content": m.get("content", "")}
+                           for m in (recent or [])]
+            except Exception:
+                pass
+
+        if not history:
             return ""
         recent = "\n".join(
-            f"{m['role']}: {m['content'][:200]}" for m in self._history[-10:]
+            f"{m['role']}: {m['content'][:200]}" for m in history[-10:]
         )
         prompt = (
             "Summarize the key facts and emotional undertones from this recent conversation "

@@ -256,6 +256,10 @@ class VoicePipeline:
         self._settings = settings or {}
         self._stt_timeout = float(self._settings.get("voice.stt_timeout", 30.0))
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
+        # ThreadPoolExecutor for the listen_loop — stored so it can be shut down
+        self._voice_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+        # Track STT watchdog timers so they can be cancelled during shutdown
+        self._stt_timers: list[threading.Timer] = []
 
     # ── Convenience properties (delegate to state machine) ──────────────
 
@@ -285,12 +289,18 @@ class VoicePipeline:
         import concurrent.futures
         if self._stop_event.is_set():
             self._stop_event.clear()
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
-        return executor.submit(self.listen_loop)
+        # Shut down any previous executor before creating a new one
+        if self._voice_executor is not None:
+            self._voice_executor.shutdown(wait=False)
+        self._voice_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
+        return self._voice_executor.submit(self.listen_loop)
 
     def stop(self):
         """Stop the pipeline cleanly — sets stop event, closes stream, resets state."""
         self.stop_listening()
+        if self._voice_executor is not None:
+            self._voice_executor.shutdown(wait=False)
+            self._voice_executor = None
 
     # ── Runtime reconfigure ───────────────────────────────────────────
 
@@ -303,18 +313,23 @@ class VoicePipeline:
           voice.vad_mode, voice.vad_frame_size,
           voice.vad_energy_threshold, voice.vad_silence_frames
         """
+        old_settings = self._settings
         if settings:
             self._settings = settings
         # STT engine
-        stt_engine = settings.get("voice.stt_engine")
+        stt_engine = settings.get("voice.stt_engine") if settings else None
         if stt_engine and self._stt.engine != stt_engine:
             logger.info("VoicePipeline: Switching STT engine to '%s'", stt_engine)
             self._stt = STTRouter(engine=stt_engine)
         # STT timeout
-        self._stt_timeout = float(settings.get("voice.stt_timeout", 30.0))
-        # VAD parameters — will be picked up on next listen_loop
-        # (VAD is lazy-created in _ensure_models)
-        self._vad = None  # force re-create on next listen_loop
+        self._stt_timeout = float(settings.get("voice.stt_timeout", 30.0) if settings else 30.0)
+        # VAD parameters — only force re-creation if VAD settings actually changed
+        if self._vad is not None and settings:
+            old_mode = old_settings.get("voice.vad_mode") if old_settings else None
+            new_mode = settings.get("voice.vad_mode")
+            if old_mode != new_mode:
+                logger.info("VoicePipeline: VAD mode changed, re-creating VAD")
+                self._vad = None  # force re-create on next listen_loop
 
     # ── STT configuration helpers ──────────────────────────────────────
 
@@ -379,6 +394,8 @@ class VoicePipeline:
             timer = threading.Timer(self._stt_timeout, _watchdog)
             timer.daemon = True
             timer.start()
+            # Track timer so it can be cancelled on shutdown
+            self._stt_timers.append(timer)
         except Exception as e:
             logger.debug(f"Failed to start STT watchdog timer: {e}")
 
@@ -587,11 +604,14 @@ class VoicePipeline:
         This is synchronous and safe to call from threads.
         """
         logger.debug("VoicePipeline: Interrupt requested")
-        # Use sync transition since we may be in a thread
-        try:
-            self.sm.transition_sync(VoiceState.INTERRUPTED)
-        except VoiceStateError:
-            pass  # Not in SPEAKING state — that's fine
+        # Only transition if we're currently speaking
+        if self.sm.is_speaking():
+            try:
+                self.sm.transition_sync(VoiceState.INTERRUPTED)
+            except VoiceStateError:
+                pass  # Not in SPEAKING state — that's fine
+        else:
+            logger.debug("VoicePipeline: Not speaking, skipping interrupt transition")
 
         # Fire the on_speech_start callback if set (bridges to ChatSession.cancel_assistant)
         if self.on_speech_start:
@@ -606,14 +626,37 @@ class VoicePipeline:
         Synchronous — safe to call from anywhere.
         """
         self._stop_event.set()
+
+        # Cancel all pending STT watchdog timers
+        timers = list(self._stt_timers)
+        self._stt_timers.clear()
+        for t in timers:
+            try:
+                t.cancel()
+            except Exception:
+                pass
+
         if self._stream is not None:
             try:
                 self._stream.close()
             except Exception as e:
                 logger.debug("Failed to close voice stream on stop: %s", e)
-        self._stt_executor.shutdown(wait=False)
-        # Create a fresh executor for next use
-        self._stt_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="stt"
-        )
-        self.sm.reset_sync()
+
+        # Cancel any pending STT futures
+        if hasattr(self, '_stt_executor') and self._stt_executor is not None:
+            try:
+                # Cancel all pending futures
+                pending = [f for f in self._stt_executor._threads if f is not None]
+            except Exception:
+                pending = []
+            self._stt_executor.shutdown(wait=False)
+            # Create a fresh executor for next use
+            self._stt_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="stt"
+            )
+
+        # Reset state machine — wrap in try/except for shutdown safety
+        try:
+            self.sm.reset_sync()
+        except Exception as e:
+            logger.debug("State machine reset during shutdown: %s", e)

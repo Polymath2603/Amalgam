@@ -8,7 +8,7 @@ import asyncio
 import re
 import logging
 from typing import Any, AsyncGenerator
-from .base import BaseAgent, LLMType
+from .base import BaseAgent, LLMType, SignalTuple
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class ReflectiveAgent(BaseAgent):
 
     async def run(
         self, user_message: str, context: dict
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | SignalTuple, None]:
         async for chunk in self.inner.run(user_message, context):
             yield chunk
 

@@ -152,11 +152,11 @@ class CompanionREPL:
 
     async def _cmd_clear(self):
         await self._memory.clear()
-        self._memory.start_session()
+        await self._memory.start_session()
         self._print("Memory cleared. Started fresh session.")
 
     async def _cmd_new(self):
-        sid = self._memory.start_session()
+        sid = await self._memory.start_session()
         self._print(f"New session started: {sid}")
 
     async def _cmd_rename(self, args: str):

@@ -1,6 +1,7 @@
 """
 Avatar control MCP server — replaces embedded tag system for emotion/expression/action.
 The AI uses these tools instead of embedding /[[emotion]] /((expression)) /**action**/ tags.
+Supports per-session state via session_id parameter.
 """
 import asyncio 
 import json 
@@ -12,7 +13,14 @@ logger =logging .getLogger (__name__ )
 
 app =Server ("avatar-server")
 
-_state ={"emotion":"neutral","expression":"neutral","action":None }
+# Per-session state: dict[session_id, dict]
+_sessions: dict[str, dict] = {}
+
+def _get_state(session_id: str = "default") -> dict:
+    """Get or create avatar state for a session."""
+    if session_id not in _sessions:
+        _sessions[session_id] = {"emotion": "neutral", "expression": "neutral", "action": None}
+    return _sessions[session_id]
 
 
 @app .list_tools ()
@@ -33,6 +41,10 @@ async def list_tools ()->list [Tool ]:
     "suspicious","victory","sleep","love","excited"
     ]
     },
+    "session_id":{
+    "type":"string",
+    "description":"Optional session identifier for isolated state",
+    }
     },
     "required":["emotion"],
     },
@@ -48,6 +60,10 @@ async def list_tools ()->list [Tool ]:
     "description":"Facial expression: happy, angry, sad, relaxed, surprised, blink",
     "enum":["happy","angry","sad","relaxed","surprised","blink"]
     },
+    "session_id":{
+    "type":"string",
+    "description":"Optional session identifier for isolated state",
+    }
     },
     "required":["expression"],
     },
@@ -62,6 +78,10 @@ async def list_tools ()->list [Tool ]:
     "type":"string",
     "description":"Description of the physical action/gesture (e.g. 'nods thoughtfully', 'waves excitedly', 'bows deeply')"
     },
+    "session_id":{
+    "type":"string",
+    "description":"Optional session identifier for isolated state",
+    }
     },
     "required":["action"],
     },
@@ -76,6 +96,10 @@ async def list_tools ()->list [Tool ]:
     "type":"boolean",
     "description":"True to show the avatar, False to hide it"
     },
+    "session_id":{
+    "type":"string",
+    "description":"Optional session identifier for isolated state",
+    }
     },
     "required":["visible"],
     },
@@ -86,26 +110,31 @@ async def list_tools ()->list [Tool ]:
 @app .call_tool ()
 async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
     try :
+        session_id = arguments.get("session_id", "default")
+        state = _get_state(session_id)
+
         if name =="avatar_set_emotion":
             emotion =arguments .get ("emotion","neutral")
-            _state ["emotion"]=emotion 
-            return [TextContent (type ="text",text =json .dumps ({"type":"emotion","emotion":emotion }))]
+            state ["emotion"]=emotion 
+            return [TextContent (type ="text",text =json .dumps ({"type":"emotion","emotion":emotion, "session_id": session_id}))]
 
         if name =="avatar_set_expression":
             expression =arguments .get ("expression","neutral")
-            _state ["expression"]=expression 
-            return [TextContent (type ="text",text =json .dumps ({"type":"expression","expression":expression }))]
+            state ["expression"]=expression 
+            return [TextContent (type ="text",text =json .dumps ({"type":"expression","expression":expression, "session_id": session_id}))]
 
         if name =="avatar_perform_action":
             action =arguments .get ("action","")
-            _state ["action"]=action 
-            return [TextContent (type ="text",text =json .dumps ({"type":"roleplay","action":action }))]
+            state ["action"]=action 
+            return [TextContent (type ="text",text =json .dumps ({"type":"roleplay","action":action, "session_id": session_id}))]
 
         if name =="avatar_set_visibility":
             visible =arguments .get ("visible",True )
-            return [TextContent (type ="text",text =json .dumps ({"type":"visibility","visible":visible }))]
+            return [TextContent (type ="text",text =json .dumps ({"type":"visibility","visible":visible, "session_id": session_id}))]
 
         raise ValueError (f"Unknown tool: {name }")
+    except asyncio.CancelledError:
+        raise
     except Exception as e :
         logger .error ("avatar tool '%s' failed: %s",name ,e )
         return [TextContent (type ="text",text =f"Error: {e }")]

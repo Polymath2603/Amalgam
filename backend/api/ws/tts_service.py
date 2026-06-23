@@ -97,9 +97,9 @@ class OrderedTTSScheduler:
         self._next_idx = 0
 
     async def cancel_all(self) -> None:
-        """Alias for cancel() — cancels all pending TTS tasks and clears buffer.
+        """Cancel all pending TTS generation tasks and clear buffer.
 
-        Provided for consistent naming across subsystems.
+        Alias for cancel() — provided for consistent naming across subsystems.
         """
         await self.cancel()
 
@@ -172,7 +172,9 @@ class OrderedTTSScheduler:
                     "TTS sentence %d translation failed: %s", sentence_idx, exc
                 )
 
-        char = settings().get_active_character()
+        # Capture settings at the start of generation to avoid stale data
+        current_settings = settings()
+        char = current_settings.get_active_character()
         ref_audio = None
         if tts().engine == "openvoice":
             ref_audio = char.get("voice_ref") if char else None
@@ -229,7 +231,8 @@ class OrderedTTSScheduler:
 
         duration = len(wav_np) / sample_rate if sample_rate else 0
 
-        lipsync_enabled = settings().get("voice.lipsync_enabled", True)
+        # Use captured settings for lipsync check
+        lipsync_enabled = current_settings.get("voice.lipsync_enabled", True)
 
         return {
             "type": "tts_audio",
@@ -252,6 +255,9 @@ class OrderedTTSScheduler:
             self._next_idx += 1
 
             if stream_ref() != stream_id:
+                # Stream became stale — re-insert the buffer entry so it can be
+                # delivered if the stream reconnects, or remains for debugging.
+                self._buffer[sent_idx] = msg
                 continue
 
             if msg is None:
@@ -292,7 +298,6 @@ async def synthesize_sentence(sentence_text: str, sentence_idx: int, expected_st
                 source = settings().get("translation.source_lang", "auto")
                 target = settings().get("translation.target_lang", "en")
                 sentence_text = await translation_service.translate(sentence_text, source_lang=source, target_lang=target)
-                orig_text = sentence_text  # Will be set to original below — handled after
             except Exception as e:
                 logger.warning("TTS sentence %d translation failed: %s", sentence_idx, e)
 
@@ -316,7 +321,19 @@ async def synthesize_sentence(sentence_text: str, sentence_idx: int, expected_st
             tts().synthesize(sentence_text, ref_audio=ref_audio, emotion=emotion),
             timeout=60.0
         )
-        audio_np, viseme_schedule, sr = result
+        # Safe tuple unpack — engine may return 2 or 3 values
+        if isinstance(result, tuple):
+            if len(result) == 3:
+                audio_np, viseme_schedule, sr = result
+            elif len(result) == 2:
+                audio_np, sr = result
+                viseme_schedule = None
+            else:
+                logger.warning("TTS returned unexpected tuple length %d in synthesize_sentence", len(result))
+                return
+        else:
+            logger.warning("TTS returned unexpected type %s in synthesize_sentence", type(result))
+            return
         logger.debug(f"TTS sentence {sentence_idx}: {len(audio_np)} samples, sr={sr}, visemes={len(viseme_schedule) if viseme_schedule else 0}")
         if len(audio_np) > 0:
             if expected_stream_id != current_stream_id:
@@ -351,7 +368,7 @@ async def synthesize_sentence(sentence_text: str, sentence_idx: int, expected_st
         logger.error(f"TTS error for sentence {sentence_idx}: {type(tts_err).__name__}: {tts_err}")
         try:
             if ws.client_state.value == 1:
-                await ws.send_json({"type": "tts_error", "message": f"TTS failed: {tts_err}", "sentence_idx": sentence_idx})
+                await ws.send_json({"type": "tts_error", "message": "TTS synthesis failed", "sentence_idx": sentence_idx})
         except Exception:
             pass
 
@@ -380,7 +397,19 @@ async def synthesize_now(text: str, ws: WebSocket, emotion: str = "neutral"):
                 logger.warning("No voice_ref for OpenVoice, skipping speak")
                 return
         result = await asyncio.wait_for(tts().synthesize(text, ref_audio=ref_audio, emotion=emotion), timeout=60.0)
-        audio_np, viseme_schedule, sr = result
+        # Safe tuple unpack — engine may return 2 or 3 values
+        if isinstance(result, tuple):
+            if len(result) == 3:
+                audio_np, viseme_schedule, sr = result
+            elif len(result) == 2:
+                audio_np, sr = result
+                viseme_schedule = None
+            else:
+                logger.warning("TTS returned unexpected tuple length %d in synthesize_now", len(result))
+                return
+        else:
+            logger.warning("TTS returned unexpected type %s in synthesize_now", type(result))
+            return
         if len(audio_np) > 0:
             wav_bytes = numpy_to_wav_bytes(audio_np, sr)
             b64_audio = base64.b64encode(wav_bytes).decode()
@@ -407,6 +436,6 @@ async def synthesize_now(text: str, ws: WebSocket, emotion: str = "neutral"):
         logger.error(f"Speak TTS error: {e}")
         try:
             if ws.client_state.value == 1:
-                await ws.send_json({"type": "tts_error", "message": f"TTS speak failed: {e}"})
+                await ws.send_json({"type": "tts_error", "message": "TTS speak failed"})
         except Exception:
             pass

@@ -73,8 +73,11 @@ class TTSRouter :
     @voice .setter 
     def voice (self ,val ):
         self ._voice =val 
-        for p in self ._providers .values ():
-            p .voice =val 
+        for name ,p in list (self ._providers .items ()):
+            try :
+                p .voice =val 
+            except Exception as e :
+                logger .warning ("Failed to set voice on provider '%s': %s", name ,e )
 
     def get_supported_emotions (self ):
         return self ._current ().supported_emotions 
@@ -118,6 +121,9 @@ class TTSRouter :
         rvc =self ._ensure ("rvc")
         rvc .configure (url ,f0_up_key ,f0_method )
 
+        # Store a reference to the current engine's provider as RVC's upstream
+        # This way, if self.engine changes later, the upstream remains the
+        # provider that was current at configure-time.
         if self .engine !="rvc":
             upstream =self ._ensure (self .engine )
             rvc .set_tts_provider (upstream )
@@ -165,16 +171,17 @@ class TTSRouter :
         sem = asyncio.Semaphore(max_concurrent)
 
         async def _work(idx: int, text: str) -> dict:
-            async with sem:
-                # Translate if service is available
-                synth_text = text
-                if translation_service is not None:
-                    try:
-                        synth_text = await translation_service.translate(text)
-                    except Exception as e:
-                        logger.warning("Translation error for sentence %d: %s", idx, e)
-                        synth_text = text  # fall back to original
+            # Translate if service is available (before acquiring semaphore — translation
+            # is generally fast and network-bound, but we bound it loosely)
+            synth_text = text
+            if translation_service is not None:
+                try:
+                    synth_text = await translation_service.translate(text)
+                except Exception as e:
+                    logger.warning("Translation error for sentence %d: %s", idx, e)
+                    synth_text = text  # fall back to original
 
+            async with sem:
                 try:
                     result = await self.synthesize(synth_text, ref_audio=ref_audio, emotion=emotion)
                     audio_np, visemes, sr = result
@@ -203,7 +210,7 @@ class TTSRouter :
         results.sort(key=lambda r: r["idx"])
         return results
 
-    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
+    async def synthesize (self ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple [np .ndarray ,list [dict ]|None ,int ]:
         if not text .strip ():
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
@@ -216,8 +223,9 @@ class TTSRouter :
             return await self ._do_synthesize (provider ,text ,ref_audio ,emotion =emotion )
 
     async def _do_synthesize (self ,provider ,text :str ,ref_audio :str =None ,emotion :str ="neutral")->tuple :
-        try :
-            if self .engine =="openvoice":
+        if self .engine =="openvoice":
+            # OpenVoice with fallback — separate try/except for each stage
+            try :
                 result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
                 if isinstance (result ,tuple )and len (result )>=3 :
                     audio ,visemes ,*_ =result 
@@ -225,15 +233,23 @@ class TTSRouter :
                     audio ,visemes =result 
                 if len (audio )>0 :
                     return audio ,visemes ,22050 
-                logger .warning ("OpenVoice failed, falling back to edge-tts")
+            except Exception as e :
+                logger .info ("OpenVoice primary synthesis failed: %s, falling back to edge-tts", e)
+
+            # Fallback
+            try :
                 fallback =self ._ensure ("edge-tts")
-                result =await fallback .synthesize (text ,emotion =emotion )
+                result =await fallback .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
                 if isinstance (result ,tuple )and len (result )>=3 :
                     audio ,visemes ,*_ =result 
                 else :
                     audio ,visemes =result 
                 return audio ,visemes ,16000 
-            else :
+            except Exception as e :
+                logger .error ("OpenVoice fallback to edge-tts also failed: %s", e)
+                return np .zeros (0 ,dtype =np .float32 ),[],self ._SR_MAP .get (self .engine ,16000 )
+        else :
+            try :
                 result =await provider .synthesize (text ,ref_audio =ref_audio ,emotion =emotion )
                 if isinstance (result ,tuple )and len (result )>=3 :
                     audio ,visemes ,sr =result 
@@ -241,7 +257,6 @@ class TTSRouter :
                     audio ,visemes =result 
                     sr =self ._SR_MAP .get (self .engine ,16000 )
                 return audio ,visemes ,sr 
-        except Exception as e :
-            logger .error (f"TTS synthesis failed for engine '{self .engine }': {type (e ).__name__ }: {e }")
-            # Return empty audio on failure so callers can handle gracefully
-            return np .zeros (0 ,dtype =np .float32 ),[],self ._SR_MAP .get (self .engine ,16000 )
+            except Exception as e :
+                logger .error (f"TTS synthesis failed for engine '{self .engine }': {type (e ).__name__ }: {e }")
+                return np .zeros (0 ,dtype =np .float32 ),[],self ._SR_MAP .get (self .engine ,16000 )

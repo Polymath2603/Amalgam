@@ -43,7 +43,7 @@ class DashScopeProvider (TTSProvider ):
                 logger .error ("DashScope TTS error or request failed")
                 return np .zeros (0 ,dtype =np .float32 ),None ,16000 
 
-            audio_np =np .frombuffer (response .content ,dtype =np .int16 ).astype (np .float32 )/32767.0 
+            audio_np =np .frombuffer (response .content ,dtype =np .int16 ).astype (np .float32 )/32768.0 
             return audio_np ,None ,16000 
         except httpx .HTTPStatusError as e :
             logger .error (f"DashScope TTS HTTP error: {e }")

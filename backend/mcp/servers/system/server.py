@@ -3,8 +3,15 @@ from mcp .types import Tool ,TextContent
 import asyncio 
 import os 
 import shlex 
+import logging
+from datetime import datetime, timezone
+
+logger =logging .getLogger (__name__ )
 
 app =Server ("system-server")
+
+# Module-level set for tracking reminder tasks
+_reminder_tasks: dict[str, asyncio.Task] = {}
 
 
 @app .list_tools ()
@@ -70,31 +77,32 @@ async def list_tools ()->list [Tool ]:
 async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
     if name =="get_cpu_usage":
         try :
-            proc =await asyncio .create_subprocess_exec (
-            "python3","-c","import psutil; print(psutil.cpu_percent(interval=0.5))",
-            stdout =asyncio .subprocess .PIPE ,stderr =asyncio .subprocess .PIPE ,
-            )
-            stdout ,stderr =await proc .communicate ()
-            if stdout :
-                return [TextContent (type ="text",text =f"CPU: {stdout .decode ().strip ()}%")]
-            return [TextContent (type ="text",text =f"CPU: unavailable ({stderr .decode ().strip ()})")]
+            import psutil
+            cpu = psutil.cpu_percent(interval=0.5)
+            return [TextContent (type ="text",text =f"CPU: {cpu}%")]
+        except ImportError:
+            # Fallback to /proc/loadavg
+            try:
+                with open("/proc/loadavg") as f:
+                    load = f.read().strip()
+                return [TextContent(type="text", text=f"CPU load: {load}")]
+            except Exception as e2:
+                return [TextContent(type="text", text=f"CPU: unavailable ({e2})")]
         except Exception as e :
             return [TextContent (type ="text",text =f"Error: {e }")]
 
     elif name =="get_memory_usage":
         try :
-            proc =await asyncio .create_subprocess_exec (
-            "python3","-c",(
-            "import psutil; m=psutil.virtual_memory(); "
-            "print(f'Total: {m.total//1024//1024}MB, Used: {m.used//1024//1024}MB, "
-            "Free: {m.available//1024//1024}MB, Percent: {m.percent}%')"
-            ),
-            stdout =asyncio .subprocess .PIPE ,stderr =asyncio .subprocess .PIPE ,
-            )
-            stdout ,stderr =await proc .communicate ()
-            if stdout :
-                return [TextContent (type ="text",text =stdout .decode ().strip ())]
-            return [TextContent (type ="text",text =f"Memory: unavailable ({stderr .decode ().strip ()})")]
+            import psutil
+            m=psutil.virtual_memory()
+            return [TextContent(type="text", text=f"Total: {m.total//1024//1024}MB, Used: {m.used//1024//1024}MB, Free: {m.available//1024//1024}MB, Percent: {m.percent}%")]
+        except ImportError:
+            try:
+                with open("/proc/meminfo") as f:
+                    meminfo = f.read()
+                return [TextContent(type="text", text=f"Memory info:\n{meminfo[:500]}")]
+            except Exception as e2:
+                return [TextContent(type="text", text=f"Memory: unavailable ({e2})")]
         except Exception as e :
             return [TextContent (type ="text",text =f"Error: {e }")]
 
@@ -140,6 +148,9 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
                 if proc .returncode ==0 and stdout :
                     text =stdout .decode ().strip ()
                     return [TextContent (type ="text",text =text [:2000 ]or "(empty clipboard)")]
+                # Ensure previous process is properly waited before retrying
+                if proc.returncode is None:
+                    await proc.wait()
             return [TextContent (type ="text",text ="Clipboard: no supported tool found (install xclip or wl-clipboard)")]
         except Exception as e :
             return [TextContent (type ="text",text =f"Error: {e }")]
@@ -161,28 +172,31 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
                 stdout ,stderr =await proc .communicate (input =text .encode ())
                 if proc .returncode ==0 :
                     return [TextContent (type ="text",text =f"Clipboard set ({len (text )} chars)")]
+                if proc.returncode is None:
+                    await proc.wait()
             return [TextContent (type ="text",text ="Clipboard: no supported tool found (install xclip or wl-clipboard)")]
         except Exception as e :
             return [TextContent (type ="text",text =f"Error: {e }")]
 
     elif name =="get_current_time":
-        proc =await asyncio .create_subprocess_exec (
-        "date",
-        stdout =asyncio .subprocess .PIPE ,stderr =asyncio .subprocess .PIPE ,
-        )
-        stdout ,stderr =await proc .communicate ()
-        return [TextContent (type ="text",text =stdout .decode ().strip ()or f"Error: {stderr .decode ().strip ()}")]
+        now = datetime.now(timezone.utc)
+        return [TextContent(type="text", text=now.isoformat())]
 
     elif name =="set_reminder":
         text =arguments .get ("text","")
         delay =int (arguments .get ("delay_seconds",60 ))
 
         async def _fire ():
-            await asyncio .sleep (delay )
-            logger = logging.getLogger(__name__)
-            logger.warning(f"REMINDER: {text}")
+            try:
+                await asyncio .sleep (delay )
+                logger.warning(f"REMINDER: {text}")
+            except asyncio.CancelledError:
+                pass
+            finally:
+                _reminder_tasks.pop(id(_fire), None)
 
-        asyncio .create_task (_fire ())
+        task = asyncio.create_task(_fire())
+        _reminder_tasks[id(_fire)] = task
         return [TextContent (type ="text",text =f"Reminder set: \"{text }\" in {delay }s")]
 
     raise ValueError (f"Unknown tool: {name }")
@@ -191,6 +205,14 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
 if __name__ =="__main__":
     from mcp .server .stdio import stdio_server 
     async def run ():
-        async with stdio_server ()as (read_stream ,write_stream ):
-            await app .run (read_stream ,write_stream ,app .create_initialization_options ())
+        try:
+            async with stdio_server ()as (read_stream ,write_stream ):
+                await app .run (read_stream ,write_stream ,app .create_initialization_options ())
+        finally:
+            # Cancel all pending reminders on shutdown
+            for task in _reminder_tasks.values():
+                task.cancel()
+            if _reminder_tasks:
+                await asyncio.gather(*_reminder_tasks.values(), return_exceptions=True)
+            _reminder_tasks.clear()
     asyncio .run (run ())

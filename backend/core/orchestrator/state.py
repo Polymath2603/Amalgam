@@ -3,7 +3,9 @@ Orchestrator state — tracks active sub-agents and emits swarm updates.
 Used by Task 17 (Swarm Graph UI) to provide real-time agent tree visualization.
 """
 
+import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine, Literal
 
@@ -32,6 +34,8 @@ class OrchestratorState:
         self.completed_agents: list[tuple[str, AgentRun]] = []
         # Maximum number of completed agents to keep in history
         self._max_history: int = 100
+        # Lock for serializing swarm updates
+        self._send_lock = asyncio.Lock()
 
     def register_agent(self, agent_id: str, run: AgentRun):
         self.active_agents[agent_id] = run
@@ -53,7 +57,7 @@ class OrchestratorState:
         run = self.active_agents.pop(agent_id, None)
         if run is not None:
             self.completed_agents.append((agent_id, run))
-            # Trim history
+            # Trim history — O(1) with deque but keep list for JSON serialization compatibility
             if len(self.completed_agents) > self._max_history:
                 self.completed_agents = self.completed_agents[-self._max_history:]
 
@@ -113,31 +117,35 @@ class OrchestratorState:
         return state
 
     async def emit_swarm_update(self, ws_send_fn: Callable[[dict], Coroutine[Any, Any, None]]):
-        """Send the current agent tree to the frontend."""
-        nodes: list[dict] = []
-        edges: list[dict] = []
+        """Send the current agent tree to the frontend.
 
-        nodes.append({
-            "id": "orchestrator",
-            "label": "Orchestrator",
-            "status": "running",
-            "depth": 0,
-            "model": self.config.get("model", "unknown"),
-        })
+        Uses a lock to prevent interleaved JSON from concurrent calls.
+        """
+        async with self._send_lock:
+            nodes: list[dict] = []
+            edges: list[dict] = []
 
-        for agent_id, run in self.active_agents.items():
             nodes.append({
-                "id": agent_id,
-                "label": run.agent_type,
-                "status": run.status,
-                "depth": run.depth,
-                "task": run.task_description,  # Full description -- let frontend truncate
-                "model": run.model,
+                "id": "orchestrator",
+                "label": "Orchestrator",
+                "status": "running",
+                "depth": 0,
+                "model": self.config.get("model", "unknown"),
             })
-            parent_id = run.parent_id or "orchestrator"
-            edges.append({"from": parent_id, "to": agent_id})
 
-        await ws_send_fn({
-            "type": "swarm_update",
-            "data": {"nodes": nodes, "edges": edges},
-        })
+            for agent_id, run in self.active_agents.items():
+                nodes.append({
+                    "id": agent_id,
+                    "label": run.agent_type,
+                    "status": run.status,
+                    "depth": run.depth,
+                    "task": run.task_description,  # Full description -- let frontend truncate
+                    "model": run.model,
+                })
+                parent_id = run.parent_id or "orchestrator"
+                edges.append({"from": parent_id, "to": agent_id})
+
+            await ws_send_fn({
+                "type": "swarm_update",
+                "data": {"nodes": nodes, "edges": edges},
+            })

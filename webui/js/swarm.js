@@ -21,6 +21,22 @@ class SwarmGraph {
         this._initD3();
     }
 
+    destroy() {
+        // Stop D3 force simulation
+        if (this.sim) {
+            this.sim.stop();
+            this.sim = null;
+        }
+        // Clear DOM
+        if (this.svg) {
+            this.svg.remove();
+            this.svg = null;
+        }
+        this.nodes = [];
+        this.links = [];
+        this.g = null;
+    }
+
     _initD3() {
         const svg = d3.select(`#${this.container.id}`)
             .append('svg')
@@ -109,6 +125,11 @@ class SwarmGraph {
 window.swarmGraph = null;
 
 function initSwarmTab() {
+    // Clean up previous instance before creating a new one
+    if (window.swarmGraph) {
+        window.swarmGraph.destroy();
+        window.swarmGraph = null;
+    }
     window.swarmGraph = new SwarmGraph('swarm-graph-container');
 }
 

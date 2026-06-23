@@ -190,6 +190,25 @@ async def list_providers():
     except ImportError:
         logger.warning("LLMRouter not available, returning curated provider list")
         providers = [dict(p) for p in PROVIDER_CATALOG]
+        _ENV_KEYS_LOCAL = {
+            "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "openai": ["OPENAI_API_KEY"],
+            "anthropic": ["ANTHROPIC_API_KEY"],
+            "groq": ["GROQ_API_KEY"],
+            "deepseek": ["DEEPSEEK_API_KEY"],
+            "mistral": ["MISTRAL_API_KEY"],
+            "together": ["TOGETHER_API_KEY"],
+            "siliconflow": ["SILICONFLOW_API_KEY"],
+            "zai": ["ZAI_API_KEY"],
+            "huggingface": ["HUGGINGFACE_API_KEY"],
+            "openrouter": ["OPENROUTER_API_KEY"],
+            "azure-openai": ["AZURE_OPENAI_API_KEY"],
+            "alibaba": ["ALIBABA_API_KEY", "DASHSCOPE_API_KEY"],
+            "aws": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+            "gcp": ["GCP_SERVICE_ACCOUNT_JSON"],
+            "opencode": ["OPENCODE_API_KEY"],
+            "opendev": ["OPENDEV_API_KEY"],
+        }
         for p in providers:
             pid = p["id"]
             provider_key = _settings_key(pid)
@@ -198,8 +217,8 @@ async def list_providers():
             if cfg and isinstance(cfg, dict) and cfg.get("api_key"):
                 has_api_key = True
             if not has_api_key:
-                env_names = ENV_KEYS.get(pid, [])
-                has_api_key = any(os.environ.get(k) for k in env_names) if 'ENV_KEYS' in dir() else False
+                env_names = _ENV_KEYS_LOCAL.get(pid, [])
+                has_api_key = any(os.environ.get(k) for k in env_names)
             p["has_api_key"] = has_api_key
         return {"providers": providers}
     except Exception as exc:
@@ -210,6 +229,10 @@ async def list_providers():
 @router.post("/step1")
 async def setup_step1(req: Step1Request):
     """Configure the LLM provider. Validates the connection."""
+    # Validate provider against known list
+    from backend.api.routes.settings import VALID_PROVIDERS as _VALID_PROVIDERS
+    if req.provider not in _VALID_PROVIDERS:
+        return {"ok": False, "provider": req.provider, "detail": "", "error": f"Unknown provider: {req.provider}"}
     s = get_settings()
     provider_key = _settings_key(req.provider)
     
@@ -243,6 +266,12 @@ async def setup_step1(req: Step1Request):
 @router.post("/step2")
 async def setup_step2(req: Step2Request):
     """Configure voice settings. Tests TTS if possible."""
+    # Validate STT and TTS engines
+    from backend.api.routes.settings import VALID_TTS_ENGINES as _VALID_TTS, VALID_STT_ENGINES as _VALID_STT
+    if req.tts_engine not in _VALID_TTS:
+        return {"ok": False, "tts_detail": f"Unknown TTS engine: {req.tts_engine}"}
+    if req.stt_engine not in _VALID_STT:
+        return {"ok": False, "tts_detail": f"Unknown STT engine: {req.stt_engine}"}
     s = get_settings()
     
     s.set("voice.stt_engine", req.stt_engine)
@@ -306,7 +335,14 @@ async def save_setup(body: dict):
     model = body.get("model", "")
 
     if not api_key:
-        return {"status": "error", "message": "API key is required"}
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"status": "error", "message": "API key is required"}, status_code=400)
+
+    # Validate provider
+    from backend.api.routes.settings import VALID_PROVIDERS as _VALID_PROVIDERS
+    if provider not in _VALID_PROVIDERS:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"status": "error", "message": f"Unknown provider: {provider}"}, status_code=400)
 
     s = get_settings()
     provider_key = _settings_key(provider)

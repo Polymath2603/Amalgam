@@ -151,7 +151,7 @@ def _init_command_registry():
 
 def get_commands() -> dict[str, tuple[str, str, list[str] | None]]:
     _init_command_registry()
-    return _COMMAND_DEFS
+    return dict(_COMMAND_DEFS)
 
 
 def get_slash_commands() -> list[str]:
@@ -171,8 +171,8 @@ def get_detected_providers(settings: Any) -> list[str]:
         detected = [p.name for p in providers if p.has_api_key]
         if detected:
             return sorted(detected)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("detect_providers() failed: %s", e)
 
     # Fallback: check provider configs directly for api_key
     try:
@@ -182,12 +182,12 @@ def get_detected_providers(settings: Any) -> list[str]:
                 cfg = settings.get(f"provider.{name}")
                 if cfg and isinstance(cfg, dict) and cfg.get("api_key"):
                     active.append(name)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("Failed to check provider %s config: %s", name, e)
         if active:
             return active
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("Fallback provider detection failed: %s", e)
 
     # No authenticated providers found
     return []

@@ -65,10 +65,12 @@ class ChainOfCommand:
         if req._response_future is not None and not req._response_future.done():
             req._response_future.set_result(resolution)
 
-    def get_pending(self, severity: Severity | None = None) -> list[EscalationRequest]:
+    def get_pending(self, severity: Severity | None = None, max_results: int = 50) -> list[EscalationRequest]:
         if severity:
-            return [r for r in self._pending if not r.resolved and r.severity == severity]
-        return [r for r in self._pending if not r.resolved]
+            results = [r for r in self._pending if not r.resolved and r.severity == severity]
+        else:
+            results = [r for r in self._pending if not r.resolved]
+        return results[:max_results]
 
     def can_auto_escalate(self) -> bool:
         """Check if we can auto-escalate to user without flooding."""
@@ -109,6 +111,9 @@ class ChainOfCommand:
             return response
         except asyncio.TimeoutError:
             logger.warning("Escalation %s timed out after %.0f s", req.id, timeout)
+            # Cancel the future to prevent InvalidStateError if response arrives later
+            if not response_future.done():
+                response_future.cancel()
             req.resolved = True
             req.resolution = "timeout"
             return None

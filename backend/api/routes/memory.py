@@ -19,6 +19,9 @@ async def get_sessions():
 
 @router.get("/api/memory/session/{session_id}")
 async def get_session_messages(session_id: str):
+    # Validate session_id length to prevent abuse
+    if len(session_id) > 255:
+        raise HTTPException(status_code=400, detail="session_id too long")
     if session_id == "current":
         session_id = memory().get_current_session()
     else:
@@ -30,7 +33,7 @@ async def get_session_messages(session_id: str):
 
 @router.post("/api/memory/session/{session_id}/rename")
 @deprecated()
-async def rename_session(session_id: str, new_title: str):
+async def rename_session(session_id: str, new_title: str = ""):
     try:
         title = await memory().rename_session(session_id, new_title)
         return {"status": "ok", "title": title}
@@ -41,6 +44,8 @@ async def rename_session(session_id: str, new_title: str):
 @router.get("/api/memory/session/{session_id}/resume")
 @deprecated()
 async def resume_session(session_id: str, turns: int = 5):
+    # Clamp turns to a sane range
+    turns = max(1, min(turns, 100))
     messages = memory().get_session_turns(session_id, turns)
     return {"messages": messages}
 
@@ -56,6 +61,9 @@ async def activate_session(session_id: str):
 
 @router.delete("/api/memory/session/{session_id}")
 async def delete_session(session_id: str):
+    # Check existence first
+    if not memory().session_exists(session_id):
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     await memory().delete_session(session_id)
     return {"status": "ok"}
 
@@ -63,8 +71,8 @@ async def delete_session(session_id: str):
 @router.post("/api/memory/clear")
 async def clear_memory():
     await memory().clear()
-    memory().start_session()
-    return {"status": "ok"}
+    sid = await memory().start_session()
+    return {"status": "ok", "session_id": sid}
 
 
 @router.get("/api/memory/session/current")
@@ -76,7 +84,7 @@ async def get_current_session_messages():
 
 @router.post("/api/memory/new-session")
 async def create_new_session():
-    sid = memory().start_session()
+    sid = await memory().start_session()
     return {"session_id": sid, "status": "ok"}
 
 

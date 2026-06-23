@@ -5,10 +5,12 @@ for server-initiated notifications.
 """
 import json
 import logging
+import fcntl
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from backend.core.deprecated import deprecated
 
@@ -32,7 +34,10 @@ class PushUnregisterRequest(BaseModel):
 def _load_tokens() -> dict[str, dict]:
     if PUSH_TOKENS_PATH.exists():
         try:
-            return json.loads(PUSH_TOKENS_PATH.read_text())
+            with open(PUSH_TOKENS_PATH, "r") as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                data = json.load(f)
+            return data
         except Exception as e:
             logger.warning("Failed to load push tokens: %s", e)
     return {}
@@ -40,18 +45,21 @@ def _load_tokens() -> dict[str, dict]:
 
 def _save_tokens(tokens: dict[str, dict]):
     PUSH_TOKENS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PUSH_TOKENS_PATH.write_text(json.dumps(tokens, indent=2))
+    tmp = PUSH_TOKENS_PATH.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        json.dump(tokens, f, indent=2)
+    tmp.replace(PUSH_TOKENS_PATH)
 
 
 @router.post("/api/push/register")
 @deprecated()
 async def register_token(body: PushRegisterRequest):
-    token = body.token.strip()
+    token = body.token  # Don't strip — preserve original for matching
     platform = body.platform
     device_id = body.device_id
 
     if not token:
-        from fastapi.responses import JSONResponse
         return JSONResponse({"error": "Missing push token"}, status_code=400)
 
     tokens = _load_tokens()
@@ -64,8 +72,10 @@ async def register_token(body: PushRegisterRequest):
 @router.post("/api/push/unregister")
 @deprecated()
 async def unregister_token(body: PushUnregisterRequest):
-    token = body.token.strip()
+    token = body.token  # Don't strip — match original registration
     tokens = _load_tokens()
+    if token not in tokens:
+        return JSONResponse({"status": "error", "errors": ["Push token not found"]}, status_code=404)
     tokens.pop(token, None)
     _save_tokens(tokens)
     return {"status": "ok"}
@@ -75,5 +85,6 @@ async def unregister_token(body: PushUnregisterRequest):
 @deprecated()
 async def list_tokens():
     """Admin endpoint — list registered tokens (not exposed in production)."""
+    # TODO: Add authentication before exposing this endpoint
     tokens = _load_tokens()
     return {"tokens": list(tokens.keys())}

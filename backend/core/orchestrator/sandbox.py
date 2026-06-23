@@ -162,6 +162,8 @@ class SandboxDetector:
                 result.add(current)
                 current = self._parent_of.get(current)
                 depth += 1
+            if depth > MAX_DEPTH:
+                logger.warning("Sandbox: MAX_DEPTH (%d) reached traversing ancestors from '%s' — possible cycle", MAX_DEPTH, node)
             return result
 
         ancestors_a = ancestors(topic_a)

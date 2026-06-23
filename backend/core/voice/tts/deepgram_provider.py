@@ -42,7 +42,7 @@ class DeepgramProvider (TTSProvider ):
                     return np .zeros (0 ,dtype =np .float32 ),None ,24000 
                 audio_bytes =await resp .aread ()
 
-            audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32767.0 
+            audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32768.0 
             return audio_np ,None ,24000 
         except httpx .HTTPStatusError as e :
             logger .error (f"Deepgram TTS HTTP error: {e }")

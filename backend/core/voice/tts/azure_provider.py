@@ -17,6 +17,14 @@ AZURE_VISEME_MAP ={
 
 TICKS_PER_MS =10_000 
 
+# Import speechsdk once at module level
+try :
+    import azure .cognitiveservices .speech as speechsdk 
+    _AZURE_SPEECH_AVAILABLE =True 
+except ImportError :
+    _AZURE_SPEECH_AVAILABLE =False 
+    speechsdk =None 
+
 
 class AzureTTSProvider (TTSProvider ):
     def __init__ (self ,voice ="en-US-AriaNeural"):
@@ -34,14 +42,11 @@ class AzureTTSProvider (TTSProvider ):
                 logger .warning ("Azure API key not configured")
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-        try :
-            import azure .cognitiveservices .speech as speechsdk 
-        except ImportError :
+        if not _AZURE_SPEECH_AVAILABLE :
             logger .error ("azure-cognitiveservices-speech not installed")
             return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
         try :
-
             loop =asyncio .get_event_loop ()
             result =await loop .run_in_executor (None ,self ._synthesize_sync ,text ,emotion )
             return result 
@@ -51,8 +56,6 @@ class AzureTTSProvider (TTSProvider ):
 
     def _synthesize_sync (self ,text :str ,emotion :str )->tuple :
         """Synchronous synthesis using Azure Speech SDK with viseme events."""
-        import azure .cognitiveservices .speech as speechsdk 
-
         speech_config =speechsdk .SpeechConfig (
         subscription =self ._api_key ,
         region =self ._region ,
@@ -96,26 +99,34 @@ class AzureTTSProvider (TTSProvider ):
 
         synthesizer .viseme_received .connect (on_viseme )
 
-        result =synthesizer .speak_ssml_async (ssml ).get ()
+        try :
+            result =synthesizer .speak_ssml_async (ssml ).get ()
 
-        if result .reason !=speechsdk .ResultReason .SynthesizingAudioCompleted :
-            error =result .cancellation_details 
-            logger .error (f"Azure TTS failed: {error .reason } - {error .error_details }")
-            return np .zeros (0 ,dtype =np .float32 ),[],16000 
+            if result .reason !=speechsdk .ResultReason .SynthesizingAudioCompleted :
+                error =result .cancellation_details 
+                logger .error (f"Azure TTS failed: {error .reason } - {error .error_details }")
+                return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-        audio_bytes =result .audio_data 
-        audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32767.0 
-        sr =16000 
+            audio_bytes =result .audio_data 
+            audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32768.0 
+            sr =16000 
 
-        for i in range (len (viseme_schedule )):
-            if i +1 <len (viseme_schedule ):
-                dur =viseme_schedule [i +1 ]['start']-viseme_schedule [i ]['start']
-            else :
-                dur =(len (audio_np )/sr )-viseme_schedule [i ]['start']
-            viseme_schedule [i ]['duration']=round (max (dur ,0.01 ),4 )
+            for i in range (len (viseme_schedule )):
+                if i +1 <len (viseme_schedule ):
+                    dur =viseme_schedule [i +1 ]['start']-viseme_schedule [i ]['start']
+                else :
+                    dur =(len (audio_np )/sr )-viseme_schedule [i ]['start']
+                viseme_schedule [i ]['duration']=round (max (dur ,0.01 ),4 )
 
-        logger .debug (f"Azure TTS: {len (audio_np )} samples, {len (viseme_schedule )} visemes")
-        return audio_np ,viseme_schedule ,sr 
+            logger .debug (f"Azure TTS: {len (audio_np )} samples, {len (viseme_schedule )} visemes")
+            return audio_np ,viseme_schedule ,sr 
+        finally :
+            # Dispose the synthesizer to release native resources
+            try :
+                synthesizer .dispose () if hasattr (synthesizer ,'dispose')else None 
+            except Exception :
+                pass 
 
     async def close (self ):
+        # Azure SDK handles its own cleanup via SpeechSynthesizer.dispose()
         pass 

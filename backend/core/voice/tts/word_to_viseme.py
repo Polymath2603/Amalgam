@@ -57,6 +57,10 @@ def word_to_visemes (word :str )->list [str ]:
     """
     w =re .sub (r"[^a-z]","",word .lower ())
     if not w :
+        # Word was entirely non-alpha (e.g., "123", "C++")
+        # Map digits to "aa" viseme, rest to "sil"
+        if word :
+            return ["aa"] if word .isdigit ()else ["sil"]
         return ["sil"]
 
     visemes =[]
@@ -98,7 +102,7 @@ def word_to_visemes (word :str )->list [str ]:
         vowel_vis =_LETTER_VISEME .get (
         next ((c for c in w if c in "aeiouy"),"a"),
         "aa"
-        )
+        ) if w else "aa"
         collapsed .insert (len (collapsed )//2 ,vowel_vis )
 
     return collapsed if collapsed else ["sil"]
@@ -139,7 +143,7 @@ def viseme_schedule_from_words (word_boundaries :list [dict ])->list [dict ]:
     for i ,entry in enumerate (schedule ):
         if i >0 :
             gap =entry ["start"]-(filled [-1 ]["start"]+filled [-1 ]["duration"])
-            if gap >0.03 :
+            if gap >0.0 :
                 filled .append ({
                 "viseme":"sil",
                 "start":round (filled [-1 ]["start"]+filled [-1 ]["duration"],4 ),

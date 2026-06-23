@@ -71,12 +71,12 @@ class EdgeTTSProvider (TTSProvider ):
 
         await self ._ensure_valid_voice ()
 
-        fd_mp3 ,temp_mp3 =tempfile .mkstemp (suffix =".mp3")
-        fd_wav ,temp_wav =tempfile .mkstemp (suffix =".wav")
-        os .close (fd_mp3 )
-        os .close (fd_wav )
-
         try :
+            fd_mp3 ,temp_mp3 =tempfile .mkstemp (suffix =".mp3")
+            fd_wav ,temp_wav =tempfile .mkstemp (suffix =".wav")
+            os .close (fd_mp3 )
+            os .close (fd_wav )
+
             prosody =self .EMOTION_SSML .get (emotion )
             if prosody :
                 ssml =f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"><prosody rate="{prosody ["rate"]}" pitch="{prosody ["pitch"]}">{text }</prosody></speak>'
@@ -109,7 +109,21 @@ class EdgeTTSProvider (TTSProvider ):
             "-ar","16000","-ac","1",temp_wav ,
             stdout =asyncio .subprocess .DEVNULL ,stderr =asyncio .subprocess .DEVNULL 
             )
-            await proc .wait ()
+            try :
+                await asyncio .wait_for (proc .wait (),timeout =30 )
+            except asyncio .TimeoutError :
+                try :
+                    proc .kill ()
+                except Exception :
+                    pass 
+                logger .error ("ffmpeg timed out")
+                return np .zeros (0 ,dtype =np .float32 ),[],16000 
+            except asyncio .CancelledError :
+                try :
+                    proc .kill ()
+                except Exception :
+                    pass 
+                raise 
             if proc .returncode !=0 :
                 logger .error (f"ffmpeg failed with code {proc .returncode }")
                 return np .zeros (0 ,dtype =np .float32 ),[],16000 

@@ -49,7 +49,11 @@ async def trigger_companion_message():
     sched = companion()
     if sched is None:
         return {"ok": False, "error": "Companion scheduler not initialized"}
-    text = await sched.trigger_now()
-    if text:
-        return {"ok": True, "content": text}
-    return {"ok": False, "error": "Failed to generate companion message"}
+    try:
+        text = await sched.trigger_now()
+        if text:
+            return {"ok": True, "content": text}
+        return {"ok": False, "error": "Failed to generate companion message"}
+    except Exception as e:
+        logger.error("Companion trigger failed: %s", e)
+        return {"ok": False, "error": "Internal error generating companion message"}

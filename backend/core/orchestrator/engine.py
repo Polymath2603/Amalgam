@@ -110,8 +110,10 @@ class Orchestrator:
             try:
                 self._loop = asyncio.get_running_loop()
             except RuntimeError:
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
+                # No running loop — caller should pass a loop or ensure one is running
+                raise RuntimeError(
+                    "No running event loop. The Orchestrator must be used within an async context."
+                )
         return self._loop
 
     def set_ws_sender(self, fn: Callable[[dict], Coroutine[Any, Any, None]]):
@@ -144,13 +146,16 @@ class Orchestrator:
             return
         try:
             data = json.loads(path.read_text())
-            self.plans = {
+            plans = {
                 pid: Plan.from_dict(pdata)
                 for pid, pdata in data.get("plans", {}).items()
             }
-            self.state = OrchestratorState.from_dict(
+            new_state = OrchestratorState.from_dict(
                 data.get("state", {}), config=self.config,
             )
+            # Assign only after successful construction
+            self.plans = plans
+            self.state = new_state
             logger.info("Orchestrator state loaded from %s (%d plans)", path, len(self.plans))
         except Exception:
             logger.exception("Failed to load orchestrator state; starting fresh")
@@ -246,6 +251,14 @@ class Orchestrator:
         step.status = "running"
         step.agent_id = agent_id
 
+        try:
+            agent = agent_factory(agent_type=step.agent_type)
+        except Exception as e:
+            step.status = "failed"
+            step.result = f"Error creating agent: {e}"
+            logger.error("Step %s agent creation failed: %s", step.id, e)
+            return step.result
+
         run = AgentRun(
             agent_type=step.agent_type,
             status="running",
@@ -260,7 +273,6 @@ class Orchestrator:
             await self.state.emit_swarm_update(self._ws_send_fn)
 
         try:
-            agent = agent_factory(agent_type=step.agent_type)
             result = ""
             async for chunk in agent.handle_user_input(step.description):
                 if isinstance(chunk, str):
@@ -328,6 +340,8 @@ class Orchestrator:
             if not runnable:
                 break
             tasks = [asyncio.create_task(_run_step(s)) for s in runnable]
+            if not tasks:
+                break
             # Wait for ALL tasks to complete (not just the first exception),
             # preventing orphaned tasks that would be left running in the
             # background when FIRST_EXCEPTION returns early.

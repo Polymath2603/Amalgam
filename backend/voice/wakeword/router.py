@@ -22,6 +22,7 @@ class WakeWordRouter :
         self ._engine =engine 
         self ._provider =None 
         self ._enabled =False 
+        self ._callback =None 
 
     def set_callback (self ,cb :Callable [[str ],None ]):
         self ._callback =cb 
@@ -30,7 +31,8 @@ class WakeWordRouter :
         if self ._enabled :
             return True 
         if self ._provider is None :
-            provider =self ._create_provider (on_detected or getattr (self ,'_callback',None ))
+            cb =on_detected or self ._callback 
+            provider =self ._create_provider (cb )
             if provider is None :
                 return False 
             self ._provider =provider 

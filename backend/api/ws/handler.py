@@ -8,6 +8,7 @@ import logging
 import os
 import time
 
+from collections import deque
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -21,13 +22,18 @@ from pathlib import Path
 from backend.core.paths import CHARACTERS_DIR, PROJECT_ROOT
 from backend.voice.pipeline import VoicePipeline
 from backend.core.errors import ServiceError
+from backend.core.llm.litellm_provider import RateLimitError, LLMProviderError
 
 logger = logging.getLogger(__name__)
 
 
+# Maximum input length for error normalization
+_MAX_ERROR_LENGTH = 10_000
+
+
 def _normalize_error(error_text: str) -> str:
     """Normalize common error messages to user-friendly versions."""
-    m = re.search(r'\{.*\}', error_text, re.DOTALL)
+    m = re.search(r'\{[^}]*\}', error_text, re.DOTALL)
     if m:
         try:
             obj = json.loads(m.group())
@@ -37,7 +43,9 @@ def _normalize_error(error_text: str) -> str:
                 if msg:
                     error_text = msg
         except Exception:
-            pass
+            logger.debug("JSON parse failed in _normalize_error")
+    if len(error_text) > _MAX_ERROR_LENGTH:
+        error_text = error_text[:_MAX_ERROR_LENGTH] + '...(truncated)'
 
     friendly = {
         "rate limit": "Rate limit exceeded. Please wait and try again.",
@@ -51,7 +59,7 @@ def _normalize_error(error_text: str) -> str:
         "402": "Payment required. Check your account billing.",
     }
     # Collapse all whitespace so "rate\nlimit\nexceeded" matches "rate limit"
-    normalized = re.sub(r'\s+', ' ', error_text.lower()).strip()
+    normalized = re.sub(r'\s+', ' ', error_text.lower())[:2000].strip()
 
     for key, msg in friendly.items():
         if key.lower() in normalized:
@@ -61,6 +69,10 @@ def _normalize_error(error_text: str) -> str:
 
 def _animation_dir(char_id: str) -> str:
     """Return the filesystem path to a character's animation directory."""
+    # Sanitize char_id to prevent path traversal
+    if '..' in char_id or '/' in char_id or '\\' in char_id:
+        logger.warning("Path traversal attempt in _animation_dir: %r", char_id)
+        return str(CHARACTERS_DIR / "default" / "anim")
     data_dir = CHARACTERS_DIR / char_id / "anim"
     if data_dir.exists():
         return str(data_dir)
@@ -72,15 +84,20 @@ def _animation_dir(char_id: str) -> str:
 
 def _resolve_animation(text: str, char_id: str) -> str | None:
     """Resolve an animation URL from roleplay/action text by keyword matching."""
-    import os
     words = text.lower().split()
     char_dir = _animation_dir(char_id)
     default_dir = _animation_dir("default")
     candidates = []
     if os.path.exists(default_dir):
-        candidates.extend(os.listdir(default_dir))
+        try:
+            candidates.extend(os.listdir(default_dir))
+        except PermissionError:
+            logger.warning("Permission denied: %s", default_dir)
     if char_id and char_id != "default" and os.path.exists(char_dir):
-        candidates.extend(os.listdir(char_dir))
+        try:
+            candidates.extend(os.listdir(char_dir))
+        except PermissionError:
+            logger.warning("Permission denied: %s", char_dir)
     for word in words:
         for f in candidates:
             if f.endswith(".vrma"):
@@ -133,9 +150,7 @@ class ChatSession:
         self.voice_pipeline = None
         self.voice_task = None
         self.wake_word_enabled: bool = False
-        self.pending_tasks: list[asyncio.Task] = []
-        self.client_caps: dict = {}
-        self.client_platform: str = "web"
+        self.pending_tasks: set[asyncio.Task] = set()
         self._main_loop = None  # Initialized lazily in run()
         # Wire MCP client for /stats, /approve, /permission slash commands
         self._mcp_client = mcp()
@@ -149,15 +164,12 @@ class ChatSession:
 
     def _track_task(self, t: asyncio.Task):
         """Track a task and register safe cleanup on completion."""
-        self.pending_tasks.append(t)
+        self.pending_tasks.add(t)
         t.add_done_callback(self._on_task_done)
 
     def _on_task_done(self, t: asyncio.Task):
-        """Safely remove completed tasks, handling race conditions."""
-        try:
-            self.pending_tasks.remove(t)
-        except ValueError:
-            pass  # Already removed or never added
+        """Safely remove completed tasks from the set."""
+        self.pending_tasks.discard(t)
 
     async def send(self, payload: dict):
         try:
@@ -184,8 +196,8 @@ class ChatSession:
             for t in list(self.pending_tasks):
                 if not t.done():
                     t.cancel()
-            # Compact completed tasks
-            self.pending_tasks = [t for t in self.pending_tasks if not t.done()]
+            # Use set comprehension to compact completed tasks
+            self.pending_tasks = {t for t in self.pending_tasks if not t.done()}
             self.current_task.cancel()
             self.current_task = None
             self.stream_idx += 1
@@ -193,6 +205,11 @@ class ChatSession:
 
     async def process_response(self, text: str, images: list = None):
         await self.cancel_assistant()
+        if agent() is None:
+            logger.error("process_response: agent() is None, cannot process")
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": "Error: Agent not available. Check your provider settings.", "finished": True})
+            return
         self.stream_idx += 1
         this_stream = self.stream_idx
         t = asyncio.create_task(self._run_agent_loop(text, images, this_stream))
@@ -363,9 +380,16 @@ class ChatSession:
                 # Record turn metrics (latency, tokens, etc.)
                 try:
                     _latency_ms = (time.monotonic() - _start) * 1000
-                    _tok_out = len(full_response.split())
+                    try:
+                        import litellm as _litellm
+                        _tok_in = _litellm.token_counter(text=text)
+                        _tok_out = _litellm.token_counter(text=full_response)
+                    except Exception:
+                        # Fallback to word-splitting if token_counter unavailable
+                        _tok_in = len(text.split())
+                        _tok_out = len(full_response.split())
                     record_turn(
-                        token_in=len(text.split()),
+                        token_in=_tok_in,
                         token_out=_tok_out,
                         latency_ms=_latency_ms,
                         model=llm().get_model_name(),
@@ -384,7 +408,6 @@ class ChatSession:
                 await self.send({"type": "voice_state", "state": "idle"})
             except Exception:
                 logger.debug("WS send failed during CancelledError cleanup")
-                pass
             raise
         except ServiceError as e:
             logger.error(f"Service error in agent loop: {e}")
@@ -396,7 +419,20 @@ class ChatSession:
                 await self.send({"type": "voice_state", "state": "idle"})
             except Exception:
                 logger.debug("WS send failed during ServiceError cleanup")
-                pass
+        except RateLimitError as e:
+            logger.warning("Rate limit error in agent loop: %s", e)
+            await tts_scheduler.cancel_all()
+            try:
+                await self.send({"type": "chat_append", "role": "assistant",
+                                "text": "Rate limit exceeded. Please wait and try again.",
+                                "finished": True, "error": True})
+                await self.send({"type": "error", "service": "agent",
+                                 "message": str(e), "recoverable": True,
+                                 "suggestion": "Wait a moment before sending another message.",
+                                 "details": {}})
+                await self.send({"type": "voice_state", "state": "idle"})
+            except Exception:
+                logger.debug("WS send failed during RateLimitError cleanup")
         except Exception as e:
             logger.error(f"Agent error in loop: {e}")
             await tts_scheduler.cancel_all()
@@ -408,15 +444,9 @@ class ChatSession:
                 await self.send({"type": "voice_state", "state": "idle"})
             except Exception:
                 logger.debug("WS send failed during error cleanup")
-                pass
         finally:
-            # Compact completed tasks to prevent unbounded growth
-            done_tasks = [t for t in self.pending_tasks if t.done()]
-            for t in done_tasks:
-                try:
-                    self.pending_tasks.remove(t)
-                except ValueError:
-                    pass
+            # Remove completed tasks to prevent unbounded growth
+            self.pending_tasks = {t for t in self.pending_tasks if not t.done()}
 
     async def _handle_avatar_signal(self, sig_val, current_emotion, full_response, sentence_buffer, char_id):
         """Handle __avatar__ signals for emotion/expression/roleplay."""
@@ -456,6 +486,10 @@ class ChatSession:
             await self.send({"type": "visibility", "visible": data.get("visible", True)})
         elif cmd == "speak":
             speak_text = data.get("text", "").strip()
+            # Limit TTS speak text to 5000 chars
+            if len(speak_text) > 5000:
+                speak_text = speak_text[:5000]
+                logger.warning("Speak text truncated to 5000 chars")
             if speak_text:
                 # Send voice_state to inform frontend that speaking is starting
                 await self.send({"type": "voice_state", "state": "speaking"})
@@ -531,18 +565,21 @@ class ChatSession:
             def on_transcription(text):
                 logger.info(f"Voice transcription received: {text[:80]}...")
                 try:
-                    asyncio.run_coroutine_threadsafe(self.process_response(text), _main_loop)
+                    fut = asyncio.run_coroutine_threadsafe(self.process_response(text), _main_loop)
+                    fut.add_done_callback(lambda f: logger.error("Voice response task failed: %s", f.exception()) if f.exception() else None)
                 except Exception as e:
                     logger.error(f"Voice transcription dispatch failed: {e}")
                 try:
-                    asyncio.run_coroutine_threadsafe(
+                    fut2 = asyncio.run_coroutine_threadsafe(
                         self.send({"type": "user_message_from_voice", "text": text}), _main_loop)
+                    fut2.add_done_callback(lambda f: logger.error("Voice send task failed: %s", f.exception()) if f.exception() else None)
                 except Exception as e:
                     logger.error(f"Voice transcription send failed: {e}")
 
             def on_speech_start():
                 try:
-                    asyncio.run_coroutine_threadsafe(self.cancel_assistant(), _main_loop)
+                    fut = asyncio.run_coroutine_threadsafe(self.cancel_assistant(), _main_loop)
+                    fut.add_done_callback(lambda f: logger.error("Voice cancel task failed: %s", f.exception()) if f.exception() else None)
                 except Exception as e:
                     logger.error(f"Voice speech start callback failed: {e}")
 
@@ -587,7 +624,7 @@ class ChatSession:
             logger.info("Wake word detected!")
             loop = self._main_loop or asyncio.get_running_loop()
             loop.call_soon_threadsafe(
-                lambda: asyncio.ensure_future(self.process_response("Hey, I'm listening!")))
+                lambda: asyncio.create_task(self.process_response("Hey, I'm listening!")))
 
         ww.set_callback(_wakeword_callback)
         ok = ww.start()
@@ -607,12 +644,12 @@ class ChatSession:
         """Handle slash commands (/clear, /new, /help, /settings, etc.)."""
         if cmd == "clear":
             await memory().clear()
-            sid = memory().start_session()
+            sid = await memory().start_session()
             relationship()._cache.clear()
             await self.send({"type": "chat_append", "role": "system",
                             "text": "Memory cleared.", "finished": True, "session_id": sid})
         elif cmd == "new":
-            sid = memory().start_session()
+            sid = await memory().start_session()
             await self.send({"type": "chat_append", "role": "system",
                             "text": f"New session started: {sid}", "finished": True, "session_id": sid})
         elif cmd == "help":
@@ -796,8 +833,14 @@ class ChatSession:
                                 "text": f"Companion toggle failed: {e}", "finished": True})
         elif cmd == "resume":
             try:
-                sid = memory().get_current_session()
-                turns = memory().get_session_turns(sid, turns=5)
+                loop = asyncio.get_running_loop()
+                sid = await asyncio.wait_for(
+                    loop.run_in_executor(None, memory().get_current_session), timeout=5.0
+                )
+                turns = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: memory().get_session_turns(sid, turns=5)),
+                    timeout=5.0,
+                )
                 if turns:
                     lines = [f"Last {len(turns)} turns of {sid}:"]
                     for turn in turns:
@@ -1034,7 +1077,7 @@ class ChatSession:
         """Cancel all pending tasks and stop voice/wake word."""
         logger.info("ChatSession cleanup: cancelling pending tasks...")
         # Cancel all pending tasks
-        for t in self.pending_tasks:
+        for t in list(self.pending_tasks):
             if not t.done():
                 t.cancel()
         # Wait briefly for tasks to finish cancellation
@@ -1061,7 +1104,7 @@ class ChatSession:
             try:
                 await asyncio.wait_for(self.voice_task, timeout=3.0)
             except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                pass
+                logger.debug("Voice task cancelled or timed out during cleanup")
             self.voice_task = None
 
         # Stop wake word
@@ -1069,7 +1112,7 @@ class ChatSession:
             try:
                 wakeword().stop()
             except Exception:
-                pass
+                logger.debug("Wake word stop failed during disconnect cleanup")
             self.wake_word_enabled = False
 
         # Send voice state idle so frontend can reset UI
@@ -1077,8 +1120,7 @@ class ChatSession:
             if self.ws.client_state.value == 1:  # CONNECTED
                 await self.send({"type": "voice_state", "state": "idle"})
         except Exception:
-            logger.debug("WS send failed during disconnect cleanup")
-            pass
+            logger.debug("Failed to send voice state idle during disconnect cleanup")
 
         # Background: update user profile from this session
         try:
@@ -1087,14 +1129,14 @@ class ChatSession:
             if len(msgs) >= 3:
                 from backend.core.user_profile import UserProfile
                 profile = UserProfile()
-                asyncio.create_task(
+                self._track_task(asyncio.create_task(
                     profile.update_from_session(
                         messages=msgs,
                         llm_caller=lambda prompt: llm().generate(
                             [{"role": "user", "content": prompt}],
                         ),
                     )
-                )
+                ))
         except Exception as e:
             logger.debug("Failed to save conversation history on shutdown: %s", e)
 
@@ -1103,9 +1145,6 @@ class ChatSession:
         caps = data.get("capabilities", {})
         platform = data.get("platform", "web")
         logger.info("Client hello: platform=%s capabilities=%s", platform, caps)
-        # Store capabilities for use during this session
-        self.client_caps = caps
-        self.client_platform = platform
         await self.send({
             "type": "server_hello",
             "platform": platform,
@@ -1115,6 +1154,29 @@ class ChatSession:
                 "version": 1,
             },
         })
+
+    # WebSocket message size limit (1 MB)
+    _MAX_WS_MSG_SIZE = 1 * 1024 * 1024
+
+    async def _receive_json_safe(self) -> dict:
+        """Receive and parse a JSON message with size and timeout limits."""
+        import json as _json
+        raw = await asyncio.wait_for(
+            self.ws.receive_text(),
+            timeout=60.0,
+        )
+        if len(raw) > self._MAX_WS_MSG_SIZE:
+            logger.error("WebSocket message too large: %d bytes", len(raw))
+            await self.send({"type": "error", "service": "ws",
+                             "message": "Message too large (max 1 MB)", "recoverable": False})
+            return {"type": "_skip"}
+        try:
+            return _json.loads(raw)
+        except _json.JSONDecodeError as e:
+            logger.error("Invalid JSON from WebSocket: %s", e)
+            await self.send({"type": "error", "service": "ws",
+                             "message": "Invalid JSON payload", "recoverable": False})
+            return {"type": "_skip"}
 
     async def run(self):
         """Main message loop."""
@@ -1128,15 +1190,17 @@ class ChatSession:
             # Notify companion that user joined (fire-and-forget — it sleeps + generates LLM text)
             try:
                 from backend.core.companion.events import CompanionEvent, CompanionEventType
-                asyncio.create_task(sched.on_event(CompanionEvent(
+                self._track_task(asyncio.create_task(sched.on_event(CompanionEvent(
                     event_type=CompanionEventType.USER_JOINED,
                     data={"session_id": session_id},
-                )))
+                ))))
             except Exception as e:
                 logger.debug("Companion USER_JOINED event failed: %s", e)
         try:
             while True:
-                data = await self.ws.receive_json()
+                data = await self._receive_json_safe()
+                if data.get("type") == "_skip":
+                    continue
                 msg_type = data.get("type")
 
                 if msg_type == "client_hello":
@@ -1150,7 +1214,7 @@ class ChatSession:
                         text = await agent().generate_idle_prompt()
                         if text:
                             await self.send({"type": "idle_prompt", "text": text})
-                        asyncio.create_task(agent().subconscious_reflect())
+                        self._track_task(asyncio.create_task(agent().subconscious_reflect()))
                     except Exception as e:
                         logger.warning(f"Idle prompt request failed: {e}")
                 elif msg_type == "user_message":
@@ -1170,7 +1234,7 @@ class ChatSession:
                             text = await agent().generate_idle_prompt()
                             if text:
                                 await self.process_response(text)
-                            asyncio.create_task(agent().subconscious_reflect())
+                            self._track_task(asyncio.create_task(agent().subconscious_reflect()))
                         except Exception as e:
                             logger.warning(f"Bored prompt failed: {e}")
 
@@ -1202,16 +1266,30 @@ class ChatSession:
                     sched = companion()
                     if sched:
                         from backend.core.companion.events import CompanionEvent, CompanionEventType
-                        asyncio.create_task(sched.on_event(CompanionEvent(
+                        self._track_task(asyncio.create_task(sched.on_event(CompanionEvent(
                             event_type=CompanionEventType.IDLE_EXIT,
                             data={"session_id": memory().get_current_session()},
-                        )))
+                        ))))
 
                 elif msg_type == "retry_tool":
                     # Retry a failed tool call from the frontend
                     tool_name = data.get("tool", "")
                     tool_args = data.get("args", {})
-                    if tool_name:
+                    # Allowlist of permitted tools for frontend retry
+                    _ALLOWED_RETRY_TOOLS = {"generate_image", "web_search", "web_fetch",
+                                            "read_file", "write_file", "run_command",
+                                            "get_weather", "get_time", "calculator",
+                                            "execute_python", "read_document",
+                                            "approve_command", "edit_file"}
+                    if tool_name and tool_name not in _ALLOWED_RETRY_TOOLS:
+                        logger.warning("Blocked retry of non-allowlisted tool: %s", tool_name)
+                        await self.send({
+                            "type": "tool_result",
+                            "tool_name": tool_name,
+                            "result": None,
+                            "error": "Tool not in retry allowlist",
+                        })
+                    elif tool_name:
                         try:
                             mcp_client = mcp()
                             if mcp_client:
@@ -1244,7 +1322,7 @@ class ChatSession:
                 try:
                     sched.unregister_session(memory().get_current_session())
                 except Exception:
-                    pass
+                    logger.debug("Companion unregister failed during disconnect")
             await self.cleanup()
 
 

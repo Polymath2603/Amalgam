@@ -74,7 +74,7 @@ class OpenWakeWordProvider (WakeWordProvider ):
         prediction =self ._model .predict (audio )
         for ww_name in self ._model .prediction_data :
             scores =self ._model .prediction_data [ww_name ]["scores"]
-            if scores and scores [-1 ]>0.5 :
+            if scores and len (scores )>0 and scores [-1 ]>0.5 :
                 logger .info (f"Wake word detected: {ww_name }")
                 if self ._on_detected :
                     self ._on_detected (ww_name )

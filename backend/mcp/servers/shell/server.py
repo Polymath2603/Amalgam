@@ -36,10 +36,13 @@ if ALLOWED_PREFIXES_ENV :
 else :
     ALLOWED_PREFIXES =list (_DEFAULT_ALLOWED )
 
-ALLOWED_EXACT =set ()
-ALLOWED_ONCE =set ()
+ALLOWED_EXACT :set [str ]=set ()
+ALLOWED_ONCE :set [str ]=set ()
 
-_APPROVED_EXACT =set ()
+_APPROVED_EXACT :set [str ]=set ()
+
+# Lock for async-safe mutations on shared state
+_allowed_lock = asyncio.Lock()
 
 
 def _is_allowed (cmd :str )->tuple [bool ,str ]:
@@ -126,8 +129,8 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         except asyncio .TimeoutError :
             try :
                 process .kill ()
-            except Exception :
-                pass 
+            except Exception as e :
+                logger .warning (f"Failed to kill timed-out process: {e}")
             return [TextContent (type ="text",text =f"Command timed out after {SHELL_TIMEOUT }s: {cmd }")]
         result =stdout .decode ()
         if stderr :
@@ -144,19 +147,20 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         cmd =arguments .get ("cmd","")
         mode =arguments .get ("mode","once")
         trimmed =cmd .lstrip ()
-        if mode =="once":
-            ALLOWED_ONCE .add (trimmed )
-            _APPROVED_EXACT .add (trimmed )
-            return [TextContent (type ="text",text =f"Approved once: {cmd }")]
-        elif mode =="prefix":
-            prefix =_extract_prefix (cmd )
-            if prefix and prefix not in ALLOWED_PREFIXES :
-                ALLOWED_PREFIXES .append (prefix )
-            return [TextContent (type ="text",text =f"Approved command prefix: {prefix } (from: {cmd })")]
-        elif mode =="exact":
-            _APPROVED_EXACT .add (trimmed )
-            ALLOWED_EXACT .add (trimmed )
-            return [TextContent (type ="text",text =f"Approved exact command: {cmd }")]
+        async with _allowed_lock:
+            if mode =="once":
+                ALLOWED_ONCE .add (trimmed )
+                _APPROVED_EXACT .add (trimmed )
+                return [TextContent (type ="text",text =f"Approved once: {cmd }")]
+            elif mode =="prefix":
+                prefix =_extract_prefix (cmd )
+                if prefix and prefix not in ALLOWED_PREFIXES :
+                    ALLOWED_PREFIXES .append (prefix )
+                return [TextContent (type ="text",text =f"Approved command prefix: {prefix } (from: {cmd })")]
+            elif mode =="exact":
+                _APPROVED_EXACT .add (trimmed )
+                ALLOWED_EXACT .add (trimmed )
+                return [TextContent (type ="text",text =f"Approved exact command: {cmd }")]
         return [TextContent (type ="text",text =f"Unknown mode: {mode }")]
 
     raise ValueError (f"Unknown tool: {name }")

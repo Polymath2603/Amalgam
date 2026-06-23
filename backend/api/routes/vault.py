@@ -2,9 +2,10 @@
 Vault / rules API routes.
 """
 import os 
+import re 
 import logging 
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from backend .api .deps import settings ,vault ,llm
 from backend .core .paths import VAULT_DIR
@@ -36,6 +37,17 @@ async def save_rules (body :RulesSaveRequest ):
     return {"status":"ok"}
 
 
+# Safe filename pattern for vault files
+_SAFE_FILENAME_RE = re.compile(r'^[a-zA-Z0-9_.-]+$')
+
+
+def _validate_vault_filename(filename: str):
+    """Validate vault filename to prevent path traversal."""
+    if not _SAFE_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail=f"Invalid filename: {filename}. Only alphanumeric, dots, underscores, and hyphens allowed.")
+    return filename
+
+
 @router .get ("/api/vault/files")
 @deprecated()
 async def list_vault_files ():
@@ -45,6 +57,7 @@ async def list_vault_files ():
 @router .get ("/api/vault/files/{filename}")
 @deprecated()
 async def read_vault_file (filename :str ):
+    _validate_vault_filename(filename)
     content =vault ().read (filename )
     if content is None :
         return {"error":"File not found","content":None }
@@ -54,6 +67,7 @@ async def read_vault_file (filename :str ):
 @router .post ("/api/vault/files/{filename}")
 @deprecated()
 async def write_vault_file (filename :str ,body :VaultFileWriteRequest ):
+    _validate_vault_filename(filename)
     ok =vault ().write (filename ,body .content)
     return {"status":"ok"if ok else "error"}
 
@@ -61,6 +75,7 @@ async def write_vault_file (filename :str ,body :VaultFileWriteRequest ):
 @router .delete ("/api/vault/files/{filename}")
 @deprecated()
 async def delete_vault_file (filename :str ):
+    _validate_vault_filename(filename)
     ok =vault ().delete (filename )
     return {"status":"ok"if ok else "error"}
 

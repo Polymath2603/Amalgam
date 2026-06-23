@@ -97,11 +97,7 @@ class BaseAgent(ABC):
         from typing import AsyncIterator as _AsyncIterator
 
         ctx = {
-            "session_id": (
-                getattr(self.memory, 'get_current_session', lambda: '')()
-                if hasattr(self.memory, 'get_current_session')
-                else ''
-            ),
+            "session_id": self.memory.get_current_session(),
             "relationship_context": relationship_context,
             "images": images or [],
         }

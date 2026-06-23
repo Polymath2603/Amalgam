@@ -35,22 +35,12 @@ class MetaCognitiveEngine:
         return self.strategy_selector.select(intent, delta_history)
 
     def evaluate(self, turn: dict) -> dict:
-        """Score a single turn across all quality axes.
-
-        Raises TypeError if *turn* is not a dict.
-        """
-        if not isinstance(turn, dict):
-            raise TypeError(f"Expected dict for turn, got {type(turn).__name__}")
+        """Score a single turn across all quality axes."""
         logger.debug("Evaluating turn with %d keys", len(turn))
         return self.delta_evaluator.score(turn)
 
     def adapt(self, delta: dict) -> dict:
-        """Feed a delta into the adaptation engine and return recommendations.
-
-        Raises TypeError if *delta* is not a dict.
-        """
-        if not isinstance(delta, dict):
-            raise TypeError(f"Expected dict for delta, got {type(delta).__name__}")
+        """Feed a delta into the adaptation engine and return recommendations."""
         logger.debug("Adapting with delta aggregate=%s", delta.get("aggregate", "unknown"))
         return self.adaptation.ingest(delta)
 
@@ -67,3 +57,5 @@ class MetaCognitiveEngine:
         """Clear all recorded state across sub-components."""
         self.strategy_selector.reset()
         self.adaptation.reset()
+        if hasattr(self.delta_evaluator, 'reset'):
+            self.delta_evaluator.reset()

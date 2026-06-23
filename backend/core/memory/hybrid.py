@@ -19,37 +19,39 @@ class HybridRetrieval:
         self._k = k
         self._bm25: Optional[BM25Okapi] = None
         self._bm25_docs: list[dict] = []
+        # Tokenized corpus maintained alongside _bm25_docs for efficient rebuilds
+        self._tokenized_corpus: list[list[str]] = []
+        # Rebuild batching: only rebuild every N add_document calls
+        self._rebuild_batch_size = 10
+        self._docs_since_rebuild = 0
 
     def add_document(self, msg: dict):
         """Incrementally add a single document to the BM25 index.
 
-        Avoids O(n) full rebuild on every turn.
+        To avoid O(n) full rebuild on every turn, tokenization happens inline
+        and the BM25 index is fully rebuilt only every N turns.  The full
+        tokenized corpus is kept in sync so _rebuild() is O(1) when triggered.
         """
-        tokens = re.findall(r'\b\w+\b', msg.get('content', '').lower())
-        if not tokens:
-            # Still track empty docs for index alignment
-            self._bm25_docs.append(msg)
-            return
+        tokens = re.findall(r'\w+(?:[.:_]\w+)*', msg.get('content', '').lower())
         self._bm25_docs.append(msg)
-        if self._bm25 is not None:
-            # BM25Okapi supports incremental addition via the underlying corpus
-            # Rebuild from scratch using accumulated docs for simplicity & correctness
-            # (BM25Okapi doesn't natively support add_document, so we rebuild)
+        self._tokenized_corpus.append(tokens)
+        self._docs_since_rebuild += 1
+
+        if self._docs_since_rebuild >= self._rebuild_batch_size:
             self._rebuild()
-        else:
+            self._docs_since_rebuild = 0
+
+        # Ensure BM25 is initialized after first doc even if batch not full
+        if self._bm25 is None and tokens:
             self._rebuild()
+            self._docs_since_rebuild = 0
 
     def _rebuild(self):
-        """Rebuild BM25 index from accumulated documents."""
-        corpus = []
-        for doc in self._bm25_docs:
-            tokens = re.findall(r'\b\w+\b', doc.get('content', '').lower())
-            corpus.append(tokens)
+        """Rebuild BM25 index from accumulated tokenized corpus."""
         # Filter out empty token lists to avoid ZeroDivisionError in BM25Okapi
-        non_empty_indices = [i for i, doc in enumerate(corpus) if doc]
-        non_empty_corpus = [corpus[i] for i in non_empty_indices]
+        non_empty_indices = [i for i, doc in enumerate(self._tokenized_corpus) if doc]
+        non_empty_corpus = [self._tokenized_corpus[i] for i in non_empty_indices]
         self._bm25 = BM25Okapi(non_empty_corpus) if non_empty_corpus else None
-        # Store mapping so we can map BM25 result indices back to _bm25_docs
         self._bm25_non_empty_indices = non_empty_indices
 
     def rebuild_bm25(self, messages: list[dict]):
@@ -71,14 +73,14 @@ class HybridRetrieval:
                 )
                 if dense and dense.get("metadatas") and dense["metadatas"][0]:
                     for rank, meta in enumerate(dense["metadatas"][0]):
-                        cid = meta.get("content", "")[:50]
-                        results[cid] = results.get(cid, 0) + 1 / (self._k + rank + 1)
+                        dedup_key = str(hash(meta.get("content", "")))
+                        results[dedup_key] = results.get(dedup_key, 0) + 1 / (self._k + rank + 1)
             except Exception as e:
                 logger.debug(f"ChromaDB dense query failed: {e}")
 
         # Sparse retrieval via BM25
         if self._bm25 and self._bm25_docs:
-            query_tokens = re.findall(r'\b\w+\b', query.lower())
+            query_tokens = re.findall(r'\w+(?:[.:_]\w+)*', query.lower())
             scores = self._bm25.get_scores(query_tokens)
             non_empty_indices = getattr(self, '_bm25_non_empty_indices', list(range(len(self._bm25_docs))))
             # Map BM25 result indices back to _bm25_docs indices
@@ -93,20 +95,20 @@ class HybridRetrieval:
                 if doc_idx >= len(self._bm25_docs):
                     continue
                 content = self._bm25_docs[doc_idx].get("content", "")
-                cid = content[:50]
-                results[cid] = results.get(cid, 0) + 1 / (self._k + bm25_rank + 1)
+                dedup_key = str(hash(content))
+                results[dedup_key] = results.get(dedup_key, 0) + 1 / (self._k + bm25_rank + 1)
 
         # RRF fusion: sort by combined score
         sorted_results = sorted(results.items(), key=lambda x: x[1], reverse=True)
 
         out = []
         seen = set()
-        for cid, _ in sorted_results[:top_k]:
-            if cid in seen:
+        for dedup_key, _ in sorted_results[:top_k]:
+            if dedup_key in seen:
                 continue
-            seen.add(cid)
+            seen.add(dedup_key)
             for doc in self._bm25_docs:
-                if doc.get("content", "")[:50] == cid:
+                if str(hash(doc.get("content", ""))) == dedup_key:
                     out.append(doc)
                     break
         return out

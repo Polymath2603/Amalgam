@@ -186,9 +186,21 @@ async def list_tools ()->list [Tool ]:
 
 _active_timers :dict [str ,asyncio .Task ]={}
 
+# Shutdown event for timer cleanup
+_shutdown_event = asyncio.Event()
+
 
 def _clean_timer (timer_id :str ):
     _active_timers .pop (timer_id ,None )
+
+
+async def cancel_all_timers():
+    """Cancel all active timers on shutdown."""
+    for timer_id, task in list(_active_timers.items()):
+        task.cancel()
+    if _active_timers:
+        await asyncio.gather(*_active_timers.values(), return_exceptions=True)
+        _active_timers.clear()
 
 
 
@@ -222,8 +234,10 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         if not skill_name or not content :
             return [TextContent (type ="text",text ="Error: name and content are required.")]
 
-        safe_name =re .sub (r"[^a-z0-9_-]","_",skill_name .lower ())
-        skill_dir =USER_SKILLS /safe_name 
+        safe_name = re.sub(r"[^a-z0-9_-]", "_", skill_name.lower())
+        if not safe_name or safe_name.startswith("_"):
+            return [TextContent(type="text", text=f"Error: skill name '{skill_name}' resulted in invalid path '{safe_name}'.")]
+        skill_dir = USER_SKILLS / safe_name 
         os .makedirs (str (skill_dir ),exist_ok =True )
 
         md =f"---\nname: {skill_name }\ndescription: {description }\n---\n\n{content }\n"
@@ -238,7 +252,14 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         for s in skills :
             if s ["name"]==skill_name :
                 skill_dir =Path (s ["path"]).parent 
-                shutil .rmtree (str (skill_dir ),ignore_errors =True )
+                # Confirm the skill is a user skill (not built-in copy)
+                if not str(skill_dir).startswith(str(USER_SKILLS)):
+                    return [TextContent(type="text", text=f"Error: cannot delete built-in skill '{skill_name}'.")]
+                try:
+                    shutil .rmtree (str (skill_dir ),ignore_errors =True )
+                except Exception as e:
+                    logger.error(f"Failed to delete skill directory {skill_dir}: {e}")
+                    return [TextContent(type="text", text=f"Error deleting skill: {e}")]
                 return [TextContent (type ="text",text =f"Skill '{skill_name }' deleted.")]
         return [TextContent (type ="text",text =f"Error: skill '{skill_name }' not found.")]
 
@@ -322,7 +343,7 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
         delay =int (arguments .get ("delay_seconds",60 ))
         if not text :
             return [TextContent (type ="text",text ="Error: text is required.")]
-        timer_id =f"reminder_{id (text )}_{delay }"
+        timer_id =f"reminder_{hash(text)}_{delay }"
         if timer_id in _active_timers :
             return [TextContent (type ="text",text ="Timer already exists for this reminder.")]
 
@@ -351,6 +372,10 @@ async def call_tool (name :str ,arguments :dict )->list [TextContent ]:
 if __name__ =="__main__":
     from mcp .server .stdio import stdio_server 
     async def run ():
-        async with stdio_server ()as (read_stream ,write_stream ):
-            await app .run (read_stream ,write_stream ,app .create_initialization_options ())
+        # Register shutdown handler for timer cleanup
+        try:
+            async with stdio_server ()as (read_stream ,write_stream ):
+                await app .run (read_stream ,write_stream ,app .create_initialization_options ())
+        finally:
+            await cancel_all_timers()
     asyncio .run (run ())

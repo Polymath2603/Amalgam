@@ -1,5 +1,7 @@
 import logging
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,5 +56,11 @@ class STTRouter:
     def configure_deepgram(self, api_key: str, model: str = "nova-2"):
         self._ensure("deepgram").configure(api_key, model)
 
-    def transcribe(self, audio_np) -> str:
+    def transcribe(self, audio_np: np.ndarray) -> str:
+        """Transcribe audio to text.
+
+        This is a synchronous, potentially long-running call (may involve
+        HTTP requests or local model inference).  The caller should run it
+        in a thread executor to avoid blocking the event loop.
+        """
         return self._current().transcribe(audio_np)

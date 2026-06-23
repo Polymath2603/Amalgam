@@ -2,6 +2,7 @@
 import io 
 import json 
 import logging 
+import asyncio 
 import httpx 
 import numpy as np 
 from scipy .io import wavfile 
@@ -49,36 +50,41 @@ class ElevenLabsProvider (TTSProvider ):
         }
 
         try :
-
             async with self ._client .stream ("POST",url ,json =body ,headers =headers )as response :
                 if response .status_code !=200 :
                     error_body =await response .aread ()
                     logger .error (f"ElevenLabs API error {response .status_code }: {error_body [:200 ]}")
                     return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-                mp3_chunks =[]
-                alignment_data =None 
-                async for line in response .aiter_lines ():
+                # Read all response bytes first, then parse alignment from lines
+                raw_bytes =await response .aread ()
+                mp3_data =raw_bytes 
+
+            alignment_data =None 
+            # Parse alignment from the raw bytes (first JSON line before MP3 data)
+            try :
+                text_data =raw_bytes .decode ("utf-8",errors ="ignore")
+                # Find JSON lines in the response
+                for line in text_data .split ("\n"):
+                    line =line .strip ()
                     if not line :
                         continue 
-
-                    if line .startswith ('{'):
+                    if line .startswith ("{"):
                         try :
                             data =json .loads (line )
                             if 'alignment'in data :
                                 alignment_data =data ['alignment']
+                                break 
                         except json .JSONDecodeError :
                             pass 
-                    else :
+            except Exception as e :
+                logger .debug ("ElevenLabs: could not parse alignment from response: %s",e )
 
-                        pass 
+            if not mp3_data :
+                logger .error ("ElevenLabs: no MP3 data received")
+                return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
-                mp3_data =b''
-                async for chunk in response .aiter_bytes ():
-                    mp3_chunks .append (chunk )
-                mp3_data =b''.join (mp3_chunks )
-
-            sr ,audio_np =self ._decode_mp3 (mp3_data )
+            sr ,audio_np =await self ._decode_mp3 (mp3_data )
             if len (audio_np )==0 :
                 return np .zeros (0 ,dtype =np .float32 ),[],16000 
 
@@ -135,9 +141,9 @@ class ElevenLabsProvider (TTSProvider ):
 
         return build_viseme_schedule (word_boundaries )
 
-    def _decode_mp3 (self ,mp3_data :bytes )->tuple :
+    async def _decode_mp3 (self ,mp3_data :bytes )->tuple :
+        """Decode MP3 bytes to (sample_rate, audio_np) using async ffmpeg subprocess."""
         try :
-            import subprocess as sp 
             import tempfile 
             import os 
 
@@ -148,10 +154,11 @@ class ElevenLabsProvider (TTSProvider ):
             try :
                 with open (tmp_mp3 ,"wb")as f :
                     f .write (mp3_data )
-                proc =sp .run (
-                ["ffmpeg","-y","-i",tmp_mp3 ,"-ar","44100","-ac","1",tmp_wav ],
-                capture_output =True ,timeout =30 ,
+                proc =await asyncio .create_subprocess_exec (
+                "ffmpeg","-y","-i",tmp_mp3 ,"-ar","44100","-ac","1",tmp_wav ,
+                stdout =asyncio .subprocess .DEVNULL ,stderr =asyncio .subprocess .DEVNULL ,
                 )
+                await asyncio .wait_for (proc .wait (),timeout =30 )
                 if proc .returncode ==0 :
                     sr ,data =wavfile .read (tmp_wav )
                     if data .dtype ==np .int16 :
@@ -165,6 +172,8 @@ class ElevenLabsProvider (TTSProvider ):
                         os .remove (p )
                     except OSError :
                         pass 
+        except asyncio .TimeoutError :
+            logger .error ("MP3 decode timed out")
         except Exception as e :
             logger .error (f"MP3 decode error: {e }")
         return 44100 ,np .zeros (0 ,dtype =np .float32 )

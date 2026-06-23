@@ -6,6 +6,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    from rank_bm25 import BM25Okapi
+except ImportError:
+    BM25Okapi = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +33,7 @@ class SemanticMemory:
         entry = {"id": fid, "content": content, "metadata": metadata or {}}
         self._documents.append(entry)
         self._dirty = True
-        self._save()
+        self.save()
         logger.debug(f"SemanticMemory: added fact {fid}")
         return fid
 
@@ -82,11 +87,14 @@ class SemanticMemory:
     def _rebuild_bm25(self) -> None:
         if not self._dirty and self._bm25 is not None:
             return
+        if BM25Okapi is None:
+            logger.warning("rank_bm25 not installed; semantic search degraded")
+            self._bm25 = None
+            return
         try:
-            from rank_bm25 import BM25Okapi
             tokenized = [d["content"].lower().split() for d in self._documents]
             self._bm25 = BM25Okapi(tokenized)
             self._dirty = False
-        except ImportError:
-            logger.warning("rank_bm25 not installed; semantic search degraded")
+        except Exception as e:
+            logger.warning(f"BM25 rebuild failed: {e}")
             self._bm25 = None

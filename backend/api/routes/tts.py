@@ -25,6 +25,10 @@ class TTSPreviewRequest(BaseModel):
 @deprecated()
 async def tts_preview(body: TTSPreviewRequest):
     text = body.text
+    # Limit preview text to 1000 chars
+    if len(text) > 1000:
+        text = text[:1000]
+        logger.warning("TTS preview text truncated to 1000 chars")
     engine = settings().get("voice.engine", "edge-tts")
     char = settings().get_active_character()
 
@@ -42,17 +46,26 @@ async def tts_preview(body: TTSPreviewRequest):
             if not ref_audio:
                 return {"audio": None, "error": "No voice_ref set. Place a voice.pth or voice.wav in the character directory."}
             temp_tts = TTS(engine="openvoice")
-            audio, _, sr = await asyncio.wait_for(
-                temp_tts.synthesize(text, ref_audio=ref_audio),
-                timeout=30.0
-            )
+            try:
+                audio, _, sr = await asyncio.wait_for(
+                    temp_tts.synthesize(text, ref_audio=ref_audio),
+                    timeout=30.0
+                )
+            finally:
+                # Clean up temporary TTS instance
+                if hasattr(temp_tts, 'close'):
+                    await temp_tts.close()
         else:
             voice = char.get("voice", "en-US-AriaNeural") if char else "en-US-AriaNeural"
             temp_tts = TTS(voice=voice)
-            audio, _, sr = await asyncio.wait_for(
-                temp_tts.synthesize(text),
-                timeout=30.0
-            )
+            try:
+                audio, _, sr = await asyncio.wait_for(
+                    temp_tts.synthesize(text),
+                    timeout=30.0
+                )
+            finally:
+                if hasattr(temp_tts, 'close'):
+                    await temp_tts.close()
     except asyncio.TimeoutError:
         logger.error("TTS preview: synthesis timed out after 30s")
         return {"audio": None, "error": "TTS synthesis timed out. Try a shorter text."}

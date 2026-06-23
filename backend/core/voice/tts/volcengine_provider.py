@@ -1,8 +1,6 @@
 """Volcengine TTS provider — ByteDance."""
 import json 
 import logging 
-import hashlib 
-import hmac 
 import base64 
 import uuid 
 from urllib .parse import urlencode 
@@ -66,9 +64,8 @@ class VolcengineProvider (TTSProvider ):
                 logger .error (f"Volcengine TTS api error: {result }")
                 return np .zeros (0 ,dtype =np .float32 ),None ,24000 
 
-            import base64 
             audio_bytes =base64 .b64decode (result ["data"])
-            audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32767.0 
+            audio_np =np .frombuffer (audio_bytes ,dtype =np .int16 ).astype (np .float32 )/32768.0 
             return audio_np ,None ,24000 
         except httpx .HTTPStatusError as e :
             logger .error (f"Volcengine TTS HTTP error: {e }")

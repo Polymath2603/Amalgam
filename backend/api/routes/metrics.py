@@ -4,7 +4,7 @@ Metrics API route — exposes tool analytics and per-turn metrics.
 
 import time
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Optional
 
 from fastapi import APIRouter
@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["metrics"])
 
-# In-memory per-turn metrics store
-_turns: list[dict] = []
+# In-memory per-turn metrics store (bounded deque)
+_turns: deque = deque(maxlen=500)
 _max_turns = 500
 
 
@@ -43,22 +43,23 @@ def record_turn(
         "errors": errors,
     }
     _turns.append(entry)
-    if len(_turns) > _max_turns:
-        _turns = _turns[-_max_turns:]
+    # Trim if needed (deque handles maxlen, but guard just in case)
+    while len(_turns) > _max_turns:
+        _turns.popleft()
 
 
 @router.get("/api/metrics/turns")
 async def get_turns(limit: int = 50):
     """Return recent conversation turns."""
-    return {"turns": list(reversed(_turns[-limit:]))}
+    return {"turns": list(reversed(list(_turns)[-limit:]))}
 
 
 @router.get("/api/metrics/tool-stats")
 @deprecated()
 async def get_tool_stats(tool: Optional[str] = None):
     """Return tool analytics aggregated stats."""
-    client = get_shared()["mcp"]
-    if hasattr(client, "analytics"):
+    client = get_shared().get("mcp")
+    if client is not None and hasattr(client, "analytics"):
         return client.analytics.get_stats(tool_name=tool)
     return {"error": "analytics not available"}
 
@@ -66,8 +67,8 @@ async def get_tool_stats(tool: Optional[str] = None):
 @router.get("/api/metrics/tool-history")
 async def get_tool_history(limit: int = 50):
     """Return recent tool call history."""
-    client = get_shared()["mcp"]
-    if hasattr(client, "analytics"):
+    client = get_shared().get("mcp")
+    if client is not None and hasattr(client, "analytics"):
         return {"history": client.analytics.get_history(limit=limit)}
     return {"history": []}
 
@@ -75,10 +76,10 @@ async def get_tool_history(limit: int = 50):
 @router.get("/api/metrics/summary")
 async def get_summary():
     """Return aggregate summary of all metrics."""
-    client = get_shared()["mcp"]
+    client = get_shared().get("mcp")
 
     tool_stats = {}
-    if hasattr(client, "analytics"):
+    if client is not None and hasattr(client, "analytics"):
         tool_stats = client.analytics.get_stats()
 
     total_cost = sum(t.get("cost", 0) for t in _turns)

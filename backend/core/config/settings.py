@@ -599,9 +599,9 @@ class Settings:
                     old_data = copy.deepcopy(self.data)
                     self.load()
                     changed = self.data != old_data
-            if changed:
-                logger.info("Settings file changed, hot-reloading")
-                self._fire_callbacks()
+                if changed:
+                    logger.info("Settings file changed, hot-reloading")
+                    self._fire_callbacks()
 
     # ------------------------------------------------------------------
     # Load / save

@@ -56,7 +56,7 @@ async def init_application():
 
     # Guard: only start a session if none is active (fix H10, N1)
     if not memory.has_active_session():
-        memory.start_session()
+        await memory.start_session()
 
     engine = settings.get("voice.engine", "edge-tts")
     if engine == "openvoice":

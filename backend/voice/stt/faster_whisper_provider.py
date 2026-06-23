@@ -23,7 +23,11 @@ class FasterWhisperProvider(STTProvider):
 
     def transcribe(self, audio_np: np.ndarray) -> str:
         self._ensure_model()
-        segments, info = self._model.transcribe(audio_np, beam_size=5)
-        text = " ".join([segment.text for segment in segments]).strip()
-        logger.debug(f"STT: {text}")
-        return text
+        try:
+            segments, info = self._model.transcribe(audio_np, beam_size=5)
+            text = " ".join([segment.text for segment in segments]).strip()
+            logger.debug(f"STT: {text}")
+            return text
+        except Exception as e:
+            logger.error(f"Faster-Whisper transcription error: {type(e).__name__}: {e}")
+            return ""

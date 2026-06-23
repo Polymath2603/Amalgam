@@ -1,7 +1,7 @@
 import logging 
 import asyncio 
-from typing import Optional 
 import io 
+import struct 
 import wave 
 
 import numpy as np 
@@ -9,29 +9,33 @@ import numpy as np
 logger =logging .getLogger (__name__ )
 
 
-def decode_wav (audio_bytes :bytes ,target_sr :int =None )->tuple [np .ndarray ,int ]:
+def decode_wav (audio_bytes :bytes )->tuple [np .ndarray ,int ]:
     """
     Decode WAV bytes into a float32 numpy array.
 
     Args:
         audio_bytes: Raw WAV file bytes.
-        target_sr: If set, the caller's expected sample rate (for metadata only).
 
     Returns:
         (audio_np, sample_rate)
+        On failure returns (np.zeros(0, dtype=np.float32), 0).
     """
-    with io .BytesIO (audio_bytes )as buf :
-        with wave .open (buf ,"rb")as wf :
-            sr =wf .getframerate ()
-            frames =wf .readframes (wf .getnframes ())
-            audio_np =np .frombuffer (frames ,dtype =np .int16 ).astype (np .float32 )/32767.0
-    return audio_np ,sr
+    try :
+        with io .BytesIO (audio_bytes )as buf :
+            with wave .open (buf ,"rb")as wf :
+                sr =wf .getframerate ()
+                frames =wf .readframes (wf .getnframes ())
+                audio_np =np .frombuffer (frames ,dtype =np .int16 ).astype (np .float32 )/32768.0
+        return audio_np ,sr
+    except (wave .Error ,EOFError ,struct .error ,Exception )as e :
+        logger .warning ("Failed to decode WAV: %s",e )
+        return np .zeros (0 ,dtype =np .float32 ),0
 
 
 async def retry_http (client ,method :str ,url :str ,*,
                       max_retries :int =2 ,
                       backoff :float =0.5 ,
-                      **kwargs )->Optional ["httpx .Response"]:
+                      **kwargs ):
     """
     Retry an HTTP request on transient errors (timeout, connection, 5xx).
 
@@ -51,10 +55,13 @@ async def retry_http (client ,method :str ,url :str ,*,
     for attempt in range (1 +max_retries ):
         try :
             response =await client .request (method ,url ,**kwargs )
-            if response .status_code <500 or attempt >=max_retries :
+            if response .status_code <500 :
                 return response
-            # 5xx — transient server error, retry
-            await asyncio .sleep (backoff *(2 **attempt ))
+            # 5xx — retry unless this was the last attempt
+            if attempt <max_retries :
+                await asyncio .sleep (backoff *(2 **attempt ))
+            else :
+                return response
         except (httpx .TimeoutException ,httpx .ConnectError ,httpx .RemoteProtocolError )as e :
             last_exc =e
             logger .warning ("HTTP %s %s transient error (attempt %d/%d): %s",

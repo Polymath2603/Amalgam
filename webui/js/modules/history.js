@@ -62,9 +62,14 @@ export async function loadHistory() {
                 try {
                     await api(BASE_URL + `/api/memory/session/${session.id}`, { method: 'DELETE' });
                     item.remove();
-                    if (location.hash.replace('#', '').split('/')[1] === session.id) {
+                    const currentHashId = location.hash.replace('#', '').split('/')[1];
+                    if (currentHashId === session.id) {
                         const res = await api(BASE_URL + '/api/memory/new-session', { method: 'POST' });
-                        if (res?.session_id) location.hash = 'chat/' + res.session_id;
+                        // Guard: only overwrite hash if it still points to the deleted session
+                        const latestHashId = location.hash.replace('#', '').split('/')[1];
+                        if (res?.session_id && latestHashId === session.id) {
+                            location.hash = 'chat/' + res.session_id;
+                        }
                     }
                     updateHistoryToggle();
                 } catch (err) {

@@ -56,6 +56,8 @@ class CompanionMode:
         self._connected = False
         self._stt_timeout = float(os.environ.get("AMALGAM_STT_TIMEOUT", "30"))
 
+    MAX_RETRIES = 30  # ~30s max wait
+    
     async def connect(self):
         """Connect with retry and a spinner showing progress."""
         self.console.print("[dim]Connecting to backend WebSocket...[/dim]")
@@ -70,7 +72,7 @@ class CompanionMode:
                 description="[cyan]Connecting to backend...[/cyan]", total=None
             )
 
-            while not self._stop_event.is_set():
+            while not self._stop_event.is_set() and retry_count < self.MAX_RETRIES:
                 try:
                     self.ws = await websockets.connect(self.base_url)
                     self._connected = True
@@ -84,9 +86,12 @@ class CompanionMode:
                     retry_count += 1
                     progress.update(
                         task,
-                        description=f"[yellow]Retrying... ({retry_count}) {e}[/yellow]",
+                        description=f"[yellow]Retrying... ({retry_count}/{self.MAX_RETRIES}) {e}[/yellow]",
                     )
                     await asyncio.sleep(1)
+
+        if not self._connected:
+            self.console.print("[red]Failed to connect after max retries. Exiting.[/red]")
 
         if self._connected:
             self.console.print("[green]Ready. Speak or type messages.[/green]")
@@ -94,6 +99,8 @@ class CompanionMode:
     async def _send(self, data: dict):
         if self.ws:
             await self.ws.send(json.dumps(data))
+        else:
+            logger.warning("_send: WebSocket not connected, dropping message")
 
     async def wake_up(self, reason="wake_word"):
         if self.state == CompanionState.SLEEPING:
@@ -179,7 +186,7 @@ class CompanionMode:
                 self.console.print("[cyan]Amalgam Companion v1.0[/cyan]")
                 return
             elif cmd == "/exit":
-                self.console.print("[yellow]Use /exit again or press Ctrl+C to quit.[/yellow]")
+                self._stop_event.set()
                 return
             else:
                 self.console.print(f"[red]Unknown command:[/red] {text}")
@@ -195,56 +202,66 @@ class CompanionMode:
         self.is_thinking = True
         indicator_task = asyncio.create_task(self._show_typing_indicator())
 
-        # Wait for response
-        response = ""
-        while not self._stop_event.is_set():
+        try:
+            # Wait for response
+            response = ""
+            while not self._stop_event.is_set():
+                try:
+                    msg = await asyncio.wait_for(self.ws.recv(), timeout=0.5)
+                    data = json.loads(msg)
+                    msg_type = data.get("type", "")
+
+                    if msg_type == "text" or msg_type == "response":
+                        chunk = data.get("text", data.get("content", ""))
+                        if chunk:
+                            response += chunk
+
+                    elif msg_type == "thinking":
+                        self.console.print(f"[dim][thinking] {data.get('text', '')}[/dim]")
+
+                    elif msg_type == "tool_call":
+                        tool = data.get("tool", data.get("name", "?"))
+                        args = data.get("args", data.get("arguments", ""))
+                        self.console.print(
+                            Panel(
+                                f"[cyan]{tool}({json.dumps(args) if isinstance(args, dict) else args})[/cyan]",
+                                title="[bold cyan]Tool[/bold cyan]",
+                                border_style="cyan",
+                            )
+                        )
+
+                    elif msg_type == "error":
+                        self.console.print(
+                            Panel(
+                                f"[red]{data.get('text', data.get('message', 'Unknown error'))}[/red]",
+                                title="[bold red]Error[/bold red]",
+                                border_style="red",
+                            )
+                        )
+
+                    elif msg_type == "done" or data.get("done"):
+                        break
+
+                except asyncio.TimeoutError:
+                    if not self.is_thinking:
+                        break
+                    continue
+                except websockets.exceptions.ConnectionClosed:
+                    self._connected = False
+                    self.console.print("[red]Connection lost.[/red]")
+                    break
+                except OSError:
+                    self._connected = False
+                    self.console.print("[red]Connection error.[/red]")
+                    break
+        finally:
+            self.is_thinking = False
+            indicator_task.cancel()
+            # Suppress CancelledError from the cancelled indicator task
             try:
-                msg = await asyncio.wait_for(self.ws.recv(), timeout=0.5)
-                data = json.loads(msg)
-                msg_type = data.get("type", "")
-
-                if msg_type == "text" or msg_type == "response":
-                    chunk = data.get("text", data.get("content", ""))
-                    if chunk:
-                        response += chunk
-
-                elif msg_type == "thinking":
-                    self.console.print(f"[dim][thinking] {data.get('text', '')}[/dim]")
-
-                elif msg_type == "tool_call":
-                    tool = data.get("tool", data.get("name", "?"))
-                    args = data.get("args", data.get("arguments", ""))
-                    self.console.print(
-                        Panel(
-                            f"[cyan]{tool}({json.dumps(args) if isinstance(args, dict) else args})[/cyan]",
-                            title="[bold cyan]Tool[/bold cyan]",
-                            border_style="cyan",
-                        )
-                    )
-
-                elif msg_type == "error":
-                    self.console.print(
-                        Panel(
-                            f"[red]{data.get('text', data.get('message', 'Unknown error'))}[/red]",
-                            title="[bold red]Error[/bold red]",
-                            border_style="red",
-                        )
-                    )
-
-                elif msg_type == "done" or data.get("done"):
-                    break
-
-            except asyncio.TimeoutError:
-                if not self.is_thinking:
-                    break
-                continue
-            except websockets.exceptions.ConnectionClosed:
-                self._connected = False
-                self.console.print("[red]Connection lost.[/red]")
-                break
-
-        self.is_thinking = False
-        indicator_task.cancel()
+                await indicator_task
+            except asyncio.CancelledError:
+                pass
 
         if response:
             self.console.print(f"\n[bold green]Companion:[/bold green] {response}\n")

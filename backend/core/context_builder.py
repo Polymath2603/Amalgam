@@ -1,19 +1,46 @@
 import os
 import logging
+from pathlib import Path
 from typing import List, Dict
 
 import jinja2
 from backend.core.paths import PROJECT_ROOT, VAULT_DIR, CHARACTERS_DIR
 from backend.core.vault import VaultManager
-from backend.core.user_profile import UserProfile
 from backend.core.utils.tokens import estimate_tokens, truncate_to_token_limit
 from backend.core.constitution import build_system_prompt
 from backend.skills.md_loader import get_loader as _get_skill_loader
 
-# Module-level singleton — loaded once at startup, persists across sessions
-_user_profile = UserProfile()  # module-level singleton
+# Module-level singleton — lazy-loaded on first use
+_user_profile = None
+
+def _get_user_profile():
+    """Lazy-initialized user profile singleton."""
+    global _user_profile
+    if _user_profile is None:
+        from backend.core.user_profile import UserProfile
+        _user_profile = UserProfile()
+    return _user_profile
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_model_name(settings) -> str | None:
+    """Resolve the model name for token estimation, handling provider-specific prefixes.
+
+    This is a temporary workaround — provider-specific model name normalization
+    should eventually live in the LLM router or settings layer.
+    """
+    if not settings:
+        return None
+    provider = settings.get("provider.active")
+    if not provider:
+        return None
+    model_raw = settings.get(f"provider.{provider}.model", "")
+    if not model_raw:
+        return None
+    if provider == "groq" and not model_raw.startswith("groq/"):
+        return f"groq/{model_raw}"
+    return model_raw
 
 _jinja_env = jinja2.Environment(
     loader=jinja2.BaseLoader(),
@@ -126,7 +153,8 @@ class ContextBuilder:
 
         # Validate vault path against directory traversal
         vault_path = str(Path(vault_path).resolve())
-        if not vault_path.startswith(str(VAULT_DIR)):
+        vault_dir_resolved = str(Path(VAULT_DIR).resolve())
+        if not vault_path.startswith(vault_dir_resolved):
             logger.warning(f"Vault path traversal blocked: {vault_path}")
             return ""
 
@@ -141,10 +169,7 @@ class ContextBuilder:
                     model = None
                     if self.settings:
                         max_tokens = int(self.settings.get("vault.inject_tokens", max_tokens))
-                        provider = self.settings.get("provider.active")
-                        if provider:
-                            model_raw = self.settings.get(f"provider.{provider}.model", "")
-                            model = f"groq/{model_raw}" if provider == "groq" and not model_raw.startswith("groq/") else model_raw
+                        model = _resolve_model_name(self.settings)
                     if estimate_tokens(content, model=model) > max_tokens:
                         content = truncate_to_token_limit(content, max_tokens, model=model)
                     return f"\n\n{content}"
@@ -189,10 +214,7 @@ class ContextBuilder:
         model = None
         if self.settings:
             max_sys_tokens = int(self.settings.get("system_prompt.max_tokens", max_sys_tokens))
-            provider = self.settings.get("provider.active")
-            if provider:
-                model_raw = self.settings.get(f"provider.{provider}.model", "")
-                model = f"groq/{model_raw}" if provider == "groq" and not model_raw.startswith("groq/") else model_raw
+            model = _resolve_model_name(self.settings)
 
         if estimate_tokens(sys_prompt, model=model) > max_sys_tokens:
             sys_prompt = truncate_to_token_limit(sys_prompt, max_sys_tokens, model=model)
@@ -264,7 +286,7 @@ class ContextBuilder:
 
     def _build_user_profile_section(self) -> str:
         """Build the user profile section for the system prompt."""
-        profile_str = _user_profile.to_context_string()
+        profile_str = _get_user_profile().to_context_string()
         if not profile_str:
             return ""
         return f"\n\n### About the User\n{profile_str}"

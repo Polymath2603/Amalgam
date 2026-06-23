@@ -30,7 +30,7 @@ class OpenVoiceProvider (TTSProvider ):
             return np .zeros (0 ,dtype =np .float32 ),[],22050 
         if not ref_audio :
             logger .error ("OpenVoice requires a reference audio path")
-            return np .zeros (0 ,dtype =np .float32 ),[]
+            return np .zeros (0 ,dtype =np .float32 ),[],22050 
 
         ov =self ._get_engine ()
         try :
@@ -38,11 +38,11 @@ class OpenVoiceProvider (TTSProvider ):
             result =await loop .run_in_executor (None ,ov .synthesize ,text ,ref_audio )
             if not result or not isinstance (result ,tuple )or len (result )<2 :
                 logger .error (f"OpenVoice returned invalid result: {type (result )}")
-                return np .zeros (0 ,dtype =np .float32 ),[]
+                return np .zeros (0 ,dtype =np .float32 ),[],22050 
             audio_np ,sr =result 
             if not isinstance (audio_np ,np .ndarray ):
                 audio_np =np .array (audio_np ,dtype =np .float32 )if audio_np is not None else np .zeros (0 ,dtype =np .float32 )
-            return audio_np ,None 
+            return audio_np ,None ,22050 
         except Exception as e :
             logger .error (f"OpenVoice TTS Error: {type (e ).__name__ }: {e }")
-            return np .zeros (0 ,dtype =np .float32 ),None
+            return np .zeros (0 ,dtype =np .float32 ),None ,22050
