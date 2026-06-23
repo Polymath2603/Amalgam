@@ -65,14 +65,20 @@ class PluginManager:
 
         configs = configs or {}
 
-        for plugin_dir in self.plugins_dir.iterdir():
-            if not plugin_dir.is_dir() or plugin_dir.name.startswith("_"):
-                continue
+        try :
+            dirs =list (self .plugins_dir .iterdir ())
+        except OSError as e :
+            logger .error ("Failed to list plugins directory %s: %s",self .plugins_dir ,e )
+            return 
 
-            plugin_file = plugin_dir / "plugin.py"
-            if plugin_file.exists():
-                await self._load_plugin(
-                    plugin_dir, plugin_file, configs.get(plugin_dir.name)
+        for plugin_dir in dirs :
+            if not plugin_dir .is_dir ()or plugin_dir .name .startswith ("_"):
+                continue 
+
+            plugin_file =plugin_dir /"plugin.py"
+            if plugin_file .exists ():
+                await self ._load_plugin (
+                plugin_dir ,plugin_file ,configs .get (plugin_dir .name )
                 )
 
     async def _load_plugin(
@@ -160,6 +166,8 @@ class PluginManager:
         self.loaded_modules.pop(name, None)
 
         # Find the original directory and reload
+        # Note: name comparison happens after loading from each candidate
+        # directory; first successful match wins.
         for plugin_dir in self.plugins_dir.iterdir():
             if not plugin_dir.is_dir():
                 continue
@@ -237,7 +245,7 @@ class PluginManager:
     async def shutdown_all(
         self, timeout: float = 10.0
     ) -> List[Exception]:
-        """Shutdown all loaded plugins.
+        """Shutdown all loaded plugins concurrently.
 
         Args:
             timeout: Maximum seconds to wait for each plugin's
@@ -249,25 +257,31 @@ class PluginManager:
         """
         errors: List[Exception] = []
 
-        for plugin in list(self.plugins.values()):
+        async def _shutdown_one(plugin: BasePlugin) -> Optional[Exception]:
             try:
                 await asyncio.wait_for(
                     plugin.on_shutdown(), timeout=timeout
                 )
                 logger.info("Shutdown plugin: %s", plugin.name)
+                return None
             except asyncio.TimeoutError:
                 msg = (
                     f"Plugin '{plugin.name}' on_shutdown timed out "
                     f"after {timeout}s"
                 )
                 logger.error(msg)
-                errors.append(TimeoutError(msg))
+                return TimeoutError(msg)
             except Exception as e:
                 logger.error(
                     "Error shutting down %s: %s", plugin.name, e
                 )
-                errors.append(e)
+                return e
 
+        results = await asyncio.gather(
+            *(_shutdown_one(p) for p in list(self.plugins.values())),
+            return_exceptions=True,
+        )
+        errors = [r for r in results if r is not None]
         return errors
 
     # ------------------------------------------------------------------

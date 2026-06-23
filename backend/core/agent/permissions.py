@@ -150,7 +150,7 @@ TOOL_TIERS: dict[str, PermTier] = {
     "memory_write":      PermTier.ELEVATED,
     "create_skill":      PermTier.ELEVATED,
     "delete_skill":      PermTier.ELEVATED,
-    "skill":             PermTier.ELEVATED,
+    "skill":             PermTier.SAFE,
     "screenshot":        PermTier.ELEVATED,
     "reminder":          PermTier.ELEVATED,
     "send_notification": PermTier.ELEVATED,

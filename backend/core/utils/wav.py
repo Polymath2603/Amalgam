@@ -36,9 +36,12 @@ def numpy_to_wav_bytes(
 
 def wav_bytes_to_numpy(wav_bytes: bytes) -> tuple[np.ndarray, int]:
     """Inverse of numpy_to_wav_bytes. Returns (float32_array, sample_rate)."""
-    buf = io.BytesIO(wav_bytes)
-    with wave.open(buf, "rb") as wf:
-        frames = wf.readframes(wf.getnframes())
-        sr = wf.getframerate()
+    try:
+        buf = io.BytesIO(wav_bytes)
+        with wave.open(buf, "rb") as wf:
+            frames = wf.readframes(wf.getnframes())
+            sr = wf.getframerate()
+    except (wave.Error, OSError, EOFError) as exc:
+        raise ValueError(f"Invalid WAV data: {exc}") from exc
     pcm = np.frombuffer(frames, dtype=np.int16)
     return pcm.astype(np.float32) / 32768.0, sr

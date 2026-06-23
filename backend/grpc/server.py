@@ -22,40 +22,52 @@ class AgentService (agent_pb2_grpc .AgentServiceServicer ):
         shared =get_shared ()
         agent =shared ["agent"]
 
-        async for req in request_iterator :
-            which =req .WhichOneof ("payload")
-            if which =="text":
-                text =req .text 
-                async for chunk in agent .handle_user_input (text ):
-                    if isinstance (chunk ,tuple ):
-                        tag_type ,tag_val =chunk 
-                        if tag_type =="__thinking__":
-                            yield agent_pb2 .ChatResponse (thinking =tag_val )
-                        elif tag_type =="__permission__":
-                            yield agent_pb2 .ChatResponse (
-                            permission_request =agent_pb2 .PermissionRequest (
-                            cmd =tag_val ,
-                            options =["once","prefix","exact","deny"]
-                            )
-                            )
-                        elif tag_type =="__tool__":
-                            yield agent_pb2 .ChatResponse (text_chunk =f"[Tool] {tag_val }")
-                        elif tag_type =="__roleplay__":
-                            yield agent_pb2 .ChatResponse (text_chunk =f"[roleplay] {tag_val }")
-                        elif tag_type =="__avatar__":
-                            yield agent_pb2 .ChatResponse (text_chunk =f"[avatar] {tag_val }")
-                        elif tag_type =="__error__":
-                            yield agent_pb2 .ChatResponse (error =tag_val )
-                    else :
-                        yield agent_pb2 .ChatResponse (text_chunk =chunk )
-                yield agent_pb2 .ChatResponse (done =True )
+        try :
+            async for req in request_iterator :
+                which =req .WhichOneof ("payload")
+                if which =="text":
+                    text =req .text 
+                    async for chunk in agent .handle_user_input (text ):
+                        if isinstance (chunk ,tuple ):
+                            tag_type ,tag_val =chunk 
+                            if tag_type =="__thinking__":
+                                yield agent_pb2 .ChatResponse (thinking =tag_val )
+                            elif tag_type =="__permission__":
+                                yield agent_pb2 .ChatResponse (
+                                permission_request =agent_pb2 .PermissionRequest (
+                                cmd =tag_val ,
+                                options =["once","prefix","exact","deny"]
+                                )
+                                )
+                            elif tag_type =="__tool__":
+                                yield agent_pb2 .ChatResponse (text_chunk =f"[Tool] {tag_val }")
+                            elif tag_type =="__roleplay__":
+                                yield agent_pb2 .ChatResponse (text_chunk =f"[roleplay] {tag_val }")
+                            elif tag_type =="__avatar__":
+                                yield agent_pb2 .ChatResponse (text_chunk =f"[avatar] {tag_val }")
+                            elif tag_type =="__error__":
+                                yield agent_pb2 .ChatResponse (error =tag_val )
+                        else :
+                            yield agent_pb2 .ChatResponse (text_chunk =chunk )
+                    yield agent_pb2 .ChatResponse (done =True )
 
-            elif which =="permission_action":
-                action =req .permission_action 
-                logger .info ("gRPC permission %s for: %s",action .action ,action .cmd )
-                yield agent_pb2 .ChatResponse (
-                text_chunk =f"[Permission: user chose '{action .action }' for: {action .cmd }]"
-                )
+                elif which =="permission_action":
+                    action =req .permission_action 
+                    logger .info ("gRPC permission %s for: %s",action .action ,action .cmd )
+                    if action .action =="deny":
+                        agent .set_permission_level (action .cmd ,"deny")
+                    elif action .action =="once":
+                        agent .approve_tool (action .cmd ,once =True )
+                    elif action .action =="prefix":
+                        agent .set_permission_level (action .cmd ,"prefix")
+                    elif action .action =="exact":
+                        agent .set_permission_level (action .cmd ,"exact")
+                    yield agent_pb2 .ChatResponse (
+                        text_chunk =f"[Permission: user chose '{action .action }' for: {action .cmd }]"
+                    )
+        except Exception as e :
+            logger .error ("gRPC Chat error: %s",e )
+            yield agent_pb2 .ChatResponse (error =str (e ))
 
 
 async def serve_grpc (host :str ="0.0.0.0",port :int =50051 ):
@@ -70,7 +82,13 @@ async def serve_grpc (host :str ="0.0.0.0",port :int =50051 ):
     server .add_insecure_port (f"{host }:{port }")
     await server .start ()
     logger .info ("gRPC server listening on %s:%s",host ,port )
-    await server .wait_for_termination ()
+    try :
+        await server .wait_for_termination ()
+    except (KeyboardInterrupt ,asyncio .CancelledError ):
+        pass
+    finally :
+        logger .info ("Shutting down gRPC server gracefully...")
+        await server .stop (grace =5 )
 
 
 if __name__ =="__main__":

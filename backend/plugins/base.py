@@ -58,9 +58,11 @@ class PluginTool:
         if asyncio.iscoroutinefunction(self.func):
             return await self.func(*args, **kwargs)
         # Wrap sync function in a thread executor to avoid blocking
+        # Capture args by value to avoid late-binding issues
         loop = asyncio.get_running_loop()
+        _func = self.func
         return await loop.run_in_executor(
-            None, lambda: self.func(*args, **kwargs)
+            None, lambda _func=_func, _args=args, _kwargs=kwargs: _func(*_args, **_kwargs)
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -110,9 +112,10 @@ class BasePlugin(Plugin, ABC):
     def name(self) -> str:
         return self.metadata.name
 
-    @name.setter
-    def name(self, value: str) -> None:
-        pass  # suppress the empty-name check in Plugin.__init__
+    # No setter — name is derived from PluginMetadata and should not
+    # be overwritten.  The read-only property avoids the empty-name
+    # check in Plugin.__init__ because self.metadata.name is already
+    # set before super().__init__() is called.
 
     @property
     def metadata(self) -> PluginMetadata:

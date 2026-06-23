@@ -216,11 +216,9 @@ class BasicAgent(BaseAgent):
         history = []
         if self._history:
             history = self._history
-        elif self.memory is not None and hasattr(self.memory, 'get_recent'):
+        elif self.memory is not None:
             try:
                 recent = self.memory.get_recent(10)
-                if asyncio.iscoroutine(recent):
-                    recent = await recent
                 history = [{"role": m.get("role", ""), "content": m.get("content", "")}
                            for m in (recent or [])]
             except Exception:

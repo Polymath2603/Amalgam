@@ -40,10 +40,23 @@ def _generate_letter_icon (name :str ,letter :str ,color_hex :str ,output_path :
     draw .rounded_rectangle ([0 ,0 ,SIZE -1 ,SIZE -1 ],radius =16 ,fill =bg )
     highlight =lighten (bg ,0.25 )
     draw .rounded_rectangle ([2 ,2 ,SIZE -3 ,SIZE -3 ],radius =14 ,fill =highlight +(30 ,))
-    try :
-        font =ImageFont .truetype ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",44 )
-    except (IOError ,OSError ):
-        font =ImageFont .load_default ()
+    _FONT_CANDIDATES = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+    ]
+    font = None
+    for fp in _FONT_CANDIDATES:
+        if os.path.exists(fp):
+            try:
+                font = ImageFont.truetype(fp, 44)
+                break
+            except (IOError, OSError):
+                continue
+    if font is None:
+        font = ImageFont.load_default()
     bbox =draw .textbbox ((0 ,0 ),letter ,font =font )
     tw ,th =bbox [2 ]-bbox [0 ],bbox [3 ]-bbox [1 ]
     x =(SIZE -tw )/2 -bbox [0 ]

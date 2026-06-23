@@ -27,14 +27,15 @@ class TelegramBot :
         self .tts =self .shared ["tts"]
 
         self .token =self .settings .get ("telegram.token")
-        self .allowed_users =self .settings .get ("telegram.allowed_users",[])
+        raw_users =self .settings .get ("telegram.allowed_users",[])
+        self .allowed_users ={str (u )for u in raw_users }
         self .application =None 
 
     def _is_allowed (self ,update :Update )->bool :
         if not self .allowed_users :
             return True 
         user =update .effective_user 
-        return str (user .id )in [str (u )for u in self .allowed_users ]or user .username in [str (u )for u in self .allowed_users ]
+        return str (user .id )in self .allowed_users or (user .username or "")in self .allowed_users
 
     async def start (self ,update :Update ,context :ContextTypes .DEFAULT_TYPE ):
         if not self ._is_allowed (update ):
@@ -73,14 +74,21 @@ class TelegramBot :
         try :
             async for chunk in self .agent .handle_user_input (text ):
                 if isinstance (chunk ,tuple ):
-
-
+                    tag_type ,tag_val =chunk 
+                    if tag_type =="__thinking__":
+                        full_text +=f"*{tag_val }*"
+                    elif tag_type =="__tool__":
+                        full_text +=f"`[Tool] {tag_val }`"
+                    elif tag_type =="__error__":
+                        full_text +=f"❌ {tag_val }"
+                    else :
+                        full_text +=str (tag_val )
                     continue 
 
                 full_text +=chunk 
 
                 now =asyncio .get_event_loop ().time ()
-                if now -last_update_time >1.5 :
+                if now -last_update_time >2.0 :
                     try :
                         await context .bot .edit_message_text (
                         chat_id =update .effective_chat .id ,
@@ -114,10 +122,69 @@ class TelegramBot :
         voice =update .message .voice 
         file =await context .bot .get_file (voice .file_id )
 
+        # Download voice file and transcribe via STT
+        import io 
+        ogg_data =io .BytesIO ()
+        await file .download_to_memory (ogg_data )
+        ogg_data .seek (0 )
 
+        try :
+            stt =get_shared ().get ("stt")
+            if stt is None :
+                await update .message .reply_text ("Speech-to-text is not available.")
+                return 
+            text =await stt .transcribe (ogg_data ,format ="ogg")
+            if not text :
+                await update .message .reply_text ("Could not transcribe voice message.")
+                return 
+        except Exception as e :
+            logger .error ("STT transcription failed: %s",e )
+            await update .message .reply_text (f"Transcription error: {e }")
+            return 
 
+        # Process the transcribed text as a normal message
+        await context .bot .send_chat_action (chat_id =update .effective_chat .id ,action ="typing")
+        response_msg =await update .message .reply_text (f"_{text }_\n\n...",parse_mode =ParseMode .MARKDOWN )
+        full_text =f"{text }\n\n"
+        last_update_time =asyncio .get_event_loop ().time ()
 
-        await update .message .reply_text ("Voice messages are not yet fully implemented in Telegram mode (requires OGG->WAV conversion).")
+        try :
+            async for chunk in self .agent .handle_user_input (text ):
+                if isinstance (chunk ,tuple ):
+                    tag_type ,tag_val =chunk 
+                    if tag_type =="__thinking__":
+                        full_text +=f"*{tag_val }*"
+                    elif tag_type =="__tool__":
+                        full_text +=f"`[Tool] {tag_val }`"
+                    elif tag_type =="__error__":
+                        full_text +=f"❌ {tag_val }"
+                    else :
+                        full_text +=str (tag_val )
+                    continue 
+
+                full_text +=chunk 
+                now =asyncio .get_event_loop ().time ()
+                if now -last_update_time >2.0 :
+                    try :
+                        await context .bot .edit_message_text (
+                        chat_id =update .effective_chat .id ,
+                        message_id =response_msg .message_id ,
+                        text =full_text +" ▌"
+                        )
+                        last_update_time =now 
+                    except Exception :
+                        pass 
+
+            if full_text :
+                await context .bot .edit_message_text (
+                chat_id =update .effective_chat .id ,
+                message_id =response_msg .message_id ,
+                text =full_text ,
+                parse_mode =ParseMode .MARKDOWN 
+                )
+        except Exception as e :
+            logger .error ("Telegram voice agent error: %s",e )
+            await update .message .reply_text (f"Error: {e }")
 
     async def run (self ):
         if not self .token :
@@ -135,6 +202,10 @@ class TelegramBot :
         self .application .add_handler (MessageHandler (filters .VOICE ,self .handle_voice ))
 
         logger .info (f"Telegram bot starting...")
+        if self .application is None :
+            logger .error ("Application not initialized, cannot start polling")
+            return 
+
         async with self .application :
             await self .application .initialize ()
             await self .application .start ()

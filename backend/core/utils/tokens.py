@@ -7,13 +7,14 @@ Calibrated for tokenizer families:
 - OpenAI cl100k_base / o200k_base: ~4 chars/token → tiktoken
 - LLaMA / Mistral SentencePiece: ~3.2 chars/token → char heuristic
 """
+import copy
+import functools
 import logging 
 from typing import Optional 
 
 logger =logging .getLogger (__name__ )
 
-_TIKTOKEN_AVAILABLE =False 
-_ENCODING_CACHE ={}
+_TIKTOKEN_AVAILABLE =False
 
 try :
     import tiktoken 
@@ -45,6 +46,7 @@ _ENCODING_MAP ={
 }
 
 
+@functools.lru_cache(maxsize=8)
 def _get_encoding (model :Optional [str ]=None ):
     """Get tiktoken encoding for model, caching result."""
     if not _TIKTOKEN_AVAILABLE :
@@ -60,13 +62,11 @@ def _get_encoding (model :Optional [str ]=None ):
                 break 
     if enc_name is None :
         enc_name ="cl100k_base"
-    if enc_name not in _ENCODING_CACHE :
-        try :
-            _ENCODING_CACHE [enc_name ]=tiktoken .get_encoding (enc_name )
-        except Exception :
-            logger .debug (f"tiktoken encoding {enc_name } not available")
-            return None 
-    return _ENCODING_CACHE [enc_name ]
+    try :
+        return tiktoken .get_encoding (enc_name )
+    except Exception :
+        logger .debug (f"tiktoken encoding {enc_name } not available")
+        return None 
 
 
 def estimate_tokens (text :str ,model :Optional [str ]=None )->int :
@@ -89,7 +89,7 @@ def estimate_tokens (text :str ,model :Optional [str ]=None )->int :
         try :
             return len (enc .encode (text ))
         except Exception :
-            pass 
+            logger .debug ("tiktoken encode failed for model=%s",model )
 
     return max (1 ,round (len (text )/_CHARS_PER_TOKEN ))
 
@@ -161,5 +161,5 @@ model :Optional [str ]=None
                     selected .insert (0 ,{**msg ,"content":truncated })
             break 
         total +=msg_tokens 
-        selected .insert (0 ,msg )
+        selected .insert (0 ,copy .deepcopy (msg ))
     return selected 

@@ -9,6 +9,7 @@ Works alongside UserProfile (which uses explicit LLM extraction) by:
 Integration: called from ReflectiveAgent._reflect() and ContextBuilder.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -70,13 +71,14 @@ class PreferenceLearner:
         # of maintaining separate deques for engagements and response_lengths.
         self._interactions: deque[_InteractionRecord] = deque(maxlen=ENGAGEMENT_WINDOW)
         self._topics: dict[str, int] = defaultdict(int)
+        self._cached_prefs: Optional[dict] = None
         self._load()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def observe_interaction(
+    async def observe_interaction(
         self,
         user_message: str,
         assistant_response: str,
@@ -98,13 +100,19 @@ class PreferenceLearner:
                 continue
             self._topics[t] += 1
 
-        self._save()
+        self._cached_prefs = None  # Invalidate cache
+        await self._save()
 
     def get_inferred_preferences(self) -> dict[str, Any]:
         """Return inferred preference signals for the current user.
 
         Returns a dict that can be merged into UserProfile.preferences.
+
+        Results are cached until the next observe_interaction() call.
         """
+        if self._cached_prefs is not None:
+            return dict(self._cached_prefs)
+
         prefs = {}
 
         # Verbosity preference
@@ -122,6 +130,7 @@ class PreferenceLearner:
         if automation:
             prefs[PREF_AUTOMATION_LEVEL] = automation
 
+        self._cached_prefs = dict(prefs)
         return prefs
 
     def get_engagement_rate(self) -> float:
@@ -165,6 +174,11 @@ class PreferenceLearner:
         - High frequency of first-person pronouns → casual
         - High frequency of technical jargon → formal/technical
         - High frequency of structured requests (bullet points, numbered lists) → structured
+
+        NOTE: The casual_indicators and technical_indicators sets below are hardcoded
+        English-centric heuristics. They work well for English conversations but may
+        not generalize to other languages or domain-specific jargon. Future work could
+        make these configurable or learned from data.
         """
         if len(self._topics) < 5:
             return None
@@ -208,11 +222,12 @@ class PreferenceLearner:
         """Most discussed topics, sorted by frequency."""
         return sorted(self._topics.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
-    def reset(self):
+    async def reset(self):
         """Clear all observed data."""
         self._interactions.clear()
         self._topics.clear()
-        self._save()
+        self._cached_prefs = None
+        await self._save()
 
     # ------------------------------------------------------------------
     # Persistence

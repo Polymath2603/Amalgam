@@ -96,7 +96,11 @@ async def _call_with_timeout(
     hook_name: str,
     timeout: float = _HOOK_TIMEOUT,
 ) -> Any:
-    """Await *coro_factory()* with a timeout, logging failures."""
+    """Await *coro_factory()* with a timeout, logging failures.
+
+    Returns *None* on error so callers can skip the result without
+    catching exceptions explicitly.
+    """
     try:
         return await asyncio.wait_for(coro_factory(), timeout=timeout)
     except asyncio.TimeoutError:
@@ -106,10 +110,10 @@ async def _call_with_timeout(
             hook_name,
             timeout,
         )
-        raise
+        return None
     except Exception:
         logger.exception("Plugin '%s' %s failed", plugin_name, hook_name)
-        raise
+        return None
 
 
 class PluginRegistry:
@@ -349,22 +353,21 @@ def discover_plugins(
 
             # Try PluginClass first, then register() function
             plugin: Optional[Plugin] = None
-            if hasattr(mod, "PluginClass") and isinstance(
-                getattr(mod, "PluginClass"), type
-            ):
-                cls = getattr(mod, "PluginClass")
-                if issubclass(cls, Plugin):
-                    plugin = cls()
+            plugin_class = getattr(mod, "PluginClass", None)
+            if isinstance(plugin_class, type) and issubclass(plugin_class, Plugin):
+                plugin = plugin_class()
             elif hasattr(mod, "register"):
-                info = mod.register()
-                name = info.get("name", mod_name)
-                # Create a basic plugin wrapper
-                basic = type(
-                    "_Discovered_" + name,
-                    (Plugin,),
-                    {"name": name},
-                )()
-                plugin = basic
+                result = mod.register()
+                if isinstance(result, Plugin):
+                    plugin = result
+                elif isinstance(result, dict):
+                    name = result.get("name", mod_name)
+                    basic = type(
+                        "_Discovered_" + name,
+                        (Plugin,),
+                        {"name": name},
+                    )()
+                    plugin = basic
 
             if plugin is not None:
                 registry.register(plugin, on_conflict=on_conflict)

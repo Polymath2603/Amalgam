@@ -11,9 +11,13 @@ Patterns detected as corrections:
 - Preference: "I prefer...", "I'd rather..."
 """
 
+import asyncio
+import copy
 import json
 import logging
+import os
 import re
+import tempfile
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -94,7 +98,7 @@ class CorrectionStore:
                     return True
         return False
 
-    def extract_correction(
+    async def extract_correction(
         self,
         session_id: str,
         user_message: str,
@@ -113,11 +117,11 @@ class CorrectionStore:
             "applied_count": 0,
         }
         self._corrections.append(record)
-        self._save()  # persist immediately — record durability is important
+        await self._save()  # persist immediately — record durability is important
         logger.info(f"Stored correction: {about} (id={record['id'][:8]})")
         return record
 
-    def find_relevant(self, query: str, max_results: int = 3) -> list[dict]:
+    async def find_relevant(self, query: str, max_results: int = 3) -> list[dict]:
         """Find corrections relevant to the current query by keyword matching.
 
         This is a read-only query except for deferred applied_count tracking.
@@ -141,21 +145,21 @@ class CorrectionStore:
                 scored.append((score, c))
 
         scored.sort(key=lambda x: x[0], reverse=True)
-        results = [dict(r) for _, r in scored[:max_results]]
+        results = [copy.deepcopy(r) for _, r in scored[:max_results]]
 
         # Apply pending count updates and persist via batched flush
         for r in results:
             self._pending_applied_updates[r["id"]] += 1
-        self._flush_if_needed()
+        await self._flush_if_needed()
 
         return results
 
-    def to_context_string(self, query: str, max_results: int = 2) -> str:
+    async def to_context_string(self, query: str, max_results: int = 2) -> str:
         """Generate a compact string of relevant corrections for the system prompt.
 
         Returns empty string if no relevant corrections found.
         """
-        relevant = self.find_relevant(query, max_results=max_results)
+        relevant = await self.find_relevant(query, max_results=max_results)
         if not relevant:
             return ""
         parts = ["## Corrections from previous sessions"]
@@ -169,26 +173,32 @@ class CorrectionStore:
         """Total stored corrections."""
         return len(self._corrections)
 
-    def clear(self):
+    async def clear(self):
         """Clear all corrections."""
         self._corrections.clear()
         self._pending_applied_updates.clear()
         self._dirty = True
-        self._save()
+        await self._save()
 
-    def flush(self):
+    async def flush(self):
         """Force pending changes to disk."""
         if self._dirty:
-            self._save()
+            await self._save()
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    def _flush_if_needed(self):
-        """Flush to disk when there are pending changes."""
-        if self._dirty or self._pending_applied_updates:
-            self._save()
+    async def _flush_if_needed(self):
+        """Flush to disk when there are pending changes.
+
+        Only performs a full save+write when there are dirty (unsaved) corrections.
+        If only pending_applied_updates exist, just applies them in-memory.
+        """
+        if self._dirty:
+            await self._save()
+        elif self._pending_applied_updates:
+            self._apply_pending_updates()
 
     @staticmethod
     def _extract_about(user_message: str) -> str:
@@ -226,19 +236,32 @@ class CorrectionStore:
                 logger.warning(f"Failed to load corrections from {self._path}: {e}")
                 self._corrections = []
 
-    def _save(self):
+    async def _save(self):
+        """Persist corrections to disk with atomic write (temp file + rename)."""
         self._apply_pending_updates()
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             logger.error(f"Failed to create corrections directory: {e}")
             return
+        data = json.dumps(self._corrections, indent=2, ensure_ascii=False)
+        tmp_path = None
         try:
-            self._path.write_text(
-                json.dumps(self._corrections, indent=2, ensure_ascii=False),
-                encoding="utf-8",
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(self._path.parent),
+                prefix=".corrections_tmp_",
+                suffix=".json",
             )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(data)
+            os.replace(tmp_path, str(self._path))
+            tmp_path = None  # Success; don't clean up
         except OSError as e:
             logger.error(f"Failed to save corrections: {e}")
-            return
+        finally:
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
         self._dirty = False
