@@ -494,7 +494,7 @@ async def reset_settings (target :str ="voice"):
         # Preserve provider keys (API keys are sensitive)
         preserved = {}
         for k, v in s.get_all().items():
-            if k.startswith("provider.") and "api_key" in str(v).lower():
+            if k.startswith("provider.") and "api_key" in k.lower():
                 preserved[k] = v
         for k, v in defaults.items():
             s.set(k, v)
