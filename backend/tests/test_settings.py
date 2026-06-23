@@ -324,10 +324,10 @@ class TestSettingsProfiles:
         result = load_profile("definitely_nonexistent_profile_xyz")
         assert result == {}
 
-    def test_switch_profile_invalid_name_raises(self):
-        from backend.core.config.settings import switch_profile
+    def test_switch_profile_invalid_name_raises(self, settings):
+        """Switch to non-existent profile should raise ValueError."""
         with pytest.raises(ValueError, match="Unknown profile"):
-            switch_profile("totally_fake_profile_name")
+            settings.switch_profile("totally_fake_profile_name")
 
 
 class TestSettingsDefaultsIntegrity:

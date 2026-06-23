@@ -6,6 +6,7 @@ without requiring a separate LLM call.
 """
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -83,15 +84,18 @@ class LLMCostRouter:
         return "default"
 
 
-# Module-level singleton
+# Module-level singleton with thread safety
 _router: Optional[LLMCostRouter] = None
+_router_lock = threading.Lock()
 
 
 def route_llm_call(message: str, user_pref: Optional[str] = None) -> ModelConfig:
     """Module-level convenience: route via the shared singleton."""
     global _router
     if _router is None:
-        _router = LLMCostRouter()
+        with _router_lock:
+            if _router is None:
+                _router = LLMCostRouter()
     return _router.route(message, user_pref)
 
 

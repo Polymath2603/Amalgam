@@ -15,7 +15,7 @@ class SemanticMemory:
     Facts are persisted to a JSON file so they survive process restarts.
     """
 
-    def __init__(self, storage_path: str):
+    def __init__(self, storage_path: str) -> None:
         self._path = Path(storage_path)
         self._documents: List[Dict] = []
         self._bm25 = None
@@ -28,7 +28,7 @@ class SemanticMemory:
         entry = {"id": fid, "content": content, "metadata": metadata or {}}
         self._documents.append(entry)
         self._dirty = True
-        self.save()
+        self._save()
         logger.debug(f"SemanticMemory: added fact {fid}")
         return fid
 
@@ -49,29 +49,24 @@ class SemanticMemory:
     def count(self) -> int:
         return len(self._documents)
 
-    def clear(self):
+    def clear(self) -> None:
         self._documents.clear()
         self._bm25 = None
         self._dirty = False
 
-    def save(self):
-        """Persist documents to disk.
-
-        Note: does **not** reset ``_dirty`` — that is done by
-        :meth:`_rebuild_bm25` so that newly added facts are included
-        in the BM25 index on the next search.
-        """
+    def save(self) -> None:
+        """Persist documents to disk atomically."""
         if not self._dirty:
             return
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(
-                json.dumps(self._documents, indent=2, default=str)
-            )
+            tmp = self._path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(self._documents, indent=2, default=str))
+            tmp.replace(self._path)
         except Exception as e:
             logger.error(f"SemanticMemory: failed to save facts: {e}")
 
-    def _load(self):
+    def _load(self) -> None:
         """Load documents from disk."""
         if not self._path.exists():
             return
@@ -84,7 +79,7 @@ class SemanticMemory:
         except Exception as e:
             logger.warning(f"SemanticMemory: failed to load facts: {e}")
 
-    def _rebuild_bm25(self):
+    def _rebuild_bm25(self) -> None:
         if not self._dirty and self._bm25 is not None:
             return
         try:

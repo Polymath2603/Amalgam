@@ -12,8 +12,10 @@ import logging
 import os
 import random
 import re
-from typing import AsyncIterator, List, Dict, Any, Optional
+import time
+from typing import AsyncIterator, List, Dict, Any, Optional, Union
 
+import cachetools
 import litellm
 from litellm import acompletion as _litellm_acompletion, aembedding as _litellm_aembedding
 
@@ -67,7 +69,7 @@ PROVIDER_PREFIX = {
 TOOL_CAPABLE = {
     "gemini", "openrouter", "groq", "deepseek", "mistral", "together",
     "chatgpt", "azure-openai", "alibaba", "huggingface", "zai", "siliconflow",
-    "claude", "aws", "gcp",
+    "claude", "aws", "gcp", "ollama", "opencode", "llamacpp", "koboldai",
 }
 
 CONTEXT_LIMITS = {
@@ -77,13 +79,17 @@ CONTEXT_LIMITS = {
 }
 
 OUTPUT_LIMITS = {
-    "groq": 512,
+    "groq": 8192,
     "llamacpp": 2048,
     "koboldai": 2048,
 }
 
+# Default retry constants — can be overridden per-provider via settings
+# (llm.rate_limit_max_retries, llm.rate_limit_base_delay, etc.)
 _RATE_LIMIT_MAX_RETRIES = 3
 _RATE_LIMIT_BASE_DELAY = 5.0
+_RATE_LIMIT_MAX_RETRIES_ON_5XX = 2
+_RATE_LIMIT_BASE_DELAY_5XX = 1.0
 
 EMBEDDING_CAPABLE = {
     "gemini", "ollama", "openai", "deepseek", "mistral",
@@ -119,21 +125,39 @@ OPENAI_COMPAT_PROVIDERS = {
 # ---------------------------------------------------------------------------
 
 def _is_rate_limit_error(exc: Exception) -> bool:
-    """Check if an exception is a rate-limit (429) error."""
+    """Check if an exception is a rate-limit (429) error.
+
+    Checks by exception type (litellm.RateLimitError), status code,
+    and error message as a fallback.
+    """
+    # Prefer type check for robustness across litellm versions
+    if isinstance(exc, litellm.RateLimitError):
+        return True
+    # Check status code if the exception carries it
+    status = getattr(exc, 'status_code', None) or getattr(exc, 'http_status', None)
+    if status == 429:
+        return True
+    # Fallback: string matching (less reliable)
     exc_type = type(exc).__name__
     if "RateLimitError" in exc_type:
         return True
     msg = str(exc).lower()
-    return "rate limit" in msg or "429" in msg or "rate_limit_exceeded" in msg
+    return "rate limit" in msg or "rate_limit_exceeded" in msg
 
 
-def _get_retry_delay(exc: Exception, attempt: int) -> float:
-    """Extract retry delay from error message or use exponential backoff with jitter."""
+def _get_retry_delay(exc: Exception, attempt: int, base_delay: float = _RATE_LIMIT_BASE_DELAY) -> float:
+    """Extract retry delay from error message or use exponential backoff with jitter.
+
+    Args:
+        exc: The exception to extract delay from.
+        attempt: Current retry attempt (0-based).
+        base_delay: Base delay in seconds (defaults to module-level constant).
+    """
     msg = str(exc)
     match = re.search(r"try again in ([\d.]+)s", msg)
     if match:
         return float(match.group(1)) + 0.5
-    delay = _RATE_LIMIT_BASE_DELAY * (2 ** attempt)
+    delay = base_delay * (2 ** attempt)
     # Add jitter (±25%) to avoid thundering herd
     jitter = random.uniform(0.75, 1.25)
     return delay * jitter
@@ -143,12 +167,19 @@ def _get_retry_delay(exc: Exception, attempt: int) -> float:
 # Model-info cache (TTL: 5 minutes)
 # ---------------------------------------------------------------------------
 
-@functools.lru_cache(maxsize=32)
+_model_info_cache: cachetools.TTLCache = cachetools.TTLCache(maxsize=32, ttl=300)
+
+
 def _get_cached_model_info(model_name: str) -> dict:
-    """Cached wrapper around litellm.get_model_info()."""
+    """Cached wrapper around litellm.get_model_info() with 5-minute TTL."""
+    if model_name in _model_info_cache:
+        return _model_info_cache[model_name]
     try:
-        return litellm.get_model_info(model_name)
-    except Exception:
+        info = litellm.get_model_info(model_name)
+        _model_info_cache[model_name] = info
+        return info
+    except Exception as exc:
+        logger.warning("Failed to get model info for '%s': %s", model_name, exc)
         return {}
 
 
@@ -174,6 +205,30 @@ class LiteLLMProvider:
             self._settings.load()
         self._reload()
 
+    # ------------------------------------------------------------------
+    # Configurable retry settings (read from settings, fall back to defaults)
+    # ------------------------------------------------------------------
+
+    def _get_rate_limit_max_retries(self) -> int:
+        if self._settings:
+            return int(self._settings.get("llm.rate_limit_max_retries", _RATE_LIMIT_MAX_RETRIES))
+        return _RATE_LIMIT_MAX_RETRIES
+
+    def _get_rate_limit_base_delay(self) -> float:
+        if self._settings:
+            return float(self._settings.get("llm.rate_limit_base_delay", _RATE_LIMIT_BASE_DELAY))
+        return _RATE_LIMIT_BASE_DELAY
+
+    def _get_rate_limit_max_retries_5xx(self) -> int:
+        if self._settings:
+            return int(self._settings.get("llm.rate_limit_max_retries_5xx", _RATE_LIMIT_MAX_RETRIES_ON_5XX))
+        return _RATE_LIMIT_MAX_RETRIES_ON_5XX
+
+    def _get_rate_limit_base_delay_5xx(self) -> float:
+        if self._settings:
+            return float(self._settings.get("llm.rate_limit_base_delay_5xx", _RATE_LIMIT_BASE_DELAY_5XX))
+        return _RATE_LIMIT_BASE_DELAY_5XX
+
     def _get_model_config(self) -> tuple[str, dict]:
         """Build LiteLLM model string and kwargs from settings.
 
@@ -185,15 +240,13 @@ class LiteLLMProvider:
         if self._settings:
             cfg = self._settings.get(f"provider.{provider}", {})
 
-        if not cfg:
-            cfg = {}
-
         model_name = cfg.get("model", "")
         if self._model_tier == "fast" and cfg.get("model_fast"):
             model_name = cfg["model_fast"]
 
         prefix = PROVIDER_PREFIX.get(provider, provider)
-        if provider in ("llamacpp", "koboldai", "siliconflow"):
+        # Providers that pass the model name as-is (raw API or already prefixed)
+        if provider in OPENAI_COMPAT_PROVIDERS:
             model = model_name
         elif provider == "ollama":
             model = f"ollama/{model_name}"
@@ -207,10 +260,18 @@ class LiteLLMProvider:
         if api_key:
             kwargs["api_key"] = api_key
             # Pass provider-specific API key kwargs that litellm expects
-            if provider == "gemini":
-                kwargs["gemini_api_key"] = api_key
-            elif provider == "chatgpt":
-                kwargs["openai_api_key"] = api_key
+            _PROVIDER_API_KEY_MAP = {
+                "gemini": "gemini_api_key",
+                "chatgpt": "openai_api_key",
+                "mistral": "mistral_api_key",
+                "deepseek": "deepseek_api_key",
+                "groq": "groq_api_key",
+                "together": "together_ai_api_key",
+                "openrouter": "openrouter_api_key",
+            }
+            kwarg_name = _PROVIDER_API_KEY_MAP.get(provider)
+            if kwarg_name:
+                kwargs[kwarg_name] = api_key
 
         if base_url:
             kwargs["api_base"] = base_url.rstrip("/")
@@ -230,7 +291,10 @@ class LiteLLMProvider:
 
     def _get_temperature(self, override: float = None) -> float:
         if override is not None:
-            return float(override)
+            try:
+                return float(override)
+            except (TypeError, ValueError):
+                logger.warning("Invalid temperature override '%s', falling back to default", override)
         if self._settings:
             return float(self._settings.get("llm.temperature", 0.7))
         return 0.7
@@ -281,29 +345,71 @@ class LiteLLMProvider:
     # Retry helpers (reduces duplication across stream / generate)
     # ------------------------------------------------------------------
 
+    def _is_transient_error(self, exc: Exception) -> bool:
+        """Check if an exception is a transient network/server error worth retrying.
+
+        Prefers isinstance checks over string matching where possible.
+        """
+        # isinstance checks are the most robust
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            return True
+        msg = str(exc).lower()
+        # HTTP 5xx server errors
+        if "502" in msg or "503" in msg or "504" in msg:
+            return True
+        if "bad gateway" in msg or "service unavailable" in msg or "gateway timeout" in msg:
+            return True
+        # Connection / transport errors (checked after isinstance as fallback)
+        if any(t in msg for t in ("connection reset", "connection refused", "connection aborted",
+                                   "eof", "broken pipe",
+                                   "cannot connect", "no route to host")):
+            return True
+        if "timeout" in msg or "timed out" in msg:
+            return True
+        return False
+
     async def _retry_stream(self, model: str, messages: list, **kwargs) -> AsyncIterator[str]:
-        """Stream text completion with rate-limit retry logic.
+        """Stream text completion with rate-limit and transient-error retry logic.
+
+        NOTE: Streaming APIs are stateless — on retry the stream restarts from
+        the beginning of the response.  Token duplication is inherent in
+        stateless retry; callers (and the frontend) should deduplicate if
+        needed.
 
         Raises:
             LLMProviderError: on non-retryable errors.
             RateLimitError: when all retries are exhausted.
         """
-        for attempt in range(_RATE_LIMIT_MAX_RETRIES):
+        max_retries = self._get_rate_limit_max_retries()
+        base_delay = self._get_rate_limit_base_delay()
+        base_delay_5xx = self._get_rate_limit_base_delay_5xx()
+        for attempt in range(max_retries):
             try:
                 response = await _litellm_acompletion(
                     model=model, messages=messages, stream=True, **kwargs
                 )
                 async for chunk in response:
-                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
                     if delta and delta.content:
                         yield delta.content
                 return
             except Exception as e:
-                if _is_rate_limit_error(e) and attempt < _RATE_LIMIT_MAX_RETRIES - 1:
-                    delay = _get_retry_delay(e, attempt)
+                if _is_rate_limit_error(e) and attempt < max_retries - 1:
+                    delay = _get_retry_delay(e, attempt, base_delay=base_delay)
                     logger.warning(
                         "Rate limited (%s), retrying in %.1fs (attempt %d/%d)",
-                        self._provider, delay, attempt + 1, _RATE_LIMIT_MAX_RETRIES,
+                        self._provider, delay, attempt + 1, max_retries,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                if self._is_transient_error(e) and attempt < max_retries - 1:
+                    delay = base_delay_5xx * (2 ** attempt)
+                    delay *= random.uniform(0.75, 1.25)
+                    logger.warning(
+                        "Transient error (%s), retrying in %.1fs (attempt %d/%d): %s",
+                        self._provider, delay, attempt + 1, max_retries, e,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -312,25 +418,45 @@ class LiteLLMProvider:
                     raise RateLimitError(str(e)) from e
                 raise LLMProviderError(str(e)) from e
 
-    async def _retry_generate(self, model: str, messages: list, **kwargs) -> str:
-        """Non-streaming completion with rate-limit retry logic.
+    async def _retry_generate(self, model: str, messages: list, tools: Optional[List[Dict[str, Any]]] = None, **kwargs) -> str:
+        """Non-streaming completion with rate-limit and transient-error retry logic.
 
         Raises:
             LLMProviderError: on non-retryable errors.
             RateLimitError: when all retries are exhausted.
         """
-        for attempt in range(_RATE_LIMIT_MAX_RETRIES):
+        max_retries = self._get_rate_limit_max_retries()
+        base_delay = self._get_rate_limit_base_delay()
+        base_delay_5xx = self._get_rate_limit_base_delay_5xx()
+        for attempt in range(max_retries):
             try:
+                gen_kwargs = {**kwargs}
+                if tools:
+                    gen_kwargs["tools"] = tools
+                    gen_kwargs["tool_choice"] = "auto"
                 response = await _litellm_acompletion(
-                    model=model, messages=messages, **kwargs
+                    model=model, messages=messages, **gen_kwargs
                 )
+                if not response.choices:
+                    raise LLMProviderError(
+                        f"Empty response choices from {self._provider} for model {model}"
+                    )
                 return response.choices[0].message.content or ""
             except Exception as e:
-                if _is_rate_limit_error(e) and attempt < _RATE_LIMIT_MAX_RETRIES - 1:
-                    delay = _get_retry_delay(e, attempt)
+                if _is_rate_limit_error(e) and attempt < max_retries - 1:
+                    delay = _get_retry_delay(e, attempt, base_delay=base_delay)
                     logger.warning(
                         "Rate limited (%s), retrying in %.1fs (attempt %d/%d)",
-                        self._provider, delay, attempt + 1, _RATE_LIMIT_MAX_RETRIES,
+                        self._provider, delay, attempt + 1, max_retries,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                if self._is_transient_error(e) and attempt < max_retries - 1:
+                    delay = base_delay_5xx * (2 ** attempt)
+                    delay *= random.uniform(0.75, 1.25)
+                    logger.warning(
+                        "Transient error (%s), retrying in %.1fs (attempt %d/%d): %s",
+                        self._provider, delay, attempt + 1, max_retries, e,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -357,10 +483,15 @@ class LiteLLMProvider:
 
     async def stream_with_tools(
         self, messages: list, tools: List[Dict[str, Any]], temperature: float = None,
-    ) -> AsyncIterator:
+    ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
         """Stream completion with native tool calling.
 
         Yields str (text tokens) and dict (tool_use calls).
+
+        Retries on rate-limit and transient errors.  On retry, pending tool
+        calls are reset (they will be rebuilt from the new stream).  Token
+        duplication is inherent in stateless retry; callers should
+        deduplicate if needed.
 
         Raises:
             LLMProviderError: on non-retryable errors.
@@ -369,8 +500,11 @@ class LiteLLMProvider:
         model, kwargs = self._get_model_config()
         temp = self._get_temperature(temperature)
         max_tokens = self.get_max_output_tokens()
+        max_retries = self._get_rate_limit_max_retries()
+        base_delay = self._get_rate_limit_base_delay()
+        base_delay_5xx = self._get_rate_limit_base_delay_5xx()
 
-        for attempt in range(_RATE_LIMIT_MAX_RETRIES):
+        for attempt in range(max_retries):
 
             pending_tool_calls: Dict[int, dict] = {}
 
@@ -381,7 +515,9 @@ class LiteLLMProvider:
                     temperature=temp, max_tokens=max_tokens, **kwargs,
                 )
                 async for chunk in response:
-                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
                     if not delta:
                         continue
 
@@ -401,7 +537,7 @@ class LiteLLMProvider:
                             if tc.function and tc.function.arguments:
                                 pt["arguments"] += tc.function.arguments
 
-                    finish = chunk.choices[0].finish_reason if chunk.choices else None
+                    finish = chunk.choices[0].finish_reason
                     if finish == "tool_calls" and pending_tool_calls:
                         for idx in sorted(pending_tool_calls.keys()):
                             pt = pending_tool_calls[idx]
@@ -418,30 +554,32 @@ class LiteLLMProvider:
                                 }
                         pending_tool_calls.clear()
 
+                # Stream ended; yield any remaining tool calls only if finish_reason was "tool_calls"
+                # to avoid yielding partially-constructed tool calls from a "stop" finish.
                 if pending_tool_calls:
-                    for idx in sorted(pending_tool_calls.keys()):
-                        pt = pending_tool_calls[idx]
-                        if pt["id"] and pt["name"]:
-                            try:
-                                args = json.loads(pt["arguments"]) if pt["arguments"] else {}
-                            except json.JSONDecodeError:
-                                args = {}
-                            yield {
-                                "type": "tool_use",
-                                "id": pt["id"],
-                                "name": pt["name"],
-                                "arguments": args,
-                            }
+                    logger.warning(
+                        "Discarding %d incomplete tool call(s) — stream ended without tool_calls finish_reason",
+                        len(pending_tool_calls),
+                    )
                     pending_tool_calls.clear()
 
                 return
 
             except Exception as e:
-                if _is_rate_limit_error(e) and attempt < _RATE_LIMIT_MAX_RETRIES - 1:
-                    delay = _get_retry_delay(e, attempt)
+                if _is_rate_limit_error(e) and attempt < max_retries - 1:
+                    delay = _get_retry_delay(e, attempt, base_delay=base_delay)
                     logger.warning(
                         "Rate limited (%s), retrying in %.1fs (attempt %d/%d)",
-                        self._provider, delay, attempt + 1, _RATE_LIMIT_MAX_RETRIES,
+                        self._provider, delay, attempt + 1, max_retries,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                if self._is_transient_error(e) and attempt < max_retries - 1:
+                    delay = base_delay_5xx * (2 ** attempt)
+                    delay *= random.uniform(0.75, 1.25)
+                    logger.warning(
+                        "Transient error (%s), retrying in %.1fs (attempt %d/%d): %s",
+                        self._provider, delay, attempt + 1, max_retries, e,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -450,8 +588,13 @@ class LiteLLMProvider:
                     raise RateLimitError(str(e)) from e
                 raise LLMProviderError(str(e)) from e
 
-    async def generate(self, messages: list, temperature: float = None) -> str:
+    async def generate(self, messages: list, temperature: float = None, tools: Optional[List[Dict[str, Any]]] = None) -> str:
         """Non-streaming completion.
+
+        Args:
+            messages: Chat messages.
+            temperature: Optional temperature override.
+            tools: Optional tool definitions for tool-calling completion.
 
         Raises:
             LLMProviderError: on non-retryable errors.
@@ -462,7 +605,7 @@ class LiteLLMProvider:
         max_tokens = self.get_max_output_tokens()
 
         return await self._retry_generate(
-            model, messages,
+            model, messages, tools=tools,
             temperature=temp, max_tokens=max_tokens, **kwargs,
         )
 
@@ -485,12 +628,15 @@ class LiteLLMProvider:
 
         if not embed_model:
             if self._provider == "ollama":
-                ollama_model = "nomic-embed-text"
+                # Use dedicated embed setting if available, otherwise fall back
+                # to the configured LLM model (most modern Ollama models support embeddings).
                 if self._settings:
-                    ollama_model = self._settings.get("provider.ollama.model", ollama_model)
-                    if "embed" not in ollama_model.lower():
-                        ollama_model = "nomic-embed-text"
-                embed_model = f"ollama/{ollama_model}"
+                    embed_model = self._settings.get("provider.ollama.embedding_model", "")
+                if not embed_model:
+                    ollama_model = self._settings.get("provider.ollama.model", "nomic-embed-text") if self._settings else "nomic-embed-text"
+                    embed_model = f"ollama/{ollama_model}"
+                else:
+                    embed_model = f"ollama/{embed_model}"
             else:
                 embed_model = EMBEDDING_MODEL_DEFAULTS.get(self._provider, "")
 
@@ -501,16 +647,39 @@ class LiteLLMProvider:
 
         # If embedding model uses a different provider, inject the right API key
         embed_provider = embed_model.split("/", 1)[0] if "/" in embed_model else embed_model
-        if embed_provider != self._provider and self._settings:
+        # Map both sides to canonical provider names for comparison
+        _PROVIDER_ALIASES = {
+            "chatgpt": "openai",
+            "azure-openai": "azure",
+            "claude": "anthropic",
+            "siliconflow": "openai",
+        }
+        canonical_self = _PROVIDER_ALIASES.get(self._provider, self._provider)
+        canonical_embed = _PROVIDER_ALIASES.get(embed_provider, embed_provider)
+        # Also build a reverse map so we look up the right settings key
+        _PROVIDER_SETTINGS_KEY = {
+            "openai": "chatgpt",
+            "azure": "azure-openai",
+            "anthropic": "claude",
+        }
+        if canonical_embed != canonical_self and self._settings:
             # Try to fetch API key for the embedding provider from settings
-            embed_provider_cfg = self._settings.get(f"provider.{embed_provider}", {})
+            embed_settings_key = _PROVIDER_SETTINGS_KEY.get(embed_provider, embed_provider)
+            embed_provider_cfg = self._settings.get(f"provider.{embed_settings_key}", {})
+            # Also try the raw embed_provider name as fallback
+            if not embed_provider_cfg:
+                embed_provider_cfg = self._settings.get(f"provider.{embed_provider}", {})
             embed_api_key = embed_provider_cfg.get("api_key", "")
             if embed_api_key:
                 kwargs["api_key"] = embed_api_key
-                if embed_provider == "gemini":
-                    kwargs["gemini_api_key"] = embed_api_key
-                elif embed_provider in ("chatgpt", "openai"):
-                    kwargs["openai_api_key"] = embed_api_key
+                _EMBED_KEY_MAP = {
+                    "gemini": "gemini_api_key",
+                    "openai": "openai_api_key",
+                    "chatgpt": "openai_api_key",
+                }
+                kwarg_name = _EMBED_KEY_MAP.get(embed_provider)
+                if kwarg_name:
+                    kwargs[kwarg_name] = embed_api_key
 
         try:
             response = await _litellm_aembedding(model=embed_model, input=[text], **kwargs)
@@ -523,5 +692,8 @@ class LiteLLMProvider:
             raise EmbeddingError(str(e)) from e
 
     async def close(self):
-        """No-op — LiteLLM manages its own HTTP clients."""
-        pass
+        """Release LiteLLM HTTP client resources gracefully."""
+        try:
+            await litellm.aclose()
+        except Exception as exc:
+            logger.debug("litellm.aclose() failed: %s", exc)

@@ -19,7 +19,7 @@ class FTSSearch:
 
     DB_FILENAME = "fts_index.db"
 
-    def __init__(self, conv_dir: Path):
+    def __init__(self, conv_dir: Path) -> None:
         self._conv_dir = conv_dir
         conv_dir.mkdir(parents=True, exist_ok=True)
         self._db_path = conv_dir / self.DB_FILENAME
@@ -31,10 +31,11 @@ class FTSSearch:
         if not hasattr(self._local, "conn") or self._local.conn is None:
             self._local.conn = sqlite3.connect(str(self._db_path), timeout=10)
             self._local.conn.execute("PRAGMA journal_mode=WAL;")
-            self._local.conn.execute("PRAGMA synchronous=OFF;")
+            # synchronous=NORMAL is safe enough for FTS index (rebuildable from sessions)
+            self._local.conn.execute("PRAGMA synchronous=NORMAL;")
         return self._local.conn
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         """Create the FTS5 virtual table if it does not exist."""
         conn = self._get_conn()
         conn.execute(
@@ -49,8 +50,26 @@ class FTSSearch:
         )
         conn.commit()
 
+    def _sanitize_query(self, query: str) -> str:
+        """Escape FTS5 special characters and add prefix matching.
+
+        FTS5 treats *, ", (, ), etc. as syntax. For plain-text queries,
+        escape these to avoid OperationalError.
+        """
+        if not query:
+            return ""
+        # Escape FTS5 special characters by surrounding each word with quotes
+        # This is the safest approach for arbitrary user input
+        words = query.strip().split()
+        if not words:
+            return ""
+        # If the query looks like it already has FTS5 syntax, leave it alone
+        if any(c in query for c in '*"()^'):
+            return query
+        return " AND ".join(f'"{w}"' for w in words if w)
+
     def index_message(self, session_id: str, msg_id: str, role: str,
-                      content: str, timestamp: str):
+                      content: str, timestamp: str) -> None:
         """Add or update a single message in the FTS index."""
         if not content or not content.strip():
             return
@@ -65,19 +84,19 @@ class FTSSearch:
         )
         conn.commit()
 
-    def remove_message(self, msg_id: str):
+    def remove_message(self, msg_id: str) -> None:
         """Remove a message from the FTS index by its unique ID."""
         conn = self._get_conn()
         conn.execute("DELETE FROM message_fts WHERE msg_id = ?;", (msg_id,))
         conn.commit()
 
-    def remove_session(self, session_id: str):
+    def remove_session(self, session_id: str) -> None:
         """Remove all messages for a session."""
         conn = self._get_conn()
         conn.execute("DELETE FROM message_fts WHERE session_id = ?;", (session_id,))
         conn.commit()
 
-    def rebuild_from_sessions(self, sessions_dir: Path):
+    def rebuild_from_sessions(self, sessions_dir: Path) -> None:
         """Scan all JSON session files and index their messages.
 
         Idempotent — skips messages whose msg_id already exists.
@@ -131,7 +150,7 @@ class FTSSearch:
         Parameters
         ----------
         query : str
-            Free-text query (FTS5 syntax supported, e.g. ``"exact phrase"``).
+            Free-text query. Special FTS5 syntax is escaped for safety.
         top_k : int
             Maximum results to return.
 
@@ -144,16 +163,18 @@ class FTSSearch:
             return []
 
         conn = self._get_conn()
+        safe_query = self._sanitize_query(query)
+        if not safe_query:
+            return []
+
         try:
-            # FTS5 requires the query to be quoted or valid syntax
-            # bm25 scoring is built-in
             rows = conn.execute(
                 "SELECT session_id, role, content, timestamp, rank "
                 "FROM message_fts "
                 "WHERE message_fts MATCH ? "
                 "ORDER BY rank "
                 "LIMIT ?;",
-                (query, top_k),
+                (safe_query, top_k),
             ).fetchall()
             return [
                 {
@@ -166,7 +187,7 @@ class FTSSearch:
                 for r in rows
             ]
         except sqlite3.OperationalError as e:
-            logger.debug(f"FTS5 query failed ('{query}'): {e}")
+            logger.debug(f"FTS5 query failed ('{safe_query}'): {e}")
             return []
 
     def search_session(self, session_id: str, query: str,
@@ -175,6 +196,10 @@ class FTSSearch:
         if not query or not query.strip():
             return []
         conn = self._get_conn()
+        safe_query = self._sanitize_query(query)
+        if not safe_query:
+            return []
+
         try:
             rows = conn.execute(
                 "SELECT session_id, role, content, timestamp, rank "
@@ -182,7 +207,7 @@ class FTSSearch:
                 "WHERE message_fts MATCH ? AND session_id = ? "
                 "ORDER BY rank "
                 "LIMIT ?;",
-                (query, session_id, top_k),
+                (safe_query, session_id, top_k),
             ).fetchall()
             return [
                 {
@@ -195,10 +220,10 @@ class FTSSearch:
                 for r in rows
             ]
         except sqlite3.OperationalError as e:
-            logger.debug(f"FTS5 session query failed ('{query}'): {e}")
+            logger.debug(f"FTS5 session query failed ('{safe_query}'): {e}")
             return []
 
-    def clear(self):
+    def clear(self) -> None:
         """Remove all indexed messages (for full rebuild)."""
         conn = self._get_conn()
         conn.execute("DELETE FROM message_fts;")

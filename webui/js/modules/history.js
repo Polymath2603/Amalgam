@@ -149,7 +149,13 @@ async function performHistorySearch(query) {
             `${BASE_URL}/api/memory/search?q=${encodeURIComponent(query)}&scope=all`,
             { signal: _historySearchAbort.signal }
         );
-        const data = await res.json();
+        let data;
+        try {
+            data = await res.json();
+        } catch (parseErr) {
+            console.warn('History search: failed to parse response JSON', parseErr);
+            return;
+        }
         renderHistorySearchResults(data.results || []);
     } catch (e) {
         if (e.name !== 'AbortError') console.warn('History search failed:', e);

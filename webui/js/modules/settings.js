@@ -116,12 +116,12 @@ export function renderField(fieldId, field) {
             let actionBtn = '';
             if (field.dynamic_options) {
                 const active = _getNestedValue(settings, 'provider.active') || 'gemini';
-                actionBtn = `<button class="icon-btn fetch-models-btn" onclick="fetchModels('${active}')" title="Fetch models from provider">
+                actionBtn = `<button class="icon-btn fetch-models-btn" data-provider="${escHtml(active)}" title="Fetch models from provider">
                     <span class="material-icons-round">cloud_sync</span>
                 </button>`;
             }
             if (fieldId === 'tts_engine') {
-                actionBtn += `<button class="icon-btn test-voice-btn" onclick="testVoice()" title="Test Voice">
+                actionBtn += `<button class="icon-btn test-voice-btn" title="Test Voice">
                     <span class="material-icons-round">volume_up</span>
                 </button>`;
             }
@@ -142,10 +142,10 @@ export function renderField(fieldId, field) {
                     <label for="field-${fieldId}">${field.label}</label>
                     <div class="input-with-action">
                         <input type="password" ${commonAttrs} value="${escHtml(String(value))}" placeholder="${field.label}">
-                        <button class="icon-btn toggle-vis-btn" onclick="toggleFieldVisibility('field-${fieldId}')" title="Show/hide">
+                        <button class="icon-btn toggle-vis-btn" data-toggle-vis="${fieldId}" title="Show/hide">
                             <span class="material-icons-round">visibility</span>
                         </button>
-                        <button class="icon-btn test-conn-btn" onclick="testConnection('${escHtml(key)}')" title="Test connection">
+                        <button class="icon-btn test-conn-btn" title="Test connection">
                             <span class="material-icons-round">wifi_find</span>
                         </button>
                     </div>
@@ -244,7 +244,7 @@ export function renderCategory(category) {
         html += renderField(fieldId, field);
     }
 
-    html += `<button class="save-category-btn" onclick="saveCategory('${category}')">
+    html += `<button class="save-category-btn" data-category="${category}">
         <span class="material-icons-round">save</span> Save ${category} Settings
     </button>`;
 
@@ -254,10 +254,10 @@ export function renderCategory(category) {
             <h3 class="settings-category-title" style="margin-top:24px">Reset to Defaults</h3>
             <p class="field-desc">Reset a settings section to its default values. Provider API keys are preserved.</p>
             <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
-                <button class="btn btn-sm" onclick="confirmReset('voice')">Reset Voice</button>
-                <button class="btn btn-sm" onclick="confirmReset('agent')">Reset Agent</button>
-                <button class="btn btn-sm" onclick="confirmReset('ui')">Reset UI</button>
-                <button class="btn btn-sm btn-danger" onclick="confirmReset('all')">Reset All</button>
+                <button class="btn btn-sm" data-reset="voice">Reset Voice</button>
+                <button class="btn btn-sm" data-reset="agent">Reset Agent</button>
+                <button class="btn btn-sm" data-reset="ui">Reset UI</button>
+                <button class="btn btn-sm btn-danger" data-reset="all">Reset All</button>
             </div>
         `;
     }
@@ -316,7 +316,6 @@ export function renderSettings() {
     let sidebarHtml = categories.map(cat => `
         <button class="settings-cat-btn ${cat === activeSettingsTab ? 'active' : ''}"
                 data-category="${cat}"
-                onclick="switchSettingsTab('${cat}')"
                 aria-label="${cat} settings"
                 aria-current="${cat === activeSettingsTab ? 'page' : 'false'}">
             <span class="material-icons-round" aria-hidden="true">${SETTINGS_SCHEMA[cat].icon}</span>
@@ -326,7 +325,6 @@ export function renderSettings() {
     sidebarHtml += `
         <button class="settings-cat-btn ${activeSettingsTab === 'Vault' ? 'active' : ''}"
                 data-category="Vault"
-                onclick="switchSettingsTab('Vault')"
                 aria-label="Vault files"
                 aria-current="${activeSettingsTab === 'Vault' ? 'page' : 'false'}">
             <span class="material-icons-round" aria-hidden="true">folder</span>
@@ -334,7 +332,6 @@ export function renderSettings() {
         </button>
         <button class="settings-cat-btn ${activeSettingsTab === 'Rules' ? 'active' : ''}"
                 data-category="Rules"
-                onclick="switchSettingsTab('Rules')"
                 aria-label="Rules"
                 aria-current="${activeSettingsTab === 'Rules' ? 'page' : 'false'}">
             <span class="material-icons-round" aria-hidden="true">description</span>
@@ -344,12 +341,12 @@ export function renderSettings() {
     const searchHtml = `
         <div class="settings-search">
             <span class="material-icons-round">search</span>
-            <input type="text" id="settings-search-input" placeholder="Search settings..." oninput="filterSettings()">
+            <input type="text" id="settings-search-input" placeholder="Search settings...">
         </div>
     `;
 
     // Destroy memory graph before re-rendering to clean up event listeners and animation
-    import('./memory-graph.js').then(mg => mg.destroyMemoryGraph()).catch(() => {});
+    import('./memory-graph.js').then(mg => mg.destroyMemoryGraph()).catch(e => console.warn('[Settings] Failed to destroy memory graph:', e));
 
     container.innerHTML = `
         <div class="settings-sidebar">${sidebarHtml}</div>
@@ -358,6 +355,12 @@ export function renderSettings() {
             <div id="settings-form-area">${renderCategory(activeSettingsTab)}</div>
         </div>
     `;
+
+    // Add search input listener (delegation is used for most, but input needs direct listener)
+    const searchInput = document.getElementById('settings-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', filterSettings);
+    }
 
     // Load companion settings when the Character tab is active
     if (activeSettingsTab === 'Character') {
@@ -371,7 +374,7 @@ export function renderSettings() {
     }
     if (activeSettingsTab === 'Memory') {
         setTimeout(() => {
-            import('./memory-graph.js').then(mg => mg.initMemoryGraph()).catch(() => {});
+            import('./memory-graph.js').then(mg => mg.initMemoryGraph()).catch(e => console.warn('[Settings] Failed to init memory graph:', e));
         }, 50);
     }
 }
@@ -738,9 +741,9 @@ function _renderVaultTab() {
             <div class="vault-toolbar">
                 <div class="settings-search" style="flex:1;margin-bottom:0">
                     <span class="material-icons-round">search</span>
-                    <input type="text" id="vault-search-input" placeholder="${escHtml(t('settings.vault_search_placeholder'))}" oninput="searchVault()">
+                    <input type="text" id="vault-search-input" placeholder="${escHtml(t('settings.vault_search_placeholder'))}">
                 </div>
-                <button class="btn-sm" onclick="newVaultFile()" style="display:flex;align-items:center;gap:4px;white-space:nowrap">
+                <button class="btn-sm" id="vault-new-btn" style="display:flex;align-items:center;gap:4px;white-space:nowrap">
                     <span class="material-icons-round" style="font-size:16px">add</span>
                     ${escHtml(t('settings.new'))}
                 </button>
@@ -804,7 +807,7 @@ export async function viewVaultFile(filename) {
 
     body.innerHTML = `
         <div class="vault-editor-header">
-            <button class="btn-ghost" onclick="showVaultList()">
+            <button class="btn-ghost vault-back-btn">
                 <span class="material-icons-round">arrow_back</span>
                 Back
             </button>
@@ -821,7 +824,7 @@ export async function viewVaultFile(filename) {
 
     body.innerHTML = `
         <div class="vault-editor-header">
-            <button class="btn-ghost" onclick="showVaultList()">
+            <button class="btn-ghost vault-back-btn">
                 <span class="material-icons-round">arrow_back</span>
                 Back
             </button>
@@ -829,10 +832,10 @@ export async function viewVaultFile(filename) {
         </div>
         <textarea id="vault-editor-textarea" class="vault-editor-textarea" rows="20">${escHtml(data.content || '')}</textarea>
         <div class="vault-editor-actions">
-            <button class="save-category-btn" onclick="saveVaultFile()">
+            <button class="save-category-btn vault-save-btn">
                 <span class="material-icons-round">save</span> ${escHtml(t('settings.save'))}
             </button>
-            <button class="btn btn-danger" onclick="deleteCurrentVaultFile()">
+            <button class="btn btn-danger vault-delete-btn">
                 <span class="material-icons-round">delete</span> ${escHtml(t('settings.delete'))}
             </button>
         </div>
@@ -942,7 +945,7 @@ function _renderRulesTab() {
             <h3 class="settings-category-title">${escHtml(t('settings.persistent_rules'))}</h3>
             <p class="field-desc">This file contains persistent system prompt rules that are prepended to every conversation. Changes take effect on the next message.</p>
             <textarea id="rules-textarea" class="vault-editor-textarea" rows="20" placeholder="${escHtml(t('settings.rules_placeholder'))}"></textarea>
-            <button class="save-category-btn" onclick="saveRules()" style="align-self:flex-start">
+            <button class="save-category-btn rules-save-btn" style="align-self:flex-start">
                 <span class="material-icons-round">save</span> ${escHtml(t('settings.save_rules'))}
             </button>
         </div>
@@ -986,6 +989,94 @@ export function _attachSettingsDelegates() {
     if (!body) return;
     if (_delegatesAttached) return;
     _delegatesAttached = true;
+
+    // Delegate fetch-models-btn clicks (avoid inline onclick with user-controlled provider)
+    body.addEventListener('click', (e) => {
+        const fetchBtn = e.target.closest('.fetch-models-btn');
+        if (fetchBtn) {
+            e.preventDefault();
+            fetchModels(fetchBtn.dataset.provider);
+            return;
+        }
+        const testConnBtn = e.target.closest('.test-conn-btn');
+        if (testConnBtn) {
+            e.preventDefault();
+            const key = testConnBtn.closest('.settings-field')?.querySelector('[data-key]')?.dataset?.key;
+            if (key) testConnection(key);
+            return;
+        }
+        const testVoiceBtn = e.target.closest('.test-voice-btn');
+        if (testVoiceBtn) {
+            e.preventDefault();
+            testVoice();
+            return;
+        }
+        const toggleVisBtn = e.target.closest('.toggle-vis-btn');
+        if (toggleVisBtn) {
+            e.preventDefault();
+            const inp = toggleVisBtn.parentElement?.querySelector('input');
+            if (inp) toggleFieldVisibility(inp.id);
+            return;
+        }
+        const saveCatBtn = e.target.closest('.save-category-btn');
+        if (saveCatBtn) {
+            e.preventDefault();
+            const category = saveCatBtn.dataset.category || activeSettingsTab;
+            saveCategory(category);
+            return;
+        }
+        const resetBtn = e.target.closest('[data-reset]');
+        if (resetBtn) {
+            e.preventDefault();
+            confirmReset(resetBtn.dataset.reset);
+            return;
+        }
+        const catBtn = e.target.closest('.settings-cat-btn[data-category]');
+        if (catBtn) {
+            e.preventDefault();
+            switchSettingsTab(catBtn.dataset.category);
+            return;
+        }
+        const vaultBackBtn = e.target.closest('.vault-back-btn');
+        if (vaultBackBtn) {
+            e.preventDefault();
+            showVaultList();
+            return;
+        }
+        const vaultSaveBtn = e.target.closest('.vault-save-btn');
+        if (vaultSaveBtn) {
+            e.preventDefault();
+            saveVaultFile();
+            return;
+        }
+        const vaultDeleteBtn = e.target.closest('.vault-delete-btn');
+        if (vaultDeleteBtn) {
+            e.preventDefault();
+            deleteCurrentVaultFile();
+            return;
+        }
+        const vaultNewBtn = e.target.closest('#vault-new-btn');
+        if (vaultNewBtn) {
+            e.preventDefault();
+            newVaultFile();
+            return;
+        }
+        const rulesSaveBtn = e.target.closest('.rules-save-btn');
+        if (rulesSaveBtn) {
+            e.preventDefault();
+            saveRules();
+            return;
+        }
+        const fileItem = e.target.closest('[data-vault-file]');
+        if (fileItem && !e.target.closest('[data-vault-file-delete]')) {
+            viewVaultFile(fileItem.dataset.vaultFile);
+            return;
+        }
+        const delBtn = e.target.closest('[data-vault-file-delete]');
+        if (delBtn) {
+            deleteVaultFile(delBtn.dataset.vaultFileDelete);
+        }
+    });
 
     body.addEventListener('change', (e) => {
         const el = e.target;

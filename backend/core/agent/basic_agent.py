@@ -1,11 +1,10 @@
 """Basic stateless tool-calling agent."""
 
 import asyncio
-import json
 import logging
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Optional
 
-from backend.core.agent.base import BaseAgent, AgentTrace, ToolCall
+from backend.core.agent.base import BaseAgent, AgentTrace, ToolCall, LLMType
 from backend.core.plugin import get_registry
 
 logger = logging.getLogger(__name__)
@@ -18,13 +17,22 @@ class BasicAgent(BaseAgent):
     Also retains ``handle_user_input()`` for legacy callers.
     """
 
-    def __init__(self, llm, tools=None, memory=None, config=None, mcp_client=None):
-        resolved_mcp = mcp_client or (config.get('mcp_client') if isinstance(config, dict) else None)
-        super().__init__(llm, tools or {}, memory, config or {}, mcp_client=resolved_mcp)
+    def __init__(self, llm: LLMType, tools: Any = None, memory: Any = None,
+                 config: Any = None, mcp_client: Any = None,
+                 strategy_selector: Any = None):
+        # Resolve mcp_client: prefer explicit, fallback to config for Settings objects
+        resolved_mcp = mcp_client
+        if resolved_mcp is None and config is not None:
+            resolved_mcp = getattr(config, 'mcp_client', None) or (
+                config.get('mcp_client') if isinstance(config, dict) else None
+            )
+        super().__init__(llm, tools or {}, memory, config or {},
+                         mcp_client=resolved_mcp,
+                         strategy_selector=strategy_selector)
         self.llm = llm
         self.memory = memory
         self.mcp_client = resolved_mcp
-        self.settings = config or {}
+        self.strategy_selector = strategy_selector
         self._tools = list((tools or {}).values())
         self._history: List[Dict] = []
 
@@ -39,19 +47,27 @@ class BasicAgent(BaseAgent):
     async def run(self, user_message: str, context: dict) -> AsyncIterator[str]:
         """Stream a response with tool execution loop."""
         session_id = context.get("session_id", "unknown")
-        self.load_history(session_id)
+        await self.load_history(session_id)
         relationship_context = context.get("relationship_context", "")
+        images = context.get("images", [])
         await self.memory.add_turn("user", user_message)
-        messages = await self._build_messages(user_message, None, relationship_context)
+        messages = await self._build_messages(user_message, images or None, relationship_context)
         # Allow plugins to modify messages before LLM
         try:
             registry = get_registry()
             messages = await registry.hook_messages(messages)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Plugin hook_messages failed (pre-loop): {e}")
         schema = await self._get_tool_schema()
 
-        max_iterations = 5
+        # Intent classification & strategy selection
+        intent = self._classify_intent(user_message)
+        strategy = None
+        if self.strategy_selector:
+            strategy = self.strategy_selector.select(intent)
+            logger.debug("Strategy for intent=%s: max_iterations=%s, temperature=%s, CoT=%s",
+                         intent, strategy.max_iterations, strategy.temperature, strategy.use_chain_of_thought)
+        max_iterations = min(strategy.max_iterations if strategy else 5, 25)
         iterations = 0
         current_input = user_message
 
@@ -70,8 +86,8 @@ class BasicAgent(BaseAgent):
                 try:
                     registry = get_registry()
                     messages = await registry.hook_messages(messages)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Plugin hook_messages failed (iteration {iterations}): {e}")
 
             try:
                 if schema:
@@ -88,6 +104,10 @@ class BasicAgent(BaseAgent):
                         yield text_accumulated
 
                     if collected_tool_calls:
+                        # Emit tool signals so the WebSocket handler can show them
+                        for tc_info in collected_tool_calls:
+                            yield ("__tool__", f"Calling tool: {tc_info['name']}")
+
                         tool_results = await asyncio.gather(*[
                             self.execute_tool(tc["name"], tc.get("arguments") or {})
                             for tc in collected_tool_calls
@@ -110,8 +130,8 @@ class BasicAgent(BaseAgent):
                     break
             except Exception as e:
                 logger.error(f"BasicAgent iteration error: {e}")
-                yield f"Error: {e}"
-                full_response += f"Error: {e}"
+                yield f"[Error: {e}]"
+                full_response += f"[Error: {e}]"
                 break
 
         trace.full_response = full_response
@@ -125,12 +145,31 @@ class BasicAgent(BaseAgent):
                                 relationship_context: str = "") -> AsyncIterator[Any]:
         """Legacy streaming interface — delegates to run()."""
         ctx = {
-            "session_id": getattr(self.memory, 'get_current_session', lambda: '')() if hasattr(self.memory, 'get_current_session') else '',
+            "session_id": (
+                getattr(self.memory, 'get_current_session', lambda: '')()
+                if hasattr(self.memory, 'get_current_session')
+                else ''
+            ),
             "relationship_context": relationship_context,
             "images": images or [],
         }
-        async for chunk in self.run(text, ctx):
-            yield chunk
+        yield ("__thinking__", "Processing your request...")
+        error_occurred = False
+        try:
+            async for chunk in self.run(text, ctx):
+                if isinstance(chunk, tuple):
+                    yield chunk
+                elif isinstance(chunk, str) and chunk.startswith("[Error:"):
+                    error_msg = chunk[len("[Error:"):].rstrip("]").strip()
+                    yield ("__error__", error_msg)
+                    error_occurred = True
+                    return
+                else:
+                    yield chunk
+        except Exception as e:
+            logger.exception("Agent error in BasicAgent.handle_user_input")
+            yield ("__error__", str(e))
+            return
 
     async def get_response(self, text: str) -> str:
         """Simple synchronous-style response (no streaming)."""
@@ -139,8 +178,8 @@ class BasicAgent(BaseAgent):
         try:
             registry = get_registry()
             messages = await registry.hook_messages(messages)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Plugin hook_messages failed (get_response): {e}")
         schema = await self._get_tool_schema()
         try:
             return await self.llm.generate(messages, tools=schema)
@@ -148,64 +187,112 @@ class BasicAgent(BaseAgent):
             logger.error(f"BasicAgent get_response error: {e}")
             return f"Error: {e}"
 
-    def load_history(self, session_id: str):
-        """Load prior turns from memory."""
+    async def load_history(self, session_id: str):
+        """Load prior turns from memory into ``self._history``.
+
+        Handles both sync and async memory backends transparently:
+        if ``get_session_messages()`` returns a coroutine it is awaited.
+        """
         stored = []
         if hasattr(self.memory, "get_session_messages"):
             msgs = self.memory.get_session_messages(session_id)
-            # Include only recent messages (last ~20) to avoid context overflow
+            # Support both sync and async memory backends
+            if asyncio.iscoroutine(msgs):
+                msgs = await msgs
             stored = [{"role": m["role"], "content": m["content"]} for m in msgs[-20:]]
         self._history = stored
 
-    async def execute_tool(self, name: str, tool_input: dict) -> ToolCall:
-        """Execute a tool, falling back to MCP client when not in local tools dict.
-
-        This bridges the gap between the tool schema (which may include MCP tools)
-        and the actual execution path — MCP tools are visible to the LLM but were
-        never registered in self.tools.
-        """
-        # First check local tools dict
-        if name in self.tools:
-            try:
-                result = await self.tools[name](**tool_input)
-                tc = ToolCall(name, tool_input, str(result)[:4000], True)
-            except Exception as e:
-                logger.warning(f"Tool '{name}' raised: {e}")
-                tc = ToolCall(name, tool_input, f"Tool error: {e}", False)
-
-        # Fall back to MCP client if available
-        elif self.mcp_client is not None:
-            try:
-                result = await self.mcp_client.call_tool_structured(name, tool_input)
-                if result.success:
-                    tc = ToolCall(name, tool_input, result.content[:4000], True)
-                else:
-                    tc = ToolCall(name, tool_input, result.error or f"Error: unknown tool '{name}'", False)
-            except Exception as e:
-                logger.warning(f"MCP tool '{name}' failed: {e}")
-                tc = ToolCall(name, tool_input, f"Tool error: {e}", False)
-        else:
-            tc = ToolCall(name, tool_input, f"Error: unknown tool '{name}'", False)
-
-        # Allow plugins to transform tool results
+    async def generate_idle_prompt(self) -> str:
+        """Generate an idle/initiative prompt using the LLM."""
+        system = await self._build_system_prompt()
+        prompt = (
+            "Generate a brief, natural conversation starter or idle observation. "
+            "Keep it under 20 words. Just the text, no quotes."
+        )
         try:
-            registry = get_registry()
-            tc.output = await registry.hook_tool_result(name, tool_input, tc.output)
-        except Exception:
-            pass
+            result = await self.llm.generate(
+                [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                temperature=0.9,
+            )
+            return (result or "").strip().strip('"').strip("'")
+        except Exception as e:
+            logger.warning(f"Idle prompt generation failed: {e}")
+            return ""
 
-        return tc
+    async def subconscious_reflect(self) -> str:
+        """Run subconscious reflection on recent conversation history."""
+        if not self._history:
+            return ""
+        recent = "\n".join(
+            f"{m['role']}: {m['content'][:200]}" for m in self._history[-10:]
+        )
+        prompt = (
+            "Summarize the key facts and emotional undertones from this recent conversation "
+            "in one sentence. Focus on what you learned about the user and how they feel.\n\n"
+            f"Conversation:\n{recent}"
+        )
+        try:
+            summary = await self.llm.generate([{"role": "user", "content": prompt}], temperature=0.5)
+            return (summary or "").strip()
+        except Exception as e:
+            logger.warning(f"Subconscious reflection failed: {e}")
+            return ""
 
     # --- Internal helpers ---
+
+    @staticmethod
+    def _classify_intent(text: str) -> str:
+        """Simple keyword-based intent classification for strategy selection."""
+        text_lower = text.lower().strip()
+        if any(text_lower.startswith(p) for p in (
+            "what is", "what are", "who is", "when is",
+            "where is", "how much", "tell me about",
+            "define", "what does", "why"
+        )):
+            return "conversation"
+        if any(kw in text_lower for kw in (
+            "remember", "do you remember", "recall", "what did i",
+            "what was", "earlier", "previously", "before"
+        )):
+            return "memory_op"
+        if any(kw in text_lower for kw in (
+            "search vault", "find in vault", "vault search",
+            "access vault", "open vault"
+        )):
+            return "vault_op"
+        if any(kw in text_lower for kw in (
+            "code", "function", "class ", "def ", "implement",
+            "debug", "fix ", "bug", "refactor"
+        )):
+            return "code"
+        if any(kw in text_lower for kw in (
+            "reflect", "think about", "analyze", "evaluate", "consider"
+        )):
+            return "reflection"
+        return "tool_execution"  # default for action-oriented requests
 
     async def _build_messages(self, text: str, images: list = None,
                               relationship_context: str = "") -> List[Dict]:
         system = await self._build_system_prompt(relationship_context)
         messages = [{"role": "system", "content": system}]
         messages.extend(self._history)
-        user_msg: Dict = {"role": "user", "content": text}
+
+        # Build user message — handle images as content blocks if present
         if images:
-            user_msg["images"] = images
+            content_parts: list = []
+            content_parts.append({"type": "text", "text": text})
+            for img in images:
+                if isinstance(img, str):
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": img}
+                    })
+                elif isinstance(img, dict):
+                    # Already a content block
+                    content_parts.append(img)
+            user_msg = {"role": "user", "content": content_parts}
+        else:
+            user_msg = {"role": "user", "content": text}
         messages.append(user_msg)
         return messages
 
@@ -218,8 +305,8 @@ class BasicAgent(BaseAgent):
         try:
             registry = get_registry()
             prompt = await registry.hook_system_prompt(prompt)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Plugin hook_system_prompt failed: {e}")
         return prompt
 
     async def _get_tool_schema(self) -> Optional[List[Dict]]:
@@ -233,6 +320,6 @@ class BasicAgent(BaseAgent):
             try:
                 registry = get_registry()
                 schema = await registry.hook_tool_definition(schema)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Plugin hook_tool_definition failed: {e}")
         return schema

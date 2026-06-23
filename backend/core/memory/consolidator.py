@@ -9,11 +9,15 @@ logger = logging.getLogger(__name__)
 class Consolidator:
     """Periodically consolidates working memory into episodic storage."""
 
-    def __init__(self, importance_threshold: float = 0.3):
+    def __init__(self, importance_threshold: float = 0.3) -> None:
         self._threshold = importance_threshold
 
-    def consolidate(self, turns: List[Dict], episodic_store) -> int:
+    def consolidate(self, turns: List[Dict], episodic_store: Any) -> int:
         """Score each working-memory turn and store important ones.
+
+        Args:
+            turns: List of conversation turns.
+            episodic_store: An EpisodicMemory instance (or any object with add_episode).
 
         Returns the number of episodes stored.
         """

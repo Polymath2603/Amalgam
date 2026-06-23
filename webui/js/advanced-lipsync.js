@@ -54,7 +54,7 @@ export class AdvancedLipSync {
         this._fftSize = options.fftSize || 1024;
         this._formantHistory = [];
 
-        console.log('[AdvancedLipSync] Initialized with formant estimation + coarticulation smoothing');
+        console.debug('[AdvancedLipSync] Initialized with formant estimation + coarticulation smoothing');
     }
 
     setSchedule(schedule) {

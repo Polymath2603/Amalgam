@@ -367,8 +367,8 @@ export function handleWSMessage(data) {
         if (avatarPreviewRenderer) avatarPreviewRenderer.setExpression?.(data.expression);
     } else if (data.type === 'viseme') {
         // Set mouth openness (0.0 = closed, 1.0 = fully open)
-        if (avatarRenderer) avatarRenderer.setMouthOpen(data.value);
-        if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(data.value);
+        if (avatarRenderer) avatarRenderer.setMouthOpen(data.value ?? 0);
+        if (avatarPreviewRenderer) avatarPreviewRenderer.setMouthOpen(data.value ?? 0);
     } else if (data.type === 'thinking') {
         _setStatus?.('thinking');
         if (avatarRenderer) avatarRenderer.playNod?.();

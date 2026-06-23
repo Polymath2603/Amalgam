@@ -275,6 +275,47 @@ class VoicePipeline:
     def state(self) -> VoiceState:
         return self.sm.state
 
+    # ── Lifecycle start/stop ──────────────────────────────────────────
+
+    def start(self, on_detected=None):
+        """Start the voice pipeline by launching listen_loop in a thread.
+
+        Returns the running task/future for the listen loop.
+        """
+        import concurrent.futures
+        if self._stop_event.is_set():
+            self._stop_event.clear()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
+        return executor.submit(self.listen_loop)
+
+    def stop(self):
+        """Stop the pipeline cleanly — sets stop event, closes stream, resets state."""
+        self.stop_listening()
+
+    # ── Runtime reconfigure ───────────────────────────────────────────
+
+    def reconfigure(self, settings: dict):
+        """Update pipeline settings at runtime.
+
+        Accepts a settings dict (typically the global settings object).
+        Relevant keys:
+          voice.stt_engine, voice.stt_timeout,
+          voice.vad_mode, voice.vad_frame_size,
+          voice.vad_energy_threshold, voice.vad_silence_frames
+        """
+        if settings:
+            self._settings = settings
+        # STT engine
+        stt_engine = settings.get("voice.stt_engine")
+        if stt_engine and self._stt.engine != stt_engine:
+            logger.info("VoicePipeline: Switching STT engine to '%s'", stt_engine)
+            self._stt = STTRouter(engine=stt_engine)
+        # STT timeout
+        self._stt_timeout = float(settings.get("voice.stt_timeout", 30.0))
+        # VAD parameters — will be picked up on next listen_loop
+        # (VAD is lazy-created in _ensure_models)
+        self._vad = None  # force re-create on next listen_loop
+
     # ── STT configuration helpers ──────────────────────────────────────
 
     def configure_openai_stt(self, api_key: str, model: str = "whisper-1"):

@@ -7,27 +7,67 @@ Every 10 turns: reflects on conversation quality (background task).
 import asyncio
 import re
 import logging
-from typing import AsyncGenerator
-from .base import BaseAgent
+from typing import Any, AsyncGenerator
+from .base import BaseAgent, LLMType
 
 logger = logging.getLogger(__name__)
+
+# Safe characters for skill file names — strip everything else
+_SAFE_NAME_RE = re.compile(r"[^a-z0-9_-]")
+_INJECTION_PATTERNS = [
+    "ignore previous instructions",
+    "disregard",
+    "you are now",
+    "forget everything",
+    "jailbreak",
+]
+
+
+def _has_injection(text: str) -> bool:
+    """Scan text for prompt injection patterns before saving.
+
+    Returns True if any known injection pattern is found.
+    """
+    low = text.lower()
+    return any(p in low for p in _INJECTION_PATTERNS)
+
+
+def _sanitise_skill_name(name: str) -> str:
+    """Sanitise a skill name for safe filesystem use.
+
+    - Lowercases the name
+    - Strips all characters except ``[a-z0-9_-]``
+    - Truncates to 64 characters
+    - Falls back to ``"unnamed-skill"`` if the result is empty
+    """
+    safe = _SAFE_NAME_RE.sub("", name.lower())[:64]
+    if not safe:
+        safe = "unnamed-skill"
+    return safe
 
 
 class ReflectiveAgent(BaseAgent):
     REFLECT_EVERY = 10
 
-    def __init__(self, inner: BaseAgent, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, inner: BaseAgent, llm: LLMType, tools: Any = None,
+                 memory: Any = None, config: Any = None,
+                 mcp_client: Any = None, strategy_selector: Any = None):
+        super().__init__(llm, tools or {}, memory, config or {},
+                         mcp_client=mcp_client,
+                         strategy_selector=strategy_selector)
         self.inner = inner
         self._turn_count = 0
+        self._bg_tasks: list[asyncio.Task] = []
 
     async def generate_idle_prompt(self) -> str:
-        return await self.inner.generate_idle_prompt() if hasattr(self.inner, 'generate_idle_prompt') else ""
+        if hasattr(self.inner, 'generate_idle_prompt'):
+            return await self.inner.generate_idle_prompt()
+        return await super().generate_idle_prompt()
 
     async def subconscious_reflect(self) -> str:
         if hasattr(self.inner, 'subconscious_reflect'):
             return await self.inner.subconscious_reflect()
-        return ""
+        return await super().subconscious_reflect()
 
     def update_settings(self, settings):
         if hasattr(self.inner, 'update_settings'):
@@ -36,22 +76,32 @@ class ReflectiveAgent(BaseAgent):
     async def run(
         self, user_message: str, context: dict
     ) -> AsyncGenerator[str, None]:
-        chunks = []
         async for chunk in self.inner.run(user_message, context):
             yield chunk
-            chunks.append(chunk)
 
         self._turn_count += 1
         trace = context.get("last_trace")
 
         # Fire background tasks — never block the user response
         if trace and trace.is_complex:
-            asyncio.create_task(self._try_create_skill(trace))
+            task = asyncio.create_task(self._try_create_skill(trace))
+            task.add_done_callback(
+                lambda t: t.exception() and logger.error(
+                    "Skill creation task failed: %s", t.exception()
+                )
+            )
+            self._bg_tasks.append(task)
 
         if self._turn_count % self.REFLECT_EVERY == 0:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._reflect(context.get("history", []))
             )
+            task.add_done_callback(
+                lambda t: t.exception() and logger.error(
+                    "Reflection task failed: %s", t.exception()
+                )
+            )
+            self._bg_tasks.append(task)
 
     async def _try_create_skill(self, trace):
         """
@@ -97,20 +147,23 @@ tools_required: [used tools]
             if not name_m:
                 return
 
-            skill_name = name_m.group(1).strip()
-            skill_path = f"data/skills/{skill_name}.md"
+            raw_name = name_m.group(1).strip()
+            safe_name = _sanitise_skill_name(raw_name)
+            if safe_name != raw_name:
+                logger.warning("Sanitised skill name '%s' → '%s'", raw_name, safe_name)
 
             # Scan for prompt injection before saving anything
             if _has_injection(resp):
-                logger.warning(f"Auto-skill rejected (injection detected): {skill_name}")
+                logger.warning("Auto-skill rejected (injection detected): %s", safe_name)
                 return
 
+            skill_path = f"data/skills/{safe_name}.md"
             with open(skill_path, "w") as f:
                 f.write(resp)
-            logger.info(f"Auto-created skill: {skill_name}")
+            logger.info("Auto-created skill: %s", safe_name)
 
         except Exception as e:
-            logger.debug(f"Skill creation failed (non-fatal): {e}")
+            logger.warning(f"Skill creation failed (non-fatal): {e}")
 
     async def _reflect(self, history: list):
         """Periodic quality check on conversation. Stores result in vault."""
@@ -130,23 +183,6 @@ tools_required: [used tools]
         )
         try:
             resp = await self.llm.complete(prompt, max_tokens=200)
-            logger.info(f"[Reflection]\n{resp}")
+            logger.info("[Reflection]\n%s", resp)
         except Exception as e:
-            logger.debug(f"Reflection failed (non-fatal): {e}")
-
-
-def _has_injection(text: str) -> bool:
-    """
-    Scan skill text for prompt injection patterns before saving.
-    Source: brain dump — 'why would I follow an instruction from a downloaded skill?'
-    """
-    patterns = [
-        "ignore previous instructions",
-        "disregard",
-        "you are now",
-        "forget everything",
-        "jailbreak",
-        "dan ",
-    ]
-    low = text.lower()
-    return any(p in low for p in patterns)
+            logger.warning(f"Reflection failed (non-fatal): {e}")

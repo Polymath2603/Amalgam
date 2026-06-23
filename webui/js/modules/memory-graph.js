@@ -423,9 +423,10 @@ export async function initMemoryGraph() {
 
     _graphInstance = new ForceGraph(canvas);
 
-    // Resize observer
+    // Resize observer — store ref so it can be disconnected in destroyMemoryGraph()
     const ro = new ResizeObserver(() => _graphInstance.resize());
     ro.observe(wrap);
+    _graphInstance._resizeObserver = ro;
 
     // Search
     document.getElementById('memory-graph-search')?.addEventListener('input', (e) => {

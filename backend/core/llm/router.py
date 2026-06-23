@@ -7,8 +7,9 @@ delegating all inference to LiteLLM.
 
 import logging
 import os
-from typing import AsyncIterator, List, Dict, Any
+from typing import AsyncIterator, List, Dict, Any, Optional, Union
 
+import httpx
 import litellm
 
 from .litellm_provider import LiteLLMProvider, OPENAI_COMPAT_PROVIDERS
@@ -28,7 +29,7 @@ class LLMRouter:
     """Unified LLM router backed by LiteLLM."""
 
     # Providers that use an OpenAI-compatible API format
-    OPENAI_COMPAT = OPENAI_COMPAT_PROVIDERS
+    # (kept for reference but no longer needs special routing — LiteLLM handles it)
 
     def __init__(self, settings=None):
         if settings is not None and not hasattr(settings, "get"):
@@ -74,7 +75,7 @@ class LLMRouter:
 
     async def stream_with_tools(
         self, messages: list, tools: List[Dict[str, Any]], temperature: float = None,
-    ) -> AsyncIterator:
+    ) -> AsyncIterator[Union[str, Dict[str, Any]]]:
         self._check_local_only()
         if self.supports_native_tools():
             async for item in self._provider.stream_with_tools(messages, tools, temperature):
@@ -87,9 +88,9 @@ class LLMRouter:
             async for token in self._provider.stream(messages, temperature):
                 yield token
 
-    async def generate(self, messages: list, temperature: float = None) -> str:
+    async def generate(self, messages: list, temperature: float = None, tools: Optional[List[Dict[str, Any]]] = None) -> str:
         self._check_local_only()
-        return await self._provider.generate(messages, temperature)
+        return await self._provider.generate(messages, temperature, tools=tools)
 
     async def complete(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
         """Convenience: wrap a string prompt in messages and call generate().
@@ -101,12 +102,11 @@ class LLMRouter:
         return await self.generate(messages, temperature)
 
     async def get_embedding(self, text: str) -> List[float]:
+        self._check_local_only()
         return await self._provider.get_embedding(text)
 
     async def fetch_ollama_models(self) -> List[str]:
         """Fetch models from a running Ollama server."""
-        import httpx
-
         base_url = "http://localhost:11434"
         timeout = 10  # default
         if self.settings:
@@ -131,8 +131,6 @@ class LLMRouter:
         return []
 
     async def fetch_opencode_models(self) -> List[str]:
-        import httpx
-
         base_url = "https://api.opencode.ai/v1"
         timeout = 10
         api_key = ""

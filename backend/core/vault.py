@@ -7,7 +7,7 @@ import re
 import logging
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 
 try:
     import chromadb
@@ -19,7 +19,8 @@ from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
-VAULT_CHUNK_SIZE = 500  
+# Increased from 500 to 1000 chars (~250-500 tokens) for better embedding context
+VAULT_CHUNK_SIZE = 1000
 
 
 class VaultManager:
@@ -29,8 +30,8 @@ class VaultManager:
         self._chroma_col = None
         self._index_mtime: Dict[str, float] = {}
         self._bm25 = None
-        self._bm25_docs = []
-        self._bm25_mtimes = {}
+        self._bm25_docs: List[Dict] = []
+        self._bm25_mtimes: Dict[str, float] = {}
         if embeddings_path and _HAS_CHROMADB:
             ep = Path(embeddings_path)
             ep.mkdir(parents=True, exist_ok=True)
@@ -117,7 +118,8 @@ class VaultManager:
             if f.is_file():
                 current_mtimes[str(f.relative_to(self._vault_path))] = f.stat().st_mtime
 
-        if current_mtimes == self._bm25_mtimes and hasattr(self, '_bm25') and self._bm25 is not None:
+        # _bm25 is always initialized in __init__, so hasattr check is unnecessary
+        if current_mtimes == self._bm25_mtimes and self._bm25 is not None:
             return
 
         self._bm25_docs = []
@@ -213,7 +215,6 @@ class VaultManager:
             if para_break > start + chunk_size // 3:
                 end = para_break + 2
             else:
-
                 for delim in (". ", "! ", "? ", "\n"):
                     sent_break = text.rfind(delim, start, end)
                     if sent_break > start + chunk_size // 3:
@@ -223,15 +224,18 @@ class VaultManager:
             start = end
         return chunks
 
-    async def _index_vault(self, get_embedding_fn):
+    async def _index_vault(self, get_embedding_fn: Callable):
         """Index all .md vault files into ChromaDB. Re-index only changed files."""
         if not self._chroma_col or not self._vault_path.exists() or not get_embedding_fn:
             return
 
+        # Use rglob to include subdirectory files (consistent with _build_bm25_index)
         current_files = {}
-        for f in self._vault_path.iterdir():
-            if f.is_file() and f.name.endswith(".md"):
-                current_files[f.name] = f
+        for f in self._vault_path.rglob("*.md"):
+            if f.is_file():
+                # Use relative path as key for consistency
+                rel = str(f.relative_to(self._vault_path))
+                current_files[rel] = f
 
         to_index = []
         for name, f in current_files.items():
@@ -245,8 +249,8 @@ class VaultManager:
         for name in deleted:
             try:
                 self._chroma_col.delete(where={"filename": name})
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to delete stale ChromaDB entry for {name}: {e}")
             del self._index_mtime[name]
 
         if not to_index:
@@ -260,8 +264,8 @@ class VaultManager:
 
             try:
                 self._chroma_col.delete(where={"filename": name})
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to delete old embeddings for {name}: {e}")
 
             chunks = self._chunk_text(content)
             ids, embeddings, metadatas = [], [], []
@@ -284,9 +288,9 @@ class VaultManager:
                     self._chroma_col.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas)
                     self._index_mtime[name] = mtime
                 except Exception as e:
-                    logger.debug(f"Vault ChromaDB index failed for {name}: {e}")
+                    logger.warning(f"Vault ChromaDB index failed for {name}: {e}")
 
-    async def semantic_search(self, query: str, get_embedding_fn, top_k: int = 5) -> List[Dict]:
+    async def semantic_search(self, query: str, get_embedding_fn: Callable, top_k: int = 5) -> List[Dict]:
         """Semantic search across vault files using ChromaDB embeddings.
 
         Args:
@@ -325,12 +329,12 @@ class VaultManager:
                 for m, d in zip(results["metadatas"][0], distances)
             ]
         except Exception as e:
-            logger.debug(f"Vault ChromaDB query failed: {e}")
+            logger.warning(f"Vault ChromaDB query failed: {e}")
             return []
 
     def inject_to_context(self, max_tokens: int = 2000) -> str:
         """Read all .md files up to max_tokens and return formatted context string.
-        
+
         Returns empty string if no vault files or vault_path doesn't exist.
         """
         from backend.core.utils.tokens import estimate_tokens, truncate_to_token_limit

@@ -21,7 +21,7 @@ class ShellApproveRequest(BaseModel):
     mode: str = "once"
 
 
-@router .get ("/api/mcp/servers")
+@router.get("/api/mcp/servers")
 async def get_mcp_servers ():
     """Get configured MCP servers and their status."""
     servers =settings ().get_mcp_servers ()
@@ -35,7 +35,7 @@ async def get_mcp_servers ():
     return {"servers":result }
 
 
-@router .post ("/api/mcp/servers")
+@router.post("/api/mcp/servers")
 async def update_mcp_servers (body :MCPServersUpdate ):
     """Update MCP server configuration."""
     servers =body .servers
@@ -43,14 +43,14 @@ async def update_mcp_servers (body :MCPServersUpdate ):
     return {"status":"ok","message":"MCP settings saved. Restart to apply changes."}
 
 
-@router .get ("/api/mcp/tools")
+@router.get("/api/mcp/tools")
 async def get_mcp_tools ():
     """Get all available MCP tools."""
     tools =mcp ().get_tool_schema ()if mcp ()else []
     return {"tools":tools }
 
 
-@router .post ("/api/shell/approve")
+@router.post("/api/shell/approve")
 async def approve_command (body :ShellApproveRequest ):
     """Approve a previously blocked shell command.
     

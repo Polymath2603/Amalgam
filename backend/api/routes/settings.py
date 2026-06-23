@@ -267,8 +267,11 @@ async def batch_set_settings (body :BatchSettingsRequest ):
     voice_keys = [k for k in pairs if k.startswith('voice.') or k.startswith('stt.') or k.startswith('wake_word.')]
     if voice_keys:
         try:
-            from backend.voice.pipeline import VoicePipeline
-            logger.debug(f"Voice settings changed: {voice_keys}")
+            from backend.core.deps import get_voice_pipeline
+            pipeline = get_voice_pipeline()
+            if pipeline is not None and hasattr(pipeline, 'reconfigure'):
+                pipeline.reconfigure(s)
+                logger.debug(f"Voice pipeline reconfigured for keys: {voice_keys}")
         except Exception as e:
             logger.warning(f"Failed to propagate voice settings: {e}")
     # Propagate to companion

@@ -7,8 +7,9 @@ import logging
 import uuid
 import re
 from datetime import datetime, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pathlib import Path
+from collections import OrderedDict
 
 try:
     import chromadb
@@ -17,9 +18,7 @@ try:
 except ImportError:
     _HAS_CHROMADB = False
 from backend.core.memory.cache import FACTCache
-FactCache = FACTCache  # alias for plan compatibility
 from backend.core.memory.hybrid import HybridRetrieval
-HybridRetriever = HybridRetrieval  # alias for plan compatibility
 from backend.core.memory.session_index import SessionIndex
 from backend.core.memory.fts import FTSSearch
 from backend.core.memory.working import WorkingMemory
@@ -32,6 +31,9 @@ logger = logging.getLogger(__name__)
 _LOCAL_EMBEDDING = None
 _LOCAL_EMBEDDING_LOADED = False
 
+# Maximum number of session data cache entries before LRU eviction
+_MAX_CACHED_SESSIONS = 100
+
 
 def _get_local_embedding():
     """Lazy-load SentenceTransformer on first use (saves ~18s at startup)."""
@@ -42,12 +44,14 @@ def _get_local_embedding():
             from sentence_transformers import SentenceTransformer
             _LOCAL_EMBEDDING = SentenceTransformer("all-MiniLM-L6-v2")
         except ImportError:
-            pass
+            logger.warning("sentence_transformers not installed; local embedding unavailable")
+        except Exception as e:
+            logger.warning(f"Failed to load local embedding model: {e}")
     return _LOCAL_EMBEDDING
 
 
 class Memory:
-    def __init__(self, llm_router=None, db_path=None, settings=None):
+    def __init__(self, llm_router: Any = None, db_path: Optional[str] = None, settings: Any = None):
         from backend.core.paths import CONVERSATIONS_DIR, EMBEDDINGS_DIR
         self.llm = llm_router
         self.settings = settings
@@ -55,10 +59,14 @@ class Memory:
         self.conv_dir.mkdir(parents=True, exist_ok=True)
         self._summarize_lock = asyncio.Lock()
         self._current_session: Optional[str] = None
-        self._known_sessions: set = set()
-        self._session_data_cache: Dict[str, Dict] = {}
-        self._lock = threading.Lock()
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4, thread_name_prefix="mem_io")
+        # Per-session locks for thread-safe write+cache operations
+        self._session_locks: Dict[str, threading.Lock] = {}
+        self._session_locks_lock = threading.Lock()
+        self._session_data_cache: OrderedDict[str, Dict] = OrderedDict()
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(os.cpu_count() or 4, 2),
+            thread_name_prefix="mem_io"
+        )
 
         EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
         if _HAS_CHROMADB:
@@ -70,28 +78,52 @@ class Memory:
                 name="conversations",
                 metadata={"hnsw:space": "cosine"},
             )
-
-            for p in self._iter_session_paths():
-                sid = self._path_to_session_id(p)
-                if sid:
-                    self._known_sessions.add(sid)
-
             self._maybe_migrate()
         else:
             self.chroma = None
             self.chroma_col = None
+            logger.warning("ChromaDB not available; some memory features disabled")
 
         self._fact_cache = FACTCache()
         self._session_index = SessionIndex(self.conv_dir)
         self._hybrid = HybridRetrieval(self.chroma_col)
         self._fts = FTSSearch(self.conv_dir)
 
-        # Memory tiers
-        self._working = WorkingMemory(capacity=20)
+        # Memory tiers — default capacity matches memory.context_window (50)
+        window = self._setting("memory.context_window", 50)
+        self._working = WorkingMemory(capacity=window)
         self._semantic = SemanticMemory(str(EMBEDDINGS_DIR / "semantic_facts.json"))
         self._consolidator = Consolidator(importance_threshold=0.3)
         # EpisodicMemory is created per-session lazily (needs session_id)
         self._episodic_memories: Dict[str, EpisodicMemory] = {}
+
+    def _get_session_lock(self, session_id: str) -> threading.Lock:
+        """Get or create a per-session lock for thread-safe operations."""
+        with self._session_locks_lock:
+            if session_id not in self._session_locks:
+                self._session_locks[session_id] = threading.Lock()
+            return self._session_locks[session_id]
+
+    def _cache_get(self, session_id: str) -> Optional[Dict]:
+        """Get from LRU cache; promotes accessed entry."""
+        if session_id in self._session_data_cache:
+            data = self._session_data_cache.pop(session_id)
+            self._session_data_cache[session_id] = data
+            return data
+        return None
+
+    def _cache_put(self, session_id: str, data: Dict):
+        """Put into LRU cache with eviction of oldest entry if over limit."""
+        if session_id in self._session_data_cache:
+            self._session_data_cache.pop(session_id)
+        self._session_data_cache[session_id] = data
+        if len(self._session_data_cache) > _MAX_CACHED_SESSIONS:
+            # Remove oldest entry (LRU eviction)
+            self._session_data_cache.popitem(last=False)
+
+    def _cache_remove(self, session_id: str):
+        """Remove a session from cache."""
+        self._session_data_cache.pop(session_id, None)
 
     def _memory_enabled(self) -> bool:
         """Check if memory persistence is enabled in settings. Defaults to True."""
@@ -107,7 +139,7 @@ class Memory:
 
     def _maybe_migrate(self):
         """Migrate legacy session embeddings to ChromaDB (runs once).
-        
+
         A sentinel file (``.migrated``) is created on completion to prevent
         re-running on every startup.
         """
@@ -142,7 +174,7 @@ class Memory:
                 if ids:
                     self.chroma_col.add(ids=ids, embeddings=embs, metadatas=metas)
             except Exception as e:
-                logger.debug(f"Migration skipped for {p}: {e}")
+                logger.warning(f"Migration skipped for {p}: {e}")
 
         sentinel.touch()
 
@@ -177,27 +209,37 @@ class Memory:
         return None
 
     def _read_sync(self, session_id: str) -> Optional[Dict]:
-        """Read session data from memory cache or disk."""
-        # Return cached copy if available (avoids full-file I/O every turn)
-        if session_id in self._session_data_cache:
-            return self._session_data_cache[session_id]
-        path = self._session_path(session_id)
-        if not path.exists():
-            return None
-        try:
-            data = json.loads(path.read_text())
-            self._session_data_cache[session_id] = data
-            return data
-        except (json.JSONDecodeError, OSError):
-            return None
+        """Read session data from memory cache or disk. Thread-safe via per-session lock."""
+        lock = self._get_session_lock(session_id)
+        with lock:
+            # Return cached copy if available (avoids full-file I/O every turn)
+            cached = self._cache_get(session_id)
+            if cached is not None:
+                return cached
+            path = self._session_path(session_id)
+            if not path.exists():
+                return None
+            try:
+                data = json.loads(path.read_text())
+                self._cache_put(session_id, data)
+                return data
+            except (json.JSONDecodeError, OSError):
+                return None
 
     def _write_sync(self, session_id: str, data: Dict):
-        """Write session data to disk and update in-memory cache."""
-        path = self._session_path(session_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2, default=str))
-        # Update cache so subsequent reads avoid disk I/O
-        self._session_data_cache[session_id] = data
+        """Write session data to disk atomically and update in-memory cache.
+        Thread-safe via per-session lock.
+        """
+        lock = self._get_session_lock(session_id)
+        with lock:
+            path = self._session_path(session_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Atomic write: write to tmp then rename
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2, default=str))
+            tmp.replace(path)
+            # Update cache so subsequent reads avoid disk I/O
+            self._cache_put(session_id, data)
 
     async def _read(self, session_id: str) -> Optional[Dict]:
         path = self._session_path(session_id)
@@ -207,34 +249,31 @@ class Memory:
         return await loop.run_in_executor(self._executor, self._read_sync, session_id)
 
     async def _write(self, session_id: str, data: Dict):
-        path = self._session_path(session_id)
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._write_sync, session_id, data)
 
-    def start_session(self) -> str:
+    async def start_session(self) -> str:
+        """Start a new session using async write to avoid blocking the event loop."""
         now = datetime.now(timezone.utc)
         ts = now.strftime("%Y-%m-%d_%H%M%S")
         session_id = ts
-        with self._lock:
-            self._current_session = session_id
-            self._known_sessions.add(session_id)
-            character = self._setting("character.active", "default") if self.settings else None
-            provider = self._setting("provider.active", None) if self.settings else None
-            model = None
-            if provider and self.settings:
-                model = self._setting(f"provider.{provider}.model", None)
-            data = {
-                "id": session_id,
-                "created": now.isoformat(),
-                "updated": now.isoformat(),
-                "title": "New Session",
-                "character": character,
-                "provider": provider,
-                "model": model,
-                "messages": [],
-                "summary": None,
-            }
-            self._write_sync(session_id, data)
+        character = self._setting("character.active", "default") if self.settings else None
+        provider = self._setting("provider.active", None) if self.settings else None
+        model = None
+        if provider and self.settings:
+            model = self._setting(f"provider.{provider}.model", None)
+        data = {
+            "id": session_id,
+            "created": now.isoformat(),
+            "updated": now.isoformat(),
+            "title": "New Session",
+            "character": character,
+            "provider": provider,
+            "model": model,
+            "messages": [],
+            "summary": None,
+        }
+        await self._write(session_id, data)
         self._session_index.upsert(session_id, {
             "id": session_id,
             "created": now.isoformat(),
@@ -244,22 +283,57 @@ class Memory:
             "provider": provider,
             "model": model,
         })
+        self._current_session = session_id
+        return session_id
+
+    def _start_session_sync(self) -> str:
+        """Synchronous session creation used by get_current_session() for backwards compatibility."""
+        now = datetime.now(timezone.utc)
+        ts = now.strftime("%Y-%m-%d_%H%M%S")
+        session_id = ts
+        character = self._setting("character.active", "default") if self.settings else None
+        provider = self._setting("provider.active", None) if self.settings else None
+        model = None
+        if provider and self.settings:
+            model = self._setting(f"provider.{provider}.model", None)
+        data = {
+            "id": session_id,
+            "created": now.isoformat(),
+            "updated": now.isoformat(),
+            "title": "New Session",
+            "character": character,
+            "provider": provider,
+            "model": model,
+            "messages": [],
+            "summary": None,
+        }
+        self._write_sync(session_id, data)
+        self._session_index.upsert(session_id, {
+            "id": session_id,
+            "created": now.isoformat(),
+            "updated": now.isoformat(),
+            "title": "New Session",
+            "character": character,
+            "provider": provider,
+            "model": model,
+        })
+        self._current_session = session_id
         return session_id
 
     def session_exists(self, session_id: str) -> bool:
-        if session_id in self._known_sessions:
-            return True
         exists = self._session_path(session_id).exists()
-        if exists:
-            self._known_sessions.add(session_id)
         return exists
+
+    def has_active_session(self) -> bool:
+        """Return True if a conversation session is already active."""
+        return self._current_session is not None
 
     def set_current_session(self, session_id: str):
         self._current_session = session_id
 
     def get_current_session(self) -> str:
         if not self._current_session:
-            self.start_session()
+            self._start_session_sync()
         return self._current_session
 
     def _setting(self, key: str, default):
@@ -277,33 +351,44 @@ class Memory:
         if backend == "disabled":
             return None
 
-        if backend == "local" and _get_local_embedding() is not None:
-            try:
-                emb = _get_local_embedding().encode(text)
-                result = emb.tolist()
-                self._fact_cache.set(text, result)
-                return result
-            except Exception as e:
-                logger.debug(f"Local embedding failed: {e}")
+        # Build priority list: prefer configured backend, fall back to local
+        if backend == "local":
+            backends = ["local"]
+            # Add provider as fallback only if the user explicitly configured it too
+            if self.llm:
+                backends.append("provider")
+        elif backend == "provider":
+            backends = ["provider", "local"]
+        else:
+            backends = ["provider", "local"]
 
-        if backend in ("provider", "local") and self.llm:
-            try:
-                emb = await self.llm.get_embedding(text)
-                if emb:
-                    self._fact_cache.set(text, emb)
-                    return emb
-            except Exception as e:
-                logger.debug(f"Provider embedding failed: {e}")
+        last_error = None
+        for b in backends:
+            if b == "local":
+                local_emb = _get_local_embedding()
+                if local_emb is not None:
+                    try:
+                        emb = local_emb.encode(text)
+                        result = emb.tolist()
+                        self._fact_cache.set(text, result)
+                        return result
+                    except Exception as e:
+                        last_error = e
+                        logger.debug(f"Local embedding failed: {e}")
+                else:
+                    logger.debug("Local embedding not available (sentence_transformers not installed)")
+            elif b == "provider" and self.llm:
+                try:
+                    emb = await self.llm.get_embedding(text)
+                    if emb:
+                        self._fact_cache.set(text, emb)
+                        return emb
+                except Exception as e:
+                    last_error = e
+                    logger.debug(f"Provider embedding failed: {e}")
 
-        if _get_local_embedding() is not None:
-            try:
-                emb = _get_local_embedding().encode(text)
-                result = emb.tolist()
-                self._fact_cache.set(text, result)
-                return result
-            except Exception:
-                pass
-
+        if last_error:
+            logger.debug(f"All embedding backends failed: {last_error}")
         return None
 
     def _get_episodic(self, session_id: str) -> EpisodicMemory:
@@ -330,10 +415,10 @@ class Memory:
     def _get_unique_title(self, title: str) -> str:
         all_sessions = self.get_sessions()
         existing_titles = [s.get("title") for s in all_sessions if s.get("title")]
-        
+
         if title not in existing_titles:
             return title
-            
+
         counter = 1
         while f"{title} ({counter})" in existing_titles:
             counter += 1
@@ -343,8 +428,9 @@ class Memory:
         all_sessions = self.get_sessions()
         if any(s.get("title") == new_title and s.get("id") != session_id for s in all_sessions):
             raise ValueError(f"Session title '{new_title}' already exists.")
-            
-        with self._lock:
+
+        lock = self._get_session_lock(session_id)
+        with lock:
             data = self._read_sync(session_id)
             if data:
                 data["title"] = new_title
@@ -370,9 +456,17 @@ class Memory:
         if not self._memory_enabled():
             return
 
+        # 1. Compute embedding early (async, may be slow)
         embedding = await self._get_embedding(content)
 
-        with self._lock:
+        # 2. Prepare chroma_id if we have an embedding
+        cid = None
+        if embedding:
+            cid = f"{session_id}_{uuid.uuid4().hex[:8]}"
+
+        # 3. Mutate and persist session data under lock
+        lock = self._get_session_lock(session_id)
+        with lock:
             data = self._read_sync(session_id)
             if data is None:
                 data = {
@@ -388,12 +482,10 @@ class Memory:
                 "content": content,
                 "timestamp": timestamp,
             }
-            if embedding:
-                cid = f"{session_id}_{uuid.uuid4().hex[:8]}"
+            if cid:
                 msg["chroma_id"] = cid
 
             if role == "user" and data.get("title", "New Session") == "New Session" and content.strip():
-                # Generate initial title from first 4 words of first user message
                 raw_title = self._generate_title([msg])
                 data["title"] = self._get_unique_title(raw_title)
 
@@ -401,14 +493,18 @@ class Memory:
             data["updated"] = timestamp
             self._write_sync(session_id, data)
 
+        # 4. Update session index (idempotent, lightweight)
         self._session_index.upsert(session_id, {
             "id": session_id,
             "updated": timestamp,
             "message_count": len(data.get("messages", [])),
             "title": data.get("title", "New Session"),
         })
-        self._hybrid.rebuild_bm25(data.get("messages", []))
 
+        # 5. Incremental BM25 update (avoid O(n) full rebuild on every turn)
+        self._hybrid.add_document(msg)
+
+        # 6. Store in ChromaDB embedding (non-critical; failure is logged)
         if embedding:
             try:
                 self.chroma_col.add(
@@ -422,16 +518,17 @@ class Memory:
                     }],
                 )
             except Exception as e:
-                logger.debug(f"ChromaDB add failed: {e}")
+                logger.warning(f"ChromaDB add failed for {session_id}: {e}")
 
+        # 7. Background summarization (fire-and-forget with safe lock)
         asyncio.create_task(self._safe_summarize())
 
-        # Index into FTS5 for keyword search
+        # 8. Index into FTS5 for keyword search
         msg_index = len(data["messages"]) - 1
         msg_id = f"{session_id}_{msg_index}"
         self._fts.index_message(session_id, msg_id, role, content, timestamp)
 
-        # Store in episodic memory for per-session recall
+        # 9. Store in episodic memory for per-session recall
         ep = self._get_episodic(session_id)
         ep.add_episode({"role": role, "content": content, "timestamp": timestamp})
 
@@ -452,11 +549,11 @@ class Memory:
                     continue
                 path = self._session_path(sid)
                 if not path.exists():
-                    self._session_index.remove(sid)
+                    # Don't silently remove; just skip
+                    logger.debug(f"Session {sid} in index but file not found; skipping")
                     continue
                 data = self._read_sync(sid)
                 if data is None:
-                    self._session_index.remove(sid)
                     continue
                 msgs = data.get("messages", [])
                 preview = ""
@@ -477,6 +574,7 @@ class Memory:
                 })
             return sessions
 
+        # Fallback: iterate disk if index is empty
         for path in self._iter_session_paths():
             sid = self._path_to_session_id(path)
             if not sid:
@@ -514,20 +612,24 @@ class Memory:
 
     async def delete_session(self, session_id: str) -> bool:
         try:
-            self.chroma_col.delete(where={"session_id": session_id})
+            if self.chroma_col is not None:
+                self.chroma_col.delete(where={"session_id": session_id})
         except Exception as e:
-            logger.debug(f"ChromaDB delete failed: {e}")
+            logger.warning(f"ChromaDB delete failed for {session_id}: {e}")
         path = self._session_path(session_id)
         if path.exists():
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self._executor, path.unlink)
-            self._known_sessions.discard(session_id)
-            self._session_data_cache.pop(session_id, None)
+            self._cache_remove(session_id)
             self._session_index.remove(session_id)
+            # Cleanup per-session resources
+            with self._session_locks_lock:
+                self._session_locks.pop(session_id, None)
+            self._episodic_memories.pop(session_id, None)
             return True
         return False
 
-    def get_recent(self, n: int = None) -> List[Dict[str, str]]:
+    def get_recent(self, n: Optional[int] = None) -> List[Dict[str, str]]:
         if n is None:
             n = self._setting("memory.context_window", 50)
         if n <= 0:
@@ -545,16 +647,14 @@ class Memory:
             return working_turns
 
         # Fall back to disk for older messages
-        session_id = self.get_current_session()
-        with self._lock:
-            data = self._read_sync(session_id)
+        session_id = self._current_session
+        if not session_id:
+            return working_turns or []
+        data = self._read_sync(session_id)
         if data is None:
             return working_turns or []
         msgs = data.get("messages", [])
         return msgs[-n:]
-
-    def get_all_recent(self, n: int = None) -> List[Dict[str, str]]:
-        return self.get_recent(n)
 
     def store_semantic_fact(self, content: str, metadata: Optional[Dict] = None) -> str:
         """Store a cross-session fact in semantic memory. Returns fact ID."""
@@ -567,7 +667,8 @@ class Memory:
     async def delete_message(self, msg_id: int) -> bool:
         session_id = self.get_current_session()
         chroma_id = None
-        with self._lock:
+        lock = self._get_session_lock(session_id)
+        with lock:
             data = self._read_sync(session_id)
             if data is None or msg_id >= len(data.get("messages", [])):
                 return False
@@ -576,14 +677,16 @@ class Memory:
             self._write_sync(session_id, data)
         if chroma_id:
             try:
-                self.chroma_col.delete(ids=[chroma_id])
+                if self.chroma_col is not None:
+                    self.chroma_col.delete(ids=[chroma_id])
             except Exception as e:
-                logger.debug(f"ChromaDB delete failed: {e}")
+                logger.warning(f"ChromaDB delete failed for message {msg_id}: {e}")
         return True
 
     def get_summary(self) -> str:
         session_id = self.get_current_session()
-        with self._lock:
+        lock = self._get_session_lock(session_id)
+        with lock:
             data = self._read_sync(session_id)
         if data is None:
             return ""
@@ -601,7 +704,7 @@ class Memory:
             return 0
         return len(data.get("messages", []))
 
-    async def get_relevant(self, query: str, top_k: int = None) -> List[Dict[str, str]]:
+    async def get_relevant(self, query: str, top_k: Optional[int] = None) -> List[Dict[str, str]]:
         if top_k is None:
             top_k = self._setting("memory.retrieval_k", 3)
         if not self.llm and _get_local_embedding() is None:
@@ -609,45 +712,22 @@ class Memory:
 
         session_id = self.get_current_session()
 
-        # Use retrieve_for_context for caching + hybrid retrieval, then wrap to dicts
+        # Use retrieve_for_context for caching + hybrid retrieval
         contents = await self.retrieve_for_context(query, session_id, n=top_k)
         if contents:
             return [{"role": "assistant", "content": c} for c in contents]
-
-        # Fallback: direct hybrid if retrieve_for_context returned nothing
-        query_emb = await self._get_embedding(query)
-        if not query_emb:
-            return []
-        try:
-            return await self._hybrid.retrieve(query, query_emb, session_id, top_k)
-        except Exception as e:
-            logger.debug(f"Hybrid retrieval failed, falling back: {e}")
-            try:
-                results = self.chroma_col.query(
-                    query_embeddings=[query_emb],
-                    n_results=top_k,
-                    where={"session_id": session_id},
-                )
-                if results and results["metadatas"] and results["metadatas"][0]:
-                    return [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in results["metadatas"][0]
-                    ]
-            except Exception as e2:
-                logger.debug(f"ChromaDB query failed: {e2}")
 
         return []
 
     async def retrieve_for_context(
         self,
         query: str,
-        session_id: str | None = None,
+        session_id: Optional[str] = None,
         n: int = 5,
     ) -> list[str]:
         """
         Retrieve relevant memory for the current query.
         Uses: FACT cache → RRF hybrid (BM25 + ChromaDB) → return top-N.
-        Matches plan spec exactly (Task 3).
         """
         if not query or not query.strip():
             return []
@@ -668,7 +748,8 @@ class Memory:
         try:
             results = await self._hybrid.retrieve(query, query_emb, session_id, n)
             contents = [r.get("content", "") for r in results if r.get("content")]
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Hybrid retrieval failed: {e}")
             contents = []
 
         # 3. Cache the result for 5 minutes
@@ -693,8 +774,9 @@ class Memory:
                 query_embeddings=[query_emb],
                 n_results=top_k,
             )
-            if results and results["metadatas"] and results["metadatas"][0]:
-                distances = results["distances"][0] if results.get("distances") else [None] * len(results["metadatas"][0])
+            metadatas = (results.get("metadatas") or [[]])[0]
+            distances = (results.get("distances") or [[]])[0] if results.get("distances") else [None] * len(metadatas)
+            if metadatas:
                 return [
                     {
                         "session_id": m.get("session_id", ""),
@@ -703,20 +785,15 @@ class Memory:
                         "timestamp": m.get("timestamp", ""),
                         "distance": d,
                     }
-                    for m, d in zip(results["metadatas"][0], distances)
+                    for m, d in zip(metadatas, distances)
                 ]
         except Exception as e:
-            logger.debug(f"ChromaDB cross-session query failed: {e}")
+            logger.warning(f"ChromaDB cross-session query failed: {e}")
 
         return []
 
     async def search_all_sessions_fts(self, query: str, top_k: int = 10) -> List[Dict]:
-        """Keyword search across ALL sessions via FTS5.
-
-        Complements :meth:`search_all_sessions` (semantic search).
-        If the FTS index is empty, it auto-populates from existing session files.
-        """
-        # Lazy build — only scan existing sessions when FTS is first queried
+        """Keyword search across ALL sessions via FTS5."""
         conn = self._fts._get_conn()
         count = conn.execute("SELECT COUNT(*) FROM message_fts;").fetchone()[0]
         if count == 0:
@@ -724,7 +801,8 @@ class Memory:
         return self._fts.search(query, top_k)
 
     async def _prune_tool_outputs(self, session_id: str, max_chars: int = 2000):
-        with self._lock:
+        lock = self._get_session_lock(session_id)
+        with lock:
             data = self._read_sync(session_id)
             if data is None:
                 return
@@ -743,24 +821,22 @@ class Memory:
             return
 
         async with self._summarize_lock:
-            threshold = self._setting("memory.summarize_threshold", 40)
-            keep = self._setting("memory.summarize_keep", 15)
-            session_id = self.get_current_session()
-
-            with self._lock:
-                data = self._read_sync(session_id)
-            if data is None:
-                return
-
-            count = len(data.get("messages", []))
-            if count <= threshold:
-                return
-
             try:
+                threshold = self._setting("memory.summarize_threshold", 40)
+                keep = self._setting("memory.summarize_keep", 15)
+                session_id = self.get_current_session()
+
+                data = self._read_sync(session_id)
+                if data is None:
+                    return
+
+                count = len(data.get("messages", []))
+                if count <= threshold:
+                    return
+
                 await self._prune_tool_outputs(session_id)
 
-                with self._lock:
-                    data = self._read_sync(session_id)
+                data = self._read_sync(session_id)
                 msgs = data["messages"]
                 to_summarize = msgs[:-keep] if keep < len(msgs) else msgs
 
@@ -781,7 +857,8 @@ class Memory:
                 summary = await get_plugin_registry().hook_compaction(summary or "")
 
                 if summary and not summary.startswith("Error"):
-                    with self._lock:
+                    lock = self._get_session_lock(session_id)
+                    with lock:
                         data = self._read_sync(session_id)
                         if data:
                             if keep < len(data["messages"]):
@@ -789,7 +866,7 @@ class Memory:
                             data["summary"] = summary
                             self._write_sync(session_id, data)
             except Exception as e:
-                logger.error(f"Compaction failed: {e}")
+                logger.error(f"Compaction failed: {e}", exc_info=True)
 
     async def clear(self):
         if not self.chroma:
@@ -806,7 +883,8 @@ class Memory:
         loop = asyncio.get_running_loop()
         for path in list(self._iter_session_paths()):
             await loop.run_in_executor(self._executor, path.unlink)
-        self._known_sessions.clear()
+        with self._session_locks_lock:
+            self._session_locks.clear()
         self._session_data_cache.clear()
         self._session_index._index.clear()
         self._session_index._save()
@@ -818,7 +896,8 @@ class Memory:
 
     async def shutdown(self):
         """Clean up executor and release resources."""
-        self._executor.shutdown(wait=False)
+        # Graceful drain: wait for pending tasks with timeout
+        self._executor.shutdown(wait=True)
         if self.chroma:
             try:
                 self.chroma.clear_system_cache()

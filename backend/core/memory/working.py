@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 class WorkingMemory:
     """Stores recent conversational turns in FIFO order with a capacity cap."""
 
-    def __init__(self, capacity: int = 20):
+    def __init__(self, capacity: int = 20) -> None:
         self._capacity = capacity
         self._turns: OrderedDict[str, Dict] = OrderedDict()
         self._counter = 0
@@ -33,8 +33,9 @@ class WorkingMemory:
     def all(self) -> List[Dict]:
         return list(self._turns.values())
 
-    def clear(self):
+    def clear(self) -> None:
         self._turns.clear()
+        self._counter = 0
 
     def __len__(self) -> int:
         return len(self._turns)

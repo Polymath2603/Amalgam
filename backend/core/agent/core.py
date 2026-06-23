@@ -9,7 +9,8 @@ import json
 import logging
 import re
 import time
-from typing import AsyncIterator, Union, Tuple, List, Dict
+from collections import deque
+from typing import AsyncIterator, Union, Tuple, List, Dict, Optional
 
 from backend.core.memory import Memory
 from backend.core.context_builder import ContextBuilder
@@ -24,6 +25,9 @@ THINK_RE = re.compile(r'<think>(.*?)</think>', re.DOTALL)
 EMOTION_TAG_RE = re.compile(r'(?<!\[)\[(\w+)\]')
 
 _metrics = MetricsCollector("data/metrics.db")
+
+# Maximum number of iterations for the tool-calling loop
+MAX_ITERATIONS = 5
 
 
 async def execute_tool_safe(mcp_client, tool_name: str, tool_args: dict,
@@ -56,15 +60,11 @@ class Agent:
         self.mcp_client = mcp_client
         self.strategy_selector = strategy_selector
 
-    def update_emotion_tags(self, tags):
-        """No-op — avatar emotion is now controlled via MCP tools, not tags."""
-
-    def update_expression_names(self, names):
-        """No-op — avatar expressions are now controlled via MCP tools, not tags."""
-
     def update_settings(self, settings):
         self.settings = settings
         self.context_builder.settings = settings
+        if hasattr(self.llm, 'reload_settings'):
+            self.llm.reload_settings()
 
     def _process_tags(self, text: str):
         for m in THINK_RE.finditer(text):
@@ -137,8 +137,12 @@ class Agent:
         system = messages[0]
         history = messages[1:]
 
-        while self._estimate_tokens([system] + history, tools, model=model) > max_tokens and len(history) > 1:
-            history.pop(0)
+        # Use deque for efficient left-pop, then convert back to list for final result
+        history_deque = deque(history)
+        while self._estimate_tokens([system] + list(history_deque), tools, model=model) > max_tokens and len(history_deque) > 1:
+            history_deque.popleft()
+
+        history = list(history_deque)
 
         if self._estimate_tokens([system] + history, tools, model=model) > max_tokens:
             sys_str = str(system.get("content", ""))
@@ -236,7 +240,7 @@ class Agent:
     async def handle_user_input(self, text: str, images: list = None, relationship_context: str = "") -> AsyncIterator[Union[str, Tuple[str, str]]]:
         await self.memory.add_turn("user", text)
         _metrics_start = time.monotonic()
-        _metrics_session = self.memory.get_current_session() if hasattr(self.memory, 'get_current_session') else None
+        _metrics_session = self.memory.get_current_session()
         _metrics_tool_calls = 0
         _metrics_memory_hits = 0
 
@@ -250,13 +254,14 @@ class Agent:
             strategy = self.strategy_selector.select(intent)
             logger.debug("Strategy for intent=%s: max_iterations=%s, temperature=%s, CoT=%s",
                          intent, strategy.max_iterations, strategy.temperature, strategy.use_chain_of_thought)
-        max_iterations = strategy.max_iterations if strategy else 5
+        max_iterations = strategy.max_iterations if strategy else MAX_ITERATIONS
 
         iterations = 0
         current_input = text
         native_tools = self.llm.supports_native_tools()
         last_tool_call = None
         _pending_tool_announce = []
+        _hit_iteration_limit = False
 
         while iterations < max_iterations:
             iterations += 1
@@ -492,6 +497,9 @@ class Agent:
                 if in_tool_block and not tool_called:
                     logger.warning("agent: stream ended mid-tool-block")
                     in_tool_block = False
+        else:
+            # Loop exited due to hitting the iteration limit (no break)
+            _hit_iteration_limit = True
 
         for msg in _pending_tool_announce:
             yield ("__tool__", msg)
@@ -518,10 +526,5 @@ class Agent:
         except Exception:
             logger.debug("Metrics recording failed (non-fatal)")
 
-        if iterations >= 5:
+        if _hit_iteration_limit:
             yield "\n[Max tool iterations reached.]\n"
-
-    # ---------------------------------------------------------------------------
-    # Dead methods removed — stream_response and generate_response were
-    # abandoned refactoring artifacts never called by any agent or handler.
-    # ---------------------------------------------------------------------------

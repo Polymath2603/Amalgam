@@ -124,6 +124,12 @@ class ContextBuilder:
         if not os.path.exists(vault_path):
             return ""
 
+        # Validate vault path against directory traversal
+        vault_path = str(Path(vault_path).resolve())
+        if not vault_path.startswith(str(VAULT_DIR)):
+            logger.warning(f"Vault path traversal blocked: {vault_path}")
+            return ""
+
         rules_path = os.path.join(vault_path, "rules.md")
         if os.path.exists(rules_path) and os.path.isfile(rules_path):
             try:
@@ -276,7 +282,7 @@ class ContextBuilder:
     def _build_relationship_section(self, relationship_context: str) -> str:
         if not relationship_context:
             return ""
-        return f"\n\n{relationship_context}"
+        return f"\n\n### About the User (from previous interactions)\n{relationship_context}"
 
     def _build_character_prompt(self, character: Dict, additional_prompt: str = "",
                                 character_id: str = None, tools: list = None) -> dict:
@@ -407,5 +413,8 @@ class ContextBuilder:
         }
 
     def build_from_messages(self, messages: list, new_user_msg: str) -> list:
-        messages.append({"role": "user", "content": new_user_msg})
-        return messages
+        """Append a new user message to a message list.
+
+        Returns a new list without mutating the input (immutable style).
+        """
+        return messages + [{"role": "user", "content": new_user_msg}]

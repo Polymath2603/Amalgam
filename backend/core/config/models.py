@@ -9,11 +9,10 @@ dot‑notation dict for code that hasn't migrated yet.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 
 # =============================================================================
@@ -22,9 +21,10 @@ from pydantic import BaseModel, Field, SecretStr
 
 
 class ProviderConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Generic OpenAI‑compatible provider configuration."""
 
-    api_key: SecretStr = Field(default="", description="API key for the provider")
+    api_key: SecretStr = Field(default=SecretStr(""), description="API key for the provider")
     model: str = Field(default="", description="Model identifier")
     base_url: str = Field(default="", description="Base URL for API calls")
     timeout: int = Field(default=30, ge=5, le=120, description="Request timeout in seconds")
@@ -32,18 +32,20 @@ class ProviderConfig(BaseModel):
 
 
 class AWSConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """AWS Bedrock provider configuration."""
 
-    access_key: SecretStr = Field(default="", description="AWS access key")
-    secret_key: SecretStr = Field(default="", description="AWS secret key")
+    access_key: str = Field(default="", description="AWS access key")
+    secret_key: str = Field(default="", description="AWS secret key")
     region: str = Field(default="us-east-1", description="AWS region")
     model: str = Field(default="anthropic.claude-sonnet-4-20250514", description="Bedrock model ID")
 
 
 class GCPConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """GCP Vertex AI provider configuration."""
 
-    service_account_json: SecretStr = Field(default="", description="GCP service account JSON key")
+    service_account_json: str = Field(default="", description="GCP service account JSON key")
     project_id: str = Field(default="", description="GCP project ID")
     region: str = Field(default="us-central1", description="GCP region")
     model: str = Field(default="gemini-2.0-flash-001", description="Vertex AI model name")
@@ -199,7 +201,7 @@ class LLMProviderConfig(BaseModel):
         description="Together AI provider",
     )
     azure_openai: ProviderConfig = Field(
-        default=ProviderConfig(
+        default_factory=lambda: ProviderConfig(
             api_key=SecretStr(""),
             model="gpt-4o-mini",
             base_url="https://YOUR_RESOURCE.openai.azure.com",
@@ -232,9 +234,10 @@ class LLMProviderConfig(BaseModel):
     aws: AWSConfig = Field(default_factory=AWSConfig, description="AWS Bedrock provider")
     gcp: GCPConfig = Field(default_factory=GCPConfig, description="GCP Vertex AI provider")
 
-    class Config:
-        """Allow extra providers (e.g. ``opencode``, ``openai``) not explicitly listed."""
-        extra = "allow"
+    model_config = ConfigDict(
+        extra="allow",
+        description="Allow extra providers (e.g. ``opencode``, ``openai``) not explicitly listed.",
+    )
 
 
 # =============================================================================
@@ -243,40 +246,46 @@ class LLMProviderConfig(BaseModel):
 
 
 class FasterWhisperConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Local faster‑whisper STT configuration."""
 
     model: Literal["tiny", "base", "small", "medium", "large"] = Field(default="base", description="Whisper model size")
 
 
 class OpenAIWhisperConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """OpenAI Whisper API STT configuration."""
 
-    api_key: SecretStr = Field(default="", description="OpenAI API key")
+    api_key: str = Field(default="", description="OpenAI API key")
     model: str = Field(default="whisper-1", description="Whisper model name")
 
 
 class GroqWhisperConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Groq Whisper API STT configuration."""
 
-    api_key: SecretStr = Field(default="", description="Groq API key")
+    api_key: str = Field(default="", description="Groq API key")
     model: str = Field(default="whisper-large-v3", description="Whisper model name")
     base_url: str = Field(default="https://api.groq.com/openai/v1", description="Groq API base URL")
 
 
 class WhisperCppConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """whisper.cpp server STT configuration."""
 
     url: str = Field(default="http://127.0.0.1:8080", description="whisper.cpp server URL")
 
 
 class DeepgramSTTConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Deepgram STT configuration."""
 
-    api_key: SecretStr = Field(default="", description="Deepgram API key")
+    api_key: str = Field(default="", description="Deepgram API key")
     model: str = Field(default="nova-2", description="Deepgram STT model name")
 
 
 class STTConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Speech‑to‑Text engine selection and sub‑configs."""
 
     engine: Literal["browser", "faster-whisper", "openai-whisper", "groq-whisper", "whispercpp", "deepgram"] = Field(
@@ -295,21 +304,26 @@ class STTConfig(BaseModel):
 
 
 class OpenAITTSConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """OpenAI TTS API configuration."""
 
-    api_key: SecretStr = Field(default="", description="OpenAI API key")
+    api_key: str = Field(default="", description="OpenAI API key")
     model: str = Field(default="tts-1", description="TTS model name")
+    voice: str = Field(default="alloy", description="TTS voice identifier")
     base_url: str = Field(default="https://api.openai.com/v1", description="OpenAI API base URL")
 
 
 class ElevenLabsConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """ElevenLabs TTS configuration."""
 
-    api_key: SecretStr = Field(default="", description="ElevenLabs API key")
-    voice_id: str = Field(default="21m00Tcm4TlvDq8ikWAM", description="Voice ID")
+    api_key: str = Field(default="", description="ElevenLabs API key")
+    voice_id: str = Field(default="", description="Voice ID")
+    model: str = Field(default="eleven_multilingual_v2", description="ElevenLabs model name")
 
 
 class AllTalkConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """AllTalk TTS server configuration."""
 
     url: str = Field(default="http://127.0.0.1:7851", description="AllTalk server URL")
@@ -320,12 +334,14 @@ class AllTalkConfig(BaseModel):
 
 
 class PiperConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Piper TTS server configuration."""
 
     url: str = Field(default="http://127.0.0.1:5000", description="Piper server URL")
 
 
 class CoquiLocalConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Local Coqui TTS configuration."""
 
     url: str = Field(default="http://127.0.0.1:5002", description="Coqui server URL")
@@ -333,6 +349,7 @@ class CoquiLocalConfig(BaseModel):
 
 
 class KokoroConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Kokoro TTS server configuration."""
 
     url: str = Field(default="http://127.0.0.1:8880", description="Kokoro server URL")
@@ -340,35 +357,40 @@ class KokoroConfig(BaseModel):
 
 
 class AzureTTSConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Azure Cognitive Services TTS configuration."""
 
-    api_key: SecretStr = Field(default="", description="Azure subscription key")
+    api_key: str = Field(default="", description="Azure subscription key")
     region: str = Field(default="eastus", description="Azure region")
 
 
 class DashscopeTTSConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Alibaba DashScope (CosyVoice) TTS configuration."""
 
-    api_key: SecretStr = Field(default="", description="DashScope API key")
+    api_key: str = Field(default="", description="DashScope API key")
     model: str = Field(default="cosyvoice-v1", description="Model name")
 
 
 class VolcengineTTSConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Volcengine TTS configuration."""
 
     app_id: str = Field(default="", description="Volcengine app ID")
-    access_token: SecretStr = Field(default="", description="Access token")
+    access_token: str = Field(default="", description="Access token")
     cluster: str = Field(default="volcano_tts", description="Cluster name")
 
 
 class DeepgramTTSConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Deepgram TTS configuration."""
 
-    api_key: SecretStr = Field(default="", description="Deepgram API key")
+    api_key: str = Field(default="", description="Deepgram API key")
     model: str = Field(default="aura-2", description="TTS model name")
 
 
 class RVCConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Retrieval‑based Voice Conversion (RVC) configuration."""
 
     url: str = Field(default="http://127.0.0.1:7897", description="RVC server URL")
@@ -377,12 +399,13 @@ class RVCConfig(BaseModel):
 
 
 class TTSConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Text‑to‑Speech engine selection and sub‑configs."""
 
     engine: Literal["edge-tts", "openvoice", "elevenlabs", "openai-tts", "speecht5", "alltalk", "piper", "coqui-local", "kokoro"] = Field(
         default="edge-tts", description="Active TTS engine"
     )
-    lipsync_enabled: bool = Field(default=True, description="Enable lip‑sync animation")
+    stt_engine: str = Field(default="browser", description="STT engine for voice input")
     openai: OpenAITTSConfig = Field(default_factory=OpenAITTSConfig, description="OpenAI TTS")
     elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig, description="ElevenLabs TTS")
     alltalk: AllTalkConfig = Field(default_factory=AllTalkConfig, description="AllTalk TTS")
@@ -403,10 +426,11 @@ class TTSConfig(BaseModel):
 
 
 class VADConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Voice Activity Detection configuration."""
 
     mode: Literal[0, 1, 2, 3] = Field(default=2, description="VAD aggressiveness (0‑3)")
-    frame_size: int = Field(default=960, ge=160, le=960, description="VAD frame size in samples")
+    frame_size: int = Field(default=960, ge=160, le=1920, description="VAD frame size in samples")
     energy_threshold: float = Field(default=0.02, ge=0.0, le=1.0, description="Energy threshold for VAD")
     silence_frames: int = Field(default=33, ge=1, description="Consecutive silent frames before end of speech")
 
@@ -417,6 +441,7 @@ class VADConfig(BaseModel):
 
 
 class WakeWordConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Wake‑word / hotword detection configuration."""
 
     enabled: bool = Field(default=False, description="Enable wake‑word detection")
@@ -431,13 +456,14 @@ class WakeWordConfig(BaseModel):
 
 
 class VoiceConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Aggregate voice settings (STT, TTS, VAD, wake‑word)."""
 
     engine: str = Field(default="edge-tts", description="Active TTS engine (top‑level)")
     lipsync_enabled: bool = Field(default=True, description="Enable lip‑sync (top‑level)")
     stt_engine: str = Field(default="browser", description="Active STT engine (top‑level)")
     vad_mode: int = Field(default=2, ge=0, le=3, description="VAD mode (top‑level)")
-    vad_frame_size: int = Field(default=960, ge=160, le=960, description="VAD frame size (top‑level)")
+    vad_frame_size: int = Field(default=960, ge=160, le=1920, description="VAD frame size (top‑level)")
     vad_energy_threshold: float = Field(default=0.02, ge=0.0, le=1.0, description="VAD energy threshold (top‑level)")
     vad_silence_frames: int = Field(default=33, ge=1, description="VAD silence frames (top‑level)")
     tts_timeout: float = Field(default=60.0, ge=5.0, le=300.0, description="TTS timeout at voice level")
@@ -460,7 +486,7 @@ class VoiceConfig(BaseModel):
     elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
 
     # Extra fields present in real settings.json (not in DEFAULTS but widely used)
-    active: str = Field(default="", description="Active TTS voice name / ID")
+    preferred_voice_id: str = Field(default="", description="Preferred TTS voice identifier (name or ID)")
     input_enabled: bool = Field(default=True, description="Microphone input enabled")
     output_enabled: bool = Field(default=True, description="Audio output enabled")
 
@@ -470,6 +496,13 @@ class VoiceConfig(BaseModel):
         description="Deepgram STT (alias for deepgram_stt, used by legacy code)",
     )
 
+    @model_validator(mode="after")
+    def _sync_deepgram_aliases(self):
+        """Keep deepgram and deepgram_stt in sync (N7)."""
+        if self.deepgram is not self.deepgram_stt:
+            object.__setattr__(self, 'deepgram', self.deepgram_stt)
+        return self
+
 
 # =============================================================================
 # ── Avatar ──
@@ -477,6 +510,7 @@ class VoiceConfig(BaseModel):
 
 
 class AvatarConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """VRM‑based avatar / digital human configuration."""
 
     enabled: bool = Field(default=True, description="Enable avatar rendering")
@@ -495,6 +529,7 @@ class AvatarConfig(BaseModel):
 
 
 class ShellConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Shell command execution configuration."""
 
     mode: Literal["safe", "normal", "off"] = Field(default="safe", description="Shell execution mode")
@@ -522,6 +557,7 @@ class ShellConfig(BaseModel):
 
 
 class BehaviorConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Agent behavior and autonomy settings."""
 
     permission_level: Literal["readonly", "confirm", "full"] = Field(
@@ -545,6 +581,7 @@ class BehaviorConfig(BaseModel):
 
 
 class MemoryCompactionConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Memory compaction / consolidation settings."""
 
     enabled: bool = Field(default=True, description="Enable memory compaction")
@@ -556,6 +593,7 @@ class MemoryCompactionConfig(BaseModel):
 
 
 class MemoryStrategiesConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Memory retrieval strategy selections."""
 
     episodic: str = Field(default="chromadb", description="Episodic memory backend")
@@ -565,13 +603,15 @@ class MemoryStrategiesConfig(BaseModel):
 
 
 class OpenAIEmbeddingConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """OpenAI embedding API configuration."""
 
-    api_key: SecretStr = Field(default="", description="OpenAI API key for embeddings")
+    api_key: str = Field(default="", description="OpenAI API key for embeddings")
     model: str = Field(default="text-embedding-3-small", description="Embedding model name")
 
 
 class OllamaEmbeddingConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Ollama local embedding configuration."""
 
     base_url: str = Field(default="http://localhost:11434", description="Ollama server URL")
@@ -579,6 +619,7 @@ class OllamaEmbeddingConfig(BaseModel):
 
 
 class MemoryEmbeddingConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Embedding provider sub‑configs."""
 
     openai: OpenAIEmbeddingConfig = Field(default_factory=OpenAIEmbeddingConfig)
@@ -586,6 +627,7 @@ class MemoryEmbeddingConfig(BaseModel):
 
 
 class MemoryConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Memory and context management configuration."""
 
     retrieval_k: int = Field(default=3, ge=1, le=20, description="Number of memory items to retrieve")
@@ -611,6 +653,7 @@ class MemoryConfig(BaseModel):
 
 
 class PrivacyConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Privacy and telemetry configuration."""
 
     metrics_opt_out: bool = Field(default=False, description="Opt out of usage metrics")
@@ -626,6 +669,7 @@ class PrivacyConfig(BaseModel):
 
 
 class AdvancedConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Advanced runtime configuration."""
 
     hot_reload_enabled: bool = Field(default=True, description="Hot‑reload settings on file change")
@@ -652,6 +696,7 @@ class AdvancedConfig(BaseModel):
 
 
 class UIConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """User interface configuration."""
 
     theme: Literal["dark", "midnight", "light", "nord"] = Field(default="dark", description="UI theme")
@@ -674,74 +719,17 @@ MCPServerEntry = Dict[str, Any]
 
 
 class MCPConfig(BaseModel):
-    """MCP (Model Context Protocol) server configuration."""
+    model_config = ConfigDict(extra="allow")
+    """MCP (Model Context Protocol) server configuration.
+
+    Note: The authoritative server defaults live in ``settings.DEFAULTS["mcp"]["servers"]``.
+    This model defaults to an empty list since the real data always flows from
+    ``Settings.load()`` which merges DEFAULTS first. (C7)
+    """
 
     servers: List[MCPServerEntry] = Field(
-        default_factory=lambda: [
-            {
-                "name": "shell",
-                "command": "python3",
-                "args": [],
-                "enabled": True,
-                "env": {"AMALGAM_SHELL_MODE": "safe"},
-            },
-            {
-                "name": "screenshot",
-                "command": "python3",
-                "args": [],
-                "enabled": True,
-            },
-            {
-                "name": "sequential-thinking",
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-                "enabled": True,
-            },
-            {
-                "name": "puppeteer",
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
-                "enabled": True,
-            },
-            {
-                "name": "obsidian",
-                "command": "npx",
-                "args": ["-y", "obsidian-mcp"],
-                "enabled": True,
-            },
-            {
-                "name": "system",
-                "command": "python3",
-                "args": [],
-                "enabled": True,
-            },
-            {
-                "name": "skill",
-                "command": "python3",
-                "args": [],
-                "enabled": True,
-                "env": {"AMALGAM_DATA_DIR": ""},
-            },
-            {
-                "name": "windows",
-                "command": "npx",
-                "args": ["-y", "@cool-mcp/desktop-automation"],
-                "enabled": True,
-            },
-            {
-                "name": "avatar",
-                "command": "python3",
-                "args": [],
-                "enabled": True,
-            },
-            {
-                "name": "duckduckgo",
-                "command": "npx",
-                "args": ["-y", "duckduckgo-mcp"],
-                "enabled": True,
-            },
-        ],
-        description="MCP server definitions",
+        default_factory=list,
+        description="MCP server definitions (populated from DEFAULTS by Settings.load)",
     )
 
 
@@ -751,6 +739,7 @@ class MCPConfig(BaseModel):
 
 
 class VaultConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """RAG vault / knowledge base configuration."""
 
     path: str = Field(default="", description="Vault directory path (default: data/vault)")
@@ -763,6 +752,7 @@ class VaultConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Raw LLM request tuning (separate from AdvancedConfig for granularity)."""
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="LLM temperature")
@@ -785,6 +775,7 @@ class LLMConfig(BaseModel):
 
 
 class LogConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Application logging configuration."""
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -799,10 +790,11 @@ class LogConfig(BaseModel):
 
 
 class TelegramConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Telegram bot integration configuration."""
 
-    token: SecretStr = Field(default="", description="Telegram bot token")
-    allowed_users: List[int] = Field(default_factory=list, description="Allowed Telegram user IDs")
+    token: str = Field(default="", description="Telegram bot token")
+    allowed_users: List[Union[int, str]] = Field(default_factory=list, description="Allowed Telegram user IDs (int or string)")
     enabled: bool = Field(default=False, description="Enable Telegram bot")
 
 
@@ -812,10 +804,11 @@ class TelegramConfig(BaseModel):
 
 
 class AuthConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """API authentication configuration."""
 
     mode: Literal["none", "api_key", "oauth"] = Field(default="none", description="Auth mode")
-    api_key: SecretStr = Field(default="", description="API key for auth")
+    api_key: str = Field(default="", description="API key for auth")
 
 
 # =============================================================================
@@ -824,6 +817,7 @@ class AuthConfig(BaseModel):
 
 
 class SystemPromptConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """System prompt selection and overrides."""
 
     active: str = Field(default="default", description="Active system prompt profile")
@@ -836,7 +830,29 @@ class SystemPromptConfig(BaseModel):
 # =============================================================================
 
 
+class TranslationConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    """Translation service configuration."""
+
+    enabled: bool = Field(default=False, description="Enable translation")
+    source_lang: str = Field(default="auto", description="Source language code")
+    target_lang: str = Field(default="ZH", description="Target language code")
+    base_url: str = Field(default="http://localhost:1188/translate", description="Translation API base URL")
+
+
+class CompanionConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    """Companion / proactive agent configuration."""
+
+    enabled: bool = Field(default=False, description="Enable companion mode")
+    idle_check_delay: int = Field(default=10, ge=1, le=300, description="Delay before idle check (seconds)")
+    proactive_interval: int = Field(default=60, ge=10, le=3600, description="Interval between proactive prompts (seconds)")
+    time_awareness: bool = Field(default=True, description="Inject time context")
+    personality_notes: str = Field(default="", description="Personality override notes")
+
+
 class CharacterSettings(BaseModel):
+    model_config = ConfigDict(extra="allow")
     """Active character selection (settings section, not full character schema)."""
 
     active: str = Field(default="default", description="Active character ID")
@@ -859,8 +875,8 @@ class AppSettings(BaseModel):
     """
 
     config_version: int = Field(default=1, description="Settings schema version")
-    profile: Literal["token-friendly", "default", "quality", "custom"] = Field(
-        default="default", description="Active settings profile"
+    profile: str = Field(
+        default="default", description="Active settings profile name"
     )
 
     # ── Named sections ──
@@ -881,15 +897,16 @@ class AppSettings(BaseModel):
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     system_prompt: SystemPromptConfig = Field(default_factory=SystemPromptConfig)
+    translation: TranslationConfig = Field(default_factory=TranslationConfig)
+    companion: CompanionConfig = Field(default_factory=CompanionConfig)
 
-    # ── VAD and wake word live under voice already, but keep top‑level for flat dumps ──
+    # ── Wake word lives under voice already, but keep top‑level for flat dumps ──
     wake_word: WakeWordConfig = Field(default_factory=WakeWordConfig)
 
-    class Config:
-        """Pydantic model configuration."""
-
-        # Allow arbitrary extra fields from settings.json to pass through
-        extra = "allow"
+    model_config = ConfigDict(
+        extra="allow",
+        description="Allow arbitrary extra fields from settings.json to pass through.",
+    )
 
     def model_dump_flat(self) -> Dict[str, Any]:
         """Convert the nested model to a flat dot‑notation dict.
@@ -941,8 +958,8 @@ def _flatten(d: Any, prefix: str = "") -> Dict[str, Any]:
                 else:
                     result[key] = v
             elif isinstance(v, list):
-                # Serialise lists as JSON strings so consumers can parse back
-                result[key] = json.dumps(v) if v else v
+                # Keep lists as-is to preserve type (C4 fix)
+                result[key] = v
             else:
                 result[key] = v
     elif isinstance(d, (list, tuple)):

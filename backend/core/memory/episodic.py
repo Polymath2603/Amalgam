@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class EpisodicMemory:
     """Stores and retrieves conversation episodes within a session."""
 
-    def __init__(self, collection, session_id: str):
+    def __init__(self, collection: Any, session_id: str) -> None:
         self._collection = collection
         self._session_id = session_id
 
@@ -44,11 +44,14 @@ class EpisodicMemory:
             where={"session_id": self._session_id},
         )
         episodes = []
-        for i, doc in enumerate(results.get("documents", [[]])[0]):
+        documents = (results.get("documents") or [[]])[0]
+        metadatas = (results.get("metadatas") or [[]])[0] or []
+        distances = (results.get("distances") or [[]])[0] or []
+        for i, doc in enumerate(documents):
             episodes.append({
                 "content": doc,
-                "metadata": (results.get("metadatas", [[]])[0] or [{}])[i] if i < len(results.get("metadatas", [[]])[0] or []) else {},
-                "score": (results.get("distances", [[]])[0] or [0])[i] if i < len(results.get("distances", [[]])[0] or []) else 0,
+                "metadata": metadatas[i] if i < len(metadatas) else {},
+                "score": distances[i] if i < len(distances) else 0,
             })
         return episodes
 

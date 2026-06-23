@@ -51,12 +51,13 @@ document.addEventListener('keydown', e => {
 // ─── GPU detection ───
 const gpuInfo = detectGPUCapability();
 window._gpuTier = gpuInfo.tier;
-console.log(`GPU tier: ${gpuInfo.tier} (${gpuInfo.reason})`);
+console.debug(`GPU tier: ${gpuInfo.tier} (${gpuInfo.reason})`);
 
 // ─── Reduced motion ───
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const _reducedMotionHandler = (e) => document.body.classList.toggle('reduced-motion', e.matches);
 if (prefersReducedMotion.matches) document.body.classList.add('reduced-motion');
-prefersReducedMotion.addEventListener('change', (e) => document.body.classList.toggle('reduced-motion', e.matches));
+prefersReducedMotion.addEventListener('change', _reducedMotionHandler);
 
 // ─── CSS animation for spin ───
 const _styleSheet = document.createElement('style');
@@ -938,6 +939,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ─── Settings tab observer ───
     const settingsTab = document.getElementById('tab-settings');
+    let _settingsObserver = null;
     if (settingsTab) {
         const renderSettingsWithProviders = async () => {
             await Promise.all([refreshProviderList(), refreshCharacterList()]);
@@ -951,12 +953,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (active) setTimeout(() => fetchModels(active), 100);
         };
         let _settingsTabWasActive = settingsTab.classList.contains('active');
-        const observer = new MutationObserver(() => {
+        _settingsObserver = new MutationObserver(() => {
             const isNowActive = settingsTab.classList.contains('active');
             if (isNowActive && !_settingsTabWasActive) renderSettingsWithProviders();
             _settingsTabWasActive = isNowActive;
         });
-        observer.observe(settingsTab, { attributes: true, attributeFilter: ['class'] });
+        _settingsObserver.observe(settingsTab, { attributes: true, attributeFilter: ['class'] });
         if (settingsTab.classList.contains('active')) renderSettingsWithProviders();
     }
 
@@ -966,6 +968,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ─── Boot ───
     initCustomSelects();
     connectWS();
+    _initSetupWizard();
+    // Setup wizard API key listener (was in duplicate DOMContentLoaded)
+    document.addEventListener('input', e => {
+        if (e.target.id === 'setup-api-key') {
+            const provider = document.getElementById('setup-provider-grid')?.querySelector('.selected');
+            const apiKeyInput = document.getElementById('setup-api-key');
+            const continueBtn = document.getElementById('setup-continue-btn');
+            if (continueBtn && provider) {
+                continueBtn.disabled = !apiKeyInput?.value?.trim();
+            }
+        }
+    });
     init().catch(e => {
         console.error('Init failed:', e);
         showToast('Failed to connect to server', 'danger');
@@ -1012,7 +1026,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // ─── Periodic health refresh ───
     const _healthInterval = setInterval(refreshHealth, 30000);
-    window.addEventListener('beforeunload', () => clearInterval(_healthInterval));
+    window.addEventListener('beforeunload', () => {
+        clearInterval(_healthInterval);
+        prefersReducedMotion.removeEventListener('change', _reducedMotionHandler);
+        if (_settingsObserver) {
+            _settingsObserver.disconnect();
+            _settingsObserver = null;
+        }
+        window.removeEventListener('online', _onlineHandler);
+        window.removeEventListener('offline', _offlineHandler);
+    });
     refreshHealth();
 
     // ─── Online/offline detection ───
@@ -1027,30 +1050,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             initBar.classList.add('visible');
         }
     }
-    window.addEventListener('online', () => {
+    const _onlineHandler = () => {
         const bar = document.getElementById('offline-bar');
         if (bar) { bar.classList.add('hidden'); bar.classList.remove('visible'); }
         const ws = getWs();
         if (ws && ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) connectWS();
-    });
-    window.addEventListener('offline', () => {
+    };
+    const _offlineHandler = () => {
         const bar = document.getElementById('offline-bar');
         if (bar) { bar.classList.remove('hidden'); bar.classList.add('visible'); }
-    });
+    };
+    window.addEventListener('online', _onlineHandler);
+    window.addEventListener('offline', _offlineHandler);
 
-});
-
-// ─── Setup wizard second DOMContentLoaded ───
-document.addEventListener('DOMContentLoaded', () => {
-    _initSetupWizard();
-    document.addEventListener('input', e => {
-        if (e.target.id === 'setup-api-key') {
-            const provider = document.getElementById('setup-provider-grid')?.querySelector('.selected');
-            const apiKeyInput = document.getElementById('setup-api-key');
-            const continueBtn = document.getElementById('setup-continue-btn');
-            if (continueBtn && provider) {
-                continueBtn.disabled = !apiKeyInput?.value?.trim();
-            }
-        }
-    });
-});
+})(/**
+ * app.js — Main orchestrator (entry point)
+ *
+ * Wires all modules together and handles DOMContentLoaded bootstrap.
+ * Replaces the original 3975-line monolith.
+ */);

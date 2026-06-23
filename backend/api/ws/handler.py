@@ -27,9 +27,7 @@ logger = logging.getLogger(__name__)
 
 def _normalize_error(error_text: str) -> str:
     """Normalize common error messages to user-friendly versions."""
-    import re as _re
-
-    m = _re.search(r'\{.*\}', error_text, _re.DOTALL)
+    m = re.search(r'\{.*\}', error_text, re.DOTALL)
     if m:
         try:
             obj = json.loads(m.group())
@@ -53,7 +51,7 @@ def _normalize_error(error_text: str) -> str:
         "402": "Payment required. Check your account billing.",
     }
     # Collapse all whitespace so "rate\nlimit\nexceeded" matches "rate limit"
-    normalized = _re.sub(r'\s+', ' ', error_text.lower()).strip()
+    normalized = re.sub(r'\s+', ' ', error_text.lower()).strip()
 
     for key, msg in friendly.items():
         if key.lower() in normalized:
@@ -104,10 +102,17 @@ class _OrchestratorAgentAdapter:
 
     def __init__(self, agent_type: str = "basic"):
         self.agent_type = agent_type
+        self._app_agent = None
+
+    def _get_agent(self):
+        """Lazy-fetch and cache the application agent reference."""
+        if self._app_agent is None:
+            self._app_agent = agent()
+        return self._app_agent
 
     async def handle_user_input(self, inp: str) -> AsyncGenerator[str, None]:
         """Delegate to the DI-provided application agent."""
-        app_agent = agent()
+        app_agent = self._get_agent()
         async for chunk in app_agent.handle_user_input(inp):
             if isinstance(chunk, str):
                 yield chunk
@@ -131,7 +136,7 @@ class ChatSession:
         self.pending_tasks: list[asyncio.Task] = []
         self.client_caps: dict = {}
         self.client_platform: str = "web"
-        self._main_loop = asyncio.get_running_loop()
+        self._main_loop = None  # Initialized lazily in run()
         # Wire MCP client for /stats, /approve, /permission slash commands
         self._mcp_client = mcp()
         # Wire self-learning modules (gracefully degrade if unavailable)
@@ -212,11 +217,8 @@ class ChatSession:
             rel_context = await relationship().get_context_string(char_id)
 
             it = agent().handle_user_input(text, images=images, relationship_context=rel_context)
-            if asyncio.iscoroutine(it):
-                logger.error(f"CRITICAL: agent().handle_user_input returned a coroutine instead of an async generator! it={it}")
-                # Try to await it if it's a coroutine (this shouldn't happen with async def + yield)
-                it = await it
-
+            # The method signature guarantees an async generator — no coroutine check needed.
+            # If it somehow isn't an async generator, the async for will raise a clear TypeError.
             async for item in it:
                 if this_stream != self.stream_idx:
                     break
@@ -242,8 +244,7 @@ class ChatSession:
                                         "url": anim_url})
                     elif sig_type == '__avatar__':
                         await self._handle_avatar_signal(sig_val, current_emotion, full_response, sentence_buffer, char_id)
-                        if sig_type == '__avatar__':
-                            continue
+                        continue
                     elif sig_type == '__tool__':
                         await self.send({"type": "tool_call", "text": sig_val})
                         # Track tool calls for AutoSkillCreator pattern detection
@@ -302,23 +303,27 @@ class ChatSession:
                     from backend.core.self_learning.preferences import PreferenceLearner
                     from backend.core.paths import DATA_DIR
 
+                    # Cache instances to avoid re-initialization on every turn
+                    if not hasattr(self, '_correction_store'):
+                        self._correction_store = CorrectionStore(data_dir=str(DATA_DIR))
+                    if not hasattr(self, '_preference_learner'):
+                        self._preference_learner = PreferenceLearner(data_dir=str(DATA_DIR))
+
                     # AutoSkillCreator: extract skill patterns from complex tool sequences
                     if hasattr(self, '_auto_skill') and self._auto_skill:
-                        asyncio.create_task(self._auto_skill.maybe_create_skill(
+                        self._track_task(asyncio.create_task(self._auto_skill.maybe_create_skill(
                             user_message=text,
                             tool_calls=tool_calls_in_turn,
                             full_response=full_response,
-                        ))
+                        )))
 
-                    # CorrectionStore: detect user corrections (e.g., "no, I meant...")
-                    cs = CorrectionStore(data_dir=str(DATA_DIR))
-                    if cs.detect_correction(text, full_response):
+                    # CorrectionStore: detect user corrections
+                    if self._correction_store.detect_correction(text, full_response):
                         sid = memory().get_current_session()
-                        cs.extract_correction(sid, text, full_response)
+                        self._correction_store.extract_correction(sid, text, full_response)
 
                     # PreferenceLearner: observe interactions for preference patterns
-                    pl = PreferenceLearner(data_dir=str(DATA_DIR))
-                    pl.observe_interaction(text, full_response)
+                    self._preference_learner.observe_interaction(text, full_response)
                 except Exception as e:
                     logger.debug(f"Self-learning error (non-blocking): {e}")
 
@@ -363,7 +368,7 @@ class ChatSession:
                         token_in=len(text.split()),
                         token_out=_tok_out,
                         latency_ms=_latency_ms,
-                        model=settings().get("llm.model", ""),
+                        model=llm().get_model_name(),
                     )
                 except Exception as exc:
                     logger.debug("Failed to record turn metrics: %s", exc)
@@ -378,6 +383,7 @@ class ChatSession:
             try:
                 await self.send({"type": "voice_state", "state": "idle"})
             except Exception:
+                logger.debug("WS send failed during CancelledError cleanup")
                 pass
             raise
         except ServiceError as e:
@@ -389,6 +395,7 @@ class ChatSession:
                 await self.send(e.to_dict())
                 await self.send({"type": "voice_state", "state": "idle"})
             except Exception:
+                logger.debug("WS send failed during ServiceError cleanup")
                 pass
         except Exception as e:
             logger.error(f"Agent error in loop: {e}")
@@ -400,6 +407,7 @@ class ChatSession:
                                  "message": str(e), "recoverable": False, "suggestion": "", "details": {}})
                 await self.send({"type": "voice_state", "state": "idle"})
             except Exception:
+                logger.debug("WS send failed during error cleanup")
                 pass
         finally:
             # Compact completed tasks to prevent unbounded growth
@@ -425,8 +433,8 @@ class ChatSession:
                 action = av.get("action", "")
                 anim_url = _resolve_animation(action, char_id)
                 await self.send({"type": "roleplay", "text": action, "animation_url": anim_url})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Avatar signal handling failed: %s", e)
 
     async def handle_command(self, cmd: str, data: dict):
         """Handle voice/avatar/speak commands."""
@@ -539,6 +547,7 @@ class ChatSession:
                     logger.error(f"Voice speech start callback failed: {e}")
 
             from backend.voice.stt_configurator import configure_stt_pipeline
+            from backend.core.deps import set_voice_pipeline
             voice_cfg = settings()
             self.voice_pipeline = VoicePipeline(
                 agent_callback=on_transcription,
@@ -547,6 +556,7 @@ class ChatSession:
                 settings=voice_cfg,
             )
             configure_stt_pipeline(self.voice_pipeline, stt_engine, voice_cfg)
+            set_voice_pipeline(self.voice_pipeline)
 
         if self.voice_task is None or self.voice_task.done():
             if self.voice_task and self.voice_task.exception():
@@ -562,6 +572,8 @@ class ChatSession:
         else:
             if self.voice_pipeline:
                 self.voice_pipeline.stop_listening()
+                from backend.core.deps import clear_voice_pipeline
+                clear_voice_pipeline()
             if self.voice_task and not self.voice_task.done():
                 self.voice_task.cancel()
                 self.voice_task = None
@@ -573,7 +585,8 @@ class ChatSession:
 
         def _wakeword_callback():
             logger.info("Wake word detected!")
-            self._main_loop.call_soon_threadsafe(
+            loop = self._main_loop or asyncio.get_running_loop()
+            loop.call_soon_threadsafe(
                 lambda: asyncio.ensure_future(self.process_response("Hey, I'm listening!")))
 
         ww.set_callback(_wakeword_callback)
@@ -1040,6 +1053,8 @@ class ChatSession:
                 self.voice_pipeline.stop_listening()
             except Exception as e:
                 logger.warning(f"Voice pipeline stop failed: {e}")
+            from backend.core.deps import clear_voice_pipeline
+            clear_voice_pipeline()
             self.voice_pipeline = None
         if self.voice_task and not self.voice_task.done():
             self.voice_task.cancel()
@@ -1062,6 +1077,7 @@ class ChatSession:
             if self.ws.client_state.value == 1:  # CONNECTED
                 await self.send({"type": "voice_state", "state": "idle"})
         except Exception:
+            logger.debug("WS send failed during disconnect cleanup")
             pass
 
         # Background: update user profile from this session
@@ -1102,6 +1118,8 @@ class ChatSession:
 
     async def run(self):
         """Main message loop."""
+        # Lazy-init the running loop reference (safe in async context)
+        self._main_loop = asyncio.get_running_loop()
         # Register with companion scheduler
         sched = companion()
         if sched:

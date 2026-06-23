@@ -7,6 +7,17 @@ logger =logging .getLogger (__name__ )
 class WakeWordRouter :
     SUPPORTED_ENGINES ={"openwakeword"}
 
+    _PROVIDER_CLASSES =None 
+
+    @classmethod 
+    def _get_provider_classes (cls ):
+        if cls ._PROVIDER_CLASSES is None :
+            from .openwakeword_provider import OpenWakeWordProvider 
+            cls ._PROVIDER_CLASSES ={
+                "openwakeword":OpenWakeWordProvider ,
+            }
+        return cls ._PROVIDER_CLASSES 
+
     def __init__ (self ,engine :str ="openwakeword"):
         self ._engine =engine 
         self ._provider =None 
@@ -44,8 +55,8 @@ class WakeWordRouter :
         return self ._enabled and self ._provider is not None and self ._provider .is_running 
 
     def _create_provider (self ,on_detected ):
-        if self ._engine =="openwakeword":
-            from backend .voice .wakeword .openwakeword_provider import OpenWakeWordProvider 
-            return OpenWakeWordProvider (on_detected =on_detected )
-        logger .error (f"Unknown wake word engine: {self ._engine }")
-        return None 
+        cls =self ._get_provider_classes ().get (self ._engine )
+        if cls is None :
+            logger .error (f"Unknown wake word engine: {self ._engine }")
+            return None 
+        return cls (on_detected =on_detected ) 

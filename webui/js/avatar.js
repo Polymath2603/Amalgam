@@ -689,7 +689,7 @@ export class AvatarRenderer {
 
             this._composer = composer;
             this._postProcessingEnabled = true;
-            console.log('[Avatar] Post-processing initialized (ACESFilmic)');
+            console.debug('[Avatar] Post-processing initialized (ACESFilmic)');
         } catch (e) {
             console.warn('[Avatar] Post-processing not available:', e.message);
             this._composer = null;
