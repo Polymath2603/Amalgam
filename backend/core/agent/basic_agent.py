@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, AsyncGenerator, AsyncIterator, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from backend.core.agent.base import BaseAgent, AgentTrace, ToolCall, LLMType, SignalTuple
 from backend.core.plugin import get_registry
@@ -142,7 +142,7 @@ class BasicAgent(BaseAgent):
             await self.memory.add_turn("assistant", full_response)
 
     async def handle_user_input(self, text: str, images: list = None,
-                                relationship_context: str = "") -> AsyncIterator[Any]:
+                                relationship_context: str = "") -> AsyncGenerator[str | SignalTuple, None]:
         """Legacy streaming interface — delegates to run()."""
         ctx = {
             "session_id": self.memory.get_current_session(),
@@ -150,7 +150,6 @@ class BasicAgent(BaseAgent):
             "images": images or [],
         }
         yield ("__thinking__", "Processing your request...")
-        error_occurred = False
         try:
             async for chunk in self.run(text, ctx):
                 if isinstance(chunk, tuple):
@@ -158,7 +157,6 @@ class BasicAgent(BaseAgent):
                 elif isinstance(chunk, str) and chunk.startswith("[Error:"):
                     error_msg = chunk[len("[Error:"):].rstrip("]").strip()
                     yield ("__error__", error_msg)
-                    error_occurred = True
                     return
                 else:
                     yield chunk

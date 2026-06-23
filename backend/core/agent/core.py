@@ -52,7 +52,7 @@ _LEGACY_ACTION_RE = re.compile(r'/\*\*(.+?)\*\*/?', re.DOTALL)
 
 
 class Agent:
-    def __init__(self, mcp_client=None, llm=None, memory=None, context_builder=None, settings=None, strategy_selector=None):
+    def __init__(self, mcp_client=None, llm: Optional[LLMRouter] = None, memory=None, context_builder=None, settings=None, strategy_selector=None):
         self.settings = settings
         self.llm = llm or LLMRouter(settings=settings)
         self.memory = memory or Memory(llm_router=self.llm)
@@ -510,7 +510,7 @@ class Agent:
             latency_ms = (time.monotonic() - _metrics_start) * 1000
             model_name = self.llm.get_model_name() if hasattr(self.llm, 'get_model_name') else None
             provider = getattr(self.llm, '_provider', None) or ""
-            asyncio.create_task(_metrics.record(TurnMetrics(
+            task = asyncio.create_task(_metrics.record(TurnMetrics(
                 session_id=str(_metrics_session or ""),
                 model=str(model_name or "unknown"),
                 provider=str(provider),
@@ -523,6 +523,11 @@ class Agent:
                 skill_created=False,
                 correction_applied=False,
             )))
+            # Track background task to avoid "Task was destroyed but it is pending" warnings
+            if not hasattr(self, '_bg_tasks'):
+                self._bg_tasks = set()
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
         except Exception:
             logger.debug("Metrics recording failed (non-fatal)")
 

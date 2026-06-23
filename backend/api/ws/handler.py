@@ -8,7 +8,6 @@ import logging
 import os
 import time
 
-from collections import deque
 from collections.abc import AsyncGenerator
 from typing import Any
 

@@ -12,8 +12,8 @@ from fastapi .responses import JSONResponse
 from backend .api .deps import settings ,llm ,tts 
 from backend .core .config .settings import BUILTIN_VOICES 
 from backend .core .llm import LLMRouter 
-from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT ,DATA_DIR 
-from backend .core .utils .icon_generator import _generate_missing_icons_sync ,generate_missing_icons ,PALETTE
+from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
+from backend .core .utils .icon_generator import _generate_missing_icons_sync
 from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )
@@ -36,7 +36,7 @@ async def get_character (character_id :str ):
     return JSONResponse (status_code =404 ,content ={"error":"Character not found"})
 
 
-def _list_anim_files (base_dir :Path )->list :
+def _list_anim_files (base_dir :Path )->list[str]:
     """List .vrma files in an animation directory, or empty list."""
     if not base_dir .is_dir ():
         return []

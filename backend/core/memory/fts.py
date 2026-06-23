@@ -228,3 +228,8 @@ class FTSSearch:
         conn = self._get_conn()
         conn.execute("DELETE FROM message_fts;")
         conn.commit()
+
+    def count(self) -> int:
+        """Return the number of indexed messages."""
+        conn = self._get_conn()
+        return conn.execute("SELECT COUNT(*) FROM message_fts;").fetchone()[0]

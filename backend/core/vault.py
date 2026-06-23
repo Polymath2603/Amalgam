@@ -15,7 +15,10 @@ try:
     _HAS_CHROMADB = True
 except ImportError:
     _HAS_CHROMADB = False
-from rank_bm25 import BM25Okapi
+try:
+    from rank_bm25 import BM25Okapi
+except ImportError:
+    BM25Okapi = None
 
 logger = logging.getLogger(__name__)
 
@@ -366,8 +369,19 @@ class VaultManager:
                     break
 
             section_name = f.stem.replace("_", " ").title()
-            sections.append(f"\n\n### {section_name}\n{content}")
-            token_usage += estimate_tokens(content)
+            header = f"\n\n### {section_name}\n"
+            header_tokens = estimate_tokens(header)
+            if token_usage + header_tokens + file_tokens > max_tokens:
+                # Skip this file if even the header doesn't fit
+                remaining = max_tokens - token_usage
+                if remaining > header_tokens:
+                    # Truncate content to fit remaining after header
+                    content = truncate_to_token_limit(content, remaining - header_tokens)
+                    sections.append(f"{header}{content}")
+                    token_usage += header_tokens + estimate_tokens(content)
+                break
+            sections.append(f"{header}{content}")
+            token_usage += header_tokens + file_tokens
 
         if sections:
             result = "".join(sections)

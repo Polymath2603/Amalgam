@@ -104,6 +104,18 @@ class Memory:
                 self._session_locks[session_id] = threading.RLock()
             return self._session_locks[session_id]
 
+    async def _run_session_mutation(self, session_id: str, mutator):
+        """Run a read-mutate-write session critical section in the executor.
+
+        Keeps blocking file I/O off the event loop. The entire
+        lock-acquire → read → mutate → write → lock-release sequence runs
+        in a worker thread, which is safe because :class:`threading.RLock`
+        serialises concurrent access from any thread.
+        """
+        lock = self._get_session_lock(session_id)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, lambda: mutator(lock))
+
     def _cache_get(self, session_id: str) -> Optional[Dict]:
         """Get from LRU cache; promotes accessed entry."""
         if session_id in self._session_data_cache:
@@ -194,6 +206,8 @@ class Memory:
         seen = set()
         for pattern in ("*/*/*/*.json", "*.json"):
             for p in sorted(self.conv_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True):
+                if p.name == SessionIndex.INDEX_FILE:
+                    continue
                 if p not in seen:
                     seen.add(p)
                     yield p
@@ -469,34 +483,41 @@ class Memory:
         if embedding:
             cid = f"{session_id}_{uuid.uuid4().hex[:8]}"
 
-        # 3. Mutate and persist session data under lock
-        lock = self._get_session_lock(session_id)
-        with lock:
-            data = self._read_sync(session_id)
-            if data is None:
-                data = {
-                    "id": session_id,
-                    "created": datetime.now(timezone.utc).isoformat(),
-                    "messages": [],
-                    "summary": None,
-                    "title": "New Session",
+        # 3. Mutate and persist session data — offloaded to executor via _run_session_mutation
+        msg = None
+        timestamp = None
+        data = None
+
+        def _do_add_turn(lock):
+            nonlocal msg, timestamp, data
+            with lock:
+                data = self._read_sync(session_id)
+                if data is None:
+                    data = {
+                        "id": session_id,
+                        "created": datetime.now(timezone.utc).isoformat(),
+                        "messages": [],
+                        "summary": None,
+                        "title": "New Session",
+                    }
+                timestamp = datetime.now(timezone.utc).isoformat()
+                msg = {
+                    "role": role,
+                    "content": content,
+                    "timestamp": timestamp,
                 }
-            timestamp = datetime.now(timezone.utc).isoformat()
-            msg = {
-                "role": role,
-                "content": content,
-                "timestamp": timestamp,
-            }
-            if cid:
-                msg["chroma_id"] = cid
+                if cid:
+                    msg["chroma_id"] = cid
 
-            if role == "user" and data.get("title", "New Session") == "New Session" and content.strip():
-                raw_title = self._generate_title([msg])
-                data["title"] = self._get_unique_title(raw_title)
+                if role == "user" and data.get("title", "New Session") == "New Session" and content.strip():
+                    raw_title = self._generate_title([msg])
+                    data["title"] = self._get_unique_title(raw_title)
 
-            data["messages"].append(msg)
-            data["updated"] = timestamp
-            self._write_sync(session_id, data)
+                data["messages"].append(msg)
+                data["updated"] = timestamp
+                self._write_sync(session_id, data)
+
+        await self._run_session_mutation(session_id, _do_add_turn)
 
         # 4. Update session index (idempotent, lightweight)
         self._session_index.upsert(session_id, {
@@ -683,20 +704,32 @@ class Memory:
     async def delete_message(self, msg_id: int) -> bool:
         session_id = self.get_current_session()
         chroma_id = None
-        lock = self._get_session_lock(session_id)
-        with lock:
-            data = self._read_sync(session_id)
-            if data is None or msg_id >= len(data.get("messages", [])):
-                return False
-            msg = data["messages"].pop(msg_id)
-            chroma_id = msg.get("chroma_id")
-            self._write_sync(session_id, data)
+
+        def _do_delete(lock):
+            nonlocal chroma_id
+            with lock:
+                data = self._read_sync(session_id)
+                if data is None or msg_id >= len(data.get("messages", [])):
+                    return False
+                msg = data["messages"].pop(msg_id)
+                chroma_id = msg.get("chroma_id")
+                self._write_sync(session_id, data)
+                return True
+
+        if not await self._run_session_mutation(session_id, _do_delete):
+            return False
         if chroma_id:
             try:
                 if self.chroma_col is not None:
                     self.chroma_col.delete(ids=[chroma_id])
             except Exception as e:
                 logger.warning(f"ChromaDB delete failed for message {msg_id}: {e}")
+        # Clean up FTS index
+        try:
+            fts_msg_id = f"{session_id}_{msg_id}"
+            self._fts.remove_message(fts_msg_id)
+        except Exception as e:
+            logger.warning(f"FTS delete failed for message {msg_id}: {e}")
         return True
 
     def get_summary(self) -> str:
@@ -813,24 +846,35 @@ class Memory:
 
     async def search_all_sessions_fts(self, query: str, top_k: int = 10) -> List[Dict]:
         """Keyword search across ALL sessions via FTS5."""
-        conn = self._fts._get_conn()
-        count = conn.execute("SELECT COUNT(*) FROM message_fts;").fetchone()[0]
-        if count == 0:
+        if self._fts.count() == 0:
             self._fts.rebuild_from_sessions(self.conv_dir)
         return self._fts.search(query, top_k)
 
     async def _prune_tool_outputs(self, session_id: str, max_chars: int = 2000):
+        def _do_prune(lock):
+            with lock:
+                data = self._read_sync(session_id)
+                if data is None:
+                    return
+                changed = False
+                for msg in data["messages"]:
+                    if msg["role"] == "system" and len(msg["content"]) > max_chars:
+                        msg["content"] = msg["content"][:max_chars] + "\n[...truncated]"
+                        changed = True
+                if changed:
+                    self._write_sync(session_id, data)
+
+        await self._run_session_mutation(session_id, _do_prune)
+
+    def _do_save_summary(self, session_id: str, keep: int, summary: str):
+        """Synchronous save of summarization result — runs in executor to avoid blocking event loop."""
         lock = self._get_session_lock(session_id)
         with lock:
             data = self._read_sync(session_id)
-            if data is None:
-                return
-            changed = False
-            for msg in data["messages"]:
-                if msg["role"] == "system" and len(msg["content"]) > max_chars:
-                    msg["content"] = msg["content"][:max_chars] + "\n[...truncated]"
-                    changed = True
-            if changed:
+            if data:
+                if keep < len(data["messages"]):
+                    data["messages"] = data["messages"][-keep:]
+                data["summary"] = summary
                 self._write_sync(session_id, data)
 
     async def check_and_summarize(self):
@@ -876,14 +920,12 @@ class Memory:
                 summary = await get_plugin_registry().hook_compaction(summary or "")
 
                 if summary and not summary.startswith("Error"):
-                    lock = self._get_session_lock(session_id)
-                    with lock:
-                        data = self._read_sync(session_id)
-                        if data:
-                            if keep < len(data["messages"]):
-                                data["messages"] = data["messages"][-keep:]
-                            data["summary"] = summary
-                            self._write_sync(session_id, data)
+                    async def _save_summary():
+                        loop = asyncio.get_running_loop()
+                        return await loop.run_in_executor(
+                            self._executor, self._do_save_summary, session_id, keep, summary
+                        )
+                    await _save_summary()
             except Exception as e:
                 logger.error(f"Compaction failed: {e}", exc_info=True)
 

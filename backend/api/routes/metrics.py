@@ -17,7 +17,6 @@ router = APIRouter(tags=["metrics"])
 
 # In-memory per-turn metrics store (bounded deque)
 _turns: deque = deque(maxlen=500)
-_max_turns = 500
 
 
 def record_turn(
@@ -43,9 +42,6 @@ def record_turn(
         "errors": errors,
     }
     _turns.append(entry)
-    # Trim if needed (deque handles maxlen, but guard just in case)
-    while len(_turns) > _max_turns:
-        _turns.popleft()
 
 
 @router.get("/api/metrics/turns")

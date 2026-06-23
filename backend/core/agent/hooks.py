@@ -10,7 +10,6 @@ Hook signature:
 """
 
 import logging
-import time
 from typing import Any, Callable, Coroutine, Optional
 
 logger = logging.getLogger(__name__)

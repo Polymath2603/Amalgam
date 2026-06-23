@@ -116,7 +116,8 @@ class ContextManager:
                         available -= item_tokens
                         keep.append(item)
                     else:
-                        truncated.append("relevant_context")
+                        if not truncated or truncated[-1] != "relevant_context":
+                            truncated.append("relevant_context")
                 relevant = list(keep)
             else:
                 available -= relevant_tokens

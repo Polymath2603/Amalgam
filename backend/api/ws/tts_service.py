@@ -5,7 +5,6 @@ import asyncio
 import base64
 import os
 import logging
-from typing import Optional
 
 import numpy as np
 from fastapi import WebSocket
@@ -23,6 +22,148 @@ def _translation_enabled() -> bool:
         return bool(s.get("translation.enabled", False))
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Shared synthesis helper — eliminates 3× copy-paste of ref-audio resolution,
+# tuple unpacking, and WAV encoding (review issue 3b).
+# ---------------------------------------------------------------------------
+class _SynthesisResult:
+    """Container for the result of a single TTS synthesis call."""
+
+    __slots__ = ("wav_bytes", "sample_rate", "duration", "viseme_schedule")
+
+    def __init__(
+        self,
+        wav_bytes: bytes,
+        sample_rate: int,
+        duration: float,
+        viseme_schedule: list | None,
+    ) -> None:
+        self.wav_bytes = wav_bytes
+        self.sample_rate = sample_rate
+        self.duration = duration
+        self.viseme_schedule = viseme_schedule
+
+
+async def _resolve_ref_audio() -> str | None:
+    """Resolve the OpenVoice reference audio path for the active character.
+
+    Returns *None* when the engine is not OpenVoice or when no suitable
+    reference audio can be found.
+    """
+    if tts().engine != "openvoice":
+        return None
+    char = settings().get_active_character()
+    ref_audio = char.get("voice_ref") if char else None
+    if not ref_audio:
+        char_dir = char.get("_dir", "") if char else ""
+        if char_dir:
+            for name in ("voice.pth", "voice.wav"):
+                candidate = os.path.join(char_dir, name)
+                if os.path.exists(candidate):
+                    ref_audio = candidate
+                    break
+    return ref_audio
+
+
+async def _synthesize_audio(
+    text: str,
+    emotion: str,
+    translation_service=None,
+    sentence_idx: int = 0,
+) -> _SynthesisResult | None:
+    """Synthesise TTS audio and return a ready-to-send result.
+
+    1. Optionally translates *text* when *translation_service* is provided
+       and translation is enabled in settings.
+    2. Resolves OpenVoice reference audio (if applicable).
+    3. Calls the underlying TTS engine.
+    4. Safely unpacks the 2‑ or 3‑tuple result.
+    5. Encodes the raw NumPy audio to WAV bytes and base64.
+
+    Returns ``None`` on any failure (timeout, error, empty audio, …).
+    """
+    # -- optional translation ------------------------------------------------
+    if translation_service is not None and _translation_enabled():
+        try:
+            source = settings().get("translation.source_lang", "auto")
+            target = settings().get("translation.target_lang", "en")
+            text = await translation_service.translate(
+                text, source_lang=source, target_lang=target
+            )
+        except Exception as exc:
+            logger.warning(
+                "TTS sentence %d translation failed: %s", sentence_idx, exc
+            )
+
+    # -- resolve reference audio for OpenVoice --------------------------------
+    ref_audio = await _resolve_ref_audio()
+    if tts().engine == "openvoice" and not ref_audio:
+        logger.warning(
+            "TTS sentence %d: no voice_ref for OpenVoice, skipping",
+            sentence_idx,
+        )
+        return None
+
+    # -- call the engine ------------------------------------------------------
+    try:
+        result = await asyncio.wait_for(
+            tts().synthesize(text, ref_audio=ref_audio, emotion=emotion),
+            timeout=60.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("TTS timeout for sentence %d: %s…", sentence_idx, text[:50])
+        return None
+    except TTSError as exc:
+        logger.warning("TTS error for sentence %d: %s", sentence_idx, exc)
+        return None
+
+    # -- safe tuple unpack (engine may return 2 or 3 values) -----------------
+    wav_np: np.ndarray | None = None
+    viseme_schedule: list | None = None
+    sample_rate: int = 0
+
+    if isinstance(result, tuple):
+        if len(result) == 3:
+            wav_np, viseme_schedule, sample_rate = result
+        elif len(result) == 2:
+            wav_np, sample_rate = result
+            viseme_schedule = None
+        else:
+            logger.warning(
+                "TTS sentence %d: unexpected tuple length %d",
+                sentence_idx,
+                len(result),
+            )
+            return None
+    else:
+        logger.warning(
+            "TTS sentence %d: unexpected result type %s",
+            sentence_idx,
+            type(result),
+        )
+        return None
+
+    if wav_np is None or (isinstance(wav_np, np.ndarray) and wav_np.size == 0):
+        logger.warning("TTS sentence %d: empty audio", sentence_idx)
+        return None
+
+    # -- encode to WAV bytes --------------------------------------------------
+    try:
+        wav_bytes = numpy_to_wav_bytes(wav_np, sample_rate)
+    except Exception as exc:
+        logger.error("TTS sentence %d: failed to encode audio: %s", sentence_idx, exc)
+        return None
+
+    duration = len(wav_np) / sample_rate if sample_rate else 0.0
+
+    return _SynthesisResult(
+        wav_bytes=wav_bytes,
+        sample_rate=sample_rate,
+        duration=duration,
+        viseme_schedule=viseme_schedule,
+    )
 
 
 class OrderedTTSScheduler:
@@ -159,90 +300,30 @@ class OrderedTTSScheduler:
             logger.warning("TTS: WebSocket not connected, skipping generation")
             return None
 
-        # Translate if service configured
-        if self._translation_service is not None and _translation_enabled():
-            try:
-                source = settings().get("translation.source_lang", "auto")
-                target = settings().get("translation.target_lang", "en")
-                text = await self._translation_service.translate(
-                    text, source_lang=source, target_lang=target
-                )
-            except Exception as exc:
-                logger.warning(
-                    "TTS sentence %d translation failed: %s", sentence_idx, exc
-                )
-
         # Capture settings at the start of generation to avoid stale data
         current_settings = settings()
-        char = current_settings.get_active_character()
-        ref_audio = None
-        if tts().engine == "openvoice":
-            ref_audio = char.get("voice_ref") if char else None
-            if not ref_audio:
-                char_dir = char.get("_dir", "") if char else ""
-                if char_dir:
-                    for name in ("voice.pth", "voice.wav"):
-                        candidate = os.path.join(char_dir, name)
-                        if os.path.exists(candidate):
-                            ref_audio = candidate
-                            break
-            if not ref_audio:
-                logger.warning("No voice_ref for OpenVoice, skipping TTS")
-                return None
 
-        try:
-            result = await asyncio.wait_for(
-                tts().synthesize(text, ref_audio=ref_audio, emotion=emotion),
-                timeout=60.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("TTS timeout for: %s...", text[:50])
-            return None
-        except TTSError as exc:
-            logger.warning("TTS error: %s", exc)
+        result = await _synthesize_audio(
+            text,
+            emotion,
+            translation_service=self._translation_service,
+            sentence_idx=sentence_idx,
+        )
+        if result is None:
             return None
 
-        # Unpack result — the underlying engine may return 2 or 3 values
-        if isinstance(result, tuple):
-            if len(result) == 3:
-                wav_np, viseme_schedule, sample_rate = result
-            elif len(result) == 2:
-                wav_np, sample_rate = result
-                viseme_schedule = None
-            else:
-                logger.warning(
-                    "TTS returned unexpected tuple length %d", len(result)
-                )
-                return None
-        else:
-            logger.warning("TTS returned unexpected type %s", type(result))
-            return None
-
-        if wav_np is None or (isinstance(wav_np, np.ndarray) and wav_np.size == 0):
-            logger.warning("TTS returned empty audio")
-            return None
-
-        try:
-            wav_bytes = numpy_to_wav_bytes(wav_np, sample_rate)
-            b64 = base64.b64encode(wav_bytes).decode("utf-8")
-        except Exception as exc:
-            logger.error("Failed to encode TTS audio: %s", exc)
-            return None
-
-        duration = len(wav_np) / sample_rate if sample_rate else 0
-
-        # Use captured settings for lipsync check
+        b64 = base64.b64encode(result.wav_bytes).decode("utf-8")
         lipsync_enabled = current_settings.get("voice.lipsync_enabled", True)
 
         return {
             "type": "tts_audio",
             "audio": b64,
             "format": "wav",
-            "sample_rate": sample_rate,
-            "duration": duration,
+            "sample_rate": result.sample_rate,
+            "duration": result.duration,
             "emotion": emotion,
             "sentence_idx": sentence_idx,
-            "viseme_schedule": (viseme_schedule if viseme_schedule else []) if lipsync_enabled else [],
+            "viseme_schedule": (result.viseme_schedule if result.viseme_schedule else []) if lipsync_enabled else [],
         }
 
     async def _deliver_ready(
@@ -291,72 +372,33 @@ async def synthesize_sentence(sentence_text: str, sentence_idx: int, expected_st
             logger.warning(f"TTS sentence {sentence_idx}: WebSocket not connected, skipping")
             return
 
-        # Translate if service configured
-        orig_text = None
-        if translation_service is not None and _translation_enabled():
-            try:
-                source = settings().get("translation.source_lang", "auto")
-                target = settings().get("translation.target_lang", "en")
-                sentence_text = await translation_service.translate(sentence_text, source_lang=source, target_lang=target)
-            except Exception as e:
-                logger.warning("TTS sentence %d translation failed: %s", sentence_idx, e)
-
-        char = settings().get_active_character()
-        ref_audio = None
-        if tts().engine == "openvoice":
-            ref_audio = char.get("voice_ref") if char else None
-            if not ref_audio:
-                char_dir = char.get("_dir", "") if char else ""
-                if char_dir:
-                    for name in ("voice.pth", "voice.wav"):
-                        candidate = os.path.join(char_dir, name)
-                        if os.path.exists(candidate):
-                            ref_audio = candidate
-                            break
-            if not ref_audio:
-                logger.warning("No voice_ref for OpenVoice, skipping TTS")
-                return
-
-        result = await asyncio.wait_for(
-            tts().synthesize(sentence_text, ref_audio=ref_audio, emotion=emotion),
-            timeout=60.0
+        result = await _synthesize_audio(
+            sentence_text,
+            emotion,
+            translation_service=translation_service,
+            sentence_idx=sentence_idx,
         )
-        # Safe tuple unpack — engine may return 2 or 3 values
-        if isinstance(result, tuple):
-            if len(result) == 3:
-                audio_np, viseme_schedule, sr = result
-            elif len(result) == 2:
-                audio_np, sr = result
-                viseme_schedule = None
-            else:
-                logger.warning("TTS returned unexpected tuple length %d in synthesize_sentence", len(result))
-                return
-        else:
-            logger.warning("TTS returned unexpected type %s in synthesize_sentence", type(result))
+        if result is None:
             return
-        logger.debug(f"TTS sentence {sentence_idx}: {len(audio_np)} samples, sr={sr}, visemes={len(viseme_schedule) if viseme_schedule else 0}")
-        if len(audio_np) > 0:
-            if expected_stream_id != current_stream_id:
-                logger.debug(f"TTS sentence {sentence_idx}: skipped (stale stream before send)")
-                return
-            wav_bytes = numpy_to_wav_bytes(audio_np, sr)
-            b64_audio = base64.b64encode(wav_bytes).decode()
-            duration = len(audio_np) / sr
-            lipsync_enabled = settings().get("voice.lipsync_enabled", True)
-            msg = {
-                "type": "tts_audio",
-                "audio": b64_audio,
-                "format": "wav",
-                "duration": round(duration, 2),
-                "sentence_idx": sentence_idx,
-                "emotion": emotion,
-            }
-            if viseme_schedule and lipsync_enabled:
-                msg["viseme_schedule"] = viseme_schedule
-            await ws.send_json(msg)
-            logger.debug(f"TTS sentence {sentence_idx}: sent {duration:.2f}s audio (emotion={emotion})")
-        else:
-            logger.warning(f"TTS sentence {sentence_idx}: empty audio")
+
+        if expected_stream_id != current_stream_id:
+            logger.debug(f"TTS sentence {sentence_idx}: skipped (stale stream before send)")
+            return
+
+        b64_audio = base64.b64encode(result.wav_bytes).decode()
+        lipsync_enabled = settings().get("voice.lipsync_enabled", True)
+        msg = {
+            "type": "tts_audio",
+            "audio": b64_audio,
+            "format": "wav",
+            "duration": round(result.duration, 2),
+            "sentence_idx": sentence_idx,
+            "emotion": emotion,
+        }
+        if result.viseme_schedule and lipsync_enabled:
+            msg["viseme_schedule"] = result.viseme_schedule
+        await ws.send_json(msg)
+        logger.debug(f"TTS sentence {sentence_idx}: sent {result.duration:.2f}s audio (emotion={emotion})")
     except asyncio.TimeoutError:
         logger.error(f"TTS sentence {sentence_idx}: timed out after 60s")
         try:
@@ -381,50 +423,21 @@ async def synthesize_now(text: str, ws: WebSocket, emotion: str = "neutral"):
             logger.warning("Speak TTS: WebSocket not connected, skipping")
             return
 
-        char = settings().get_active_character()
-        ref_audio = None
-        if tts().engine == "openvoice":
-            ref_audio = char.get("voice_ref") if char else None
-            if not ref_audio:
-                char_dir = char.get("_dir", "") if char else ""
-                if char_dir:
-                    for name in ("voice.pth", "voice.wav"):
-                        candidate = os.path.join(char_dir, name)
-                        if os.path.exists(candidate):
-                            ref_audio = candidate
-                            break
-            if not ref_audio:
-                logger.warning("No voice_ref for OpenVoice, skipping speak")
-                return
-        result = await asyncio.wait_for(tts().synthesize(text, ref_audio=ref_audio, emotion=emotion), timeout=60.0)
-        # Safe tuple unpack — engine may return 2 or 3 values
-        if isinstance(result, tuple):
-            if len(result) == 3:
-                audio_np, viseme_schedule, sr = result
-            elif len(result) == 2:
-                audio_np, sr = result
-                viseme_schedule = None
-            else:
-                logger.warning("TTS returned unexpected tuple length %d in synthesize_now", len(result))
-                return
-        else:
-            logger.warning("TTS returned unexpected type %s in synthesize_now", type(result))
+        result = await _synthesize_audio(text, emotion, sentence_idx=0)
+        if result is None:
             return
-        if len(audio_np) > 0:
-            wav_bytes = numpy_to_wav_bytes(audio_np, sr)
-            b64_audio = base64.b64encode(wav_bytes).decode()
-            duration = len(audio_np) / sr
-            lipsync_enabled = settings().get("voice.lipsync_enabled", True)
-            msg = {
-                "type": "tts_audio", "audio": b64_audio, "format": "wav",
-                "duration": round(duration, 2), "sentence_idx": 0, "emotion": emotion,
-            }
-            if viseme_schedule and lipsync_enabled:
-                msg["viseme_schedule"] = viseme_schedule
-            await ws.send_json(msg)
-            logger.debug(f"Speak TTS: sent {duration:.2f}s audio")
-        else:
-            logger.warning("Speak TTS: empty audio")
+
+        b64_audio = base64.b64encode(result.wav_bytes).decode()
+        duration_rounded = round(result.duration, 2)
+        lipsync_enabled = settings().get("voice.lipsync_enabled", True)
+        msg = {
+            "type": "tts_audio", "audio": b64_audio, "format": "wav",
+            "duration": duration_rounded, "sentence_idx": 0, "emotion": emotion,
+        }
+        if result.viseme_schedule and lipsync_enabled:
+            msg["viseme_schedule"] = result.viseme_schedule
+        await ws.send_json(msg)
+        logger.debug(f"Speak TTS: sent {result.duration:.2f}s audio")
     except asyncio.TimeoutError:
         logger.error("Speak TTS: timed out")
         try:

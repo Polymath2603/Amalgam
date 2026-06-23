@@ -48,7 +48,7 @@ class BaseAgent(ABC):
     def __init__(self, llm: LLMType, tools: dict, memory: Any, config: dict,
                  mcp_client: Any = None, strategy_selector: Any = None):
         if not isinstance(tools, dict):
-            logger.warning("tools must be a dict, got %s; coercing to {}", type(tools).__name__, {})
+            logger.warning("tools must be a dict, got %s; coercing to empty dict", type(tools).__name__)
             tools = {}
         self.llm = llm
         self.tools = tools
@@ -94,8 +94,6 @@ class BaseAgent(ABC):
         Subclasses that override ``handle_user_input`` must preserve the same
         yield-type contract.
         """
-        from typing import AsyncIterator as _AsyncIterator
-
         ctx = {
             "session_id": self.memory.get_current_session(),
             "relationship_context": relationship_context,
@@ -105,7 +103,6 @@ class BaseAgent(ABC):
         # Emit thinking signal before starting
         yield ("__thinking__", "Processing your request...")
 
-        error_occurred = False
         try:
             async for chunk in self.run(text, ctx):
                 if isinstance(chunk, tuple):
@@ -115,14 +112,12 @@ class BaseAgent(ABC):
                     # Convert [Error: …] strings to proper error signals
                     error_msg = chunk[len("[Error:"):].rstrip("]").strip()
                     yield ("__error__", error_msg)
-                    error_occurred = True
                     return
                 else:
                     yield chunk
         except Exception as e:
             logger.exception("Agent error in handle_user_input")
             yield ("__error__", str(e))
-            error_occurred = True
             return
 
     async def spawn_subagent(self, prompt: str) -> str:

@@ -24,7 +24,7 @@ class EpisodicMemory:
         metadata = {
             "session_id": self._session_id,
             "role": turn.get("role", "user"),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": turn.get("timestamp", datetime.now(timezone.utc).isoformat()),
         }
         self._collection.add(
             documents=[turn.get("content", "")],

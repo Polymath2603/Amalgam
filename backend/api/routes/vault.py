@@ -1,13 +1,12 @@
 """
 Vault / rules API routes.
 """
-import os 
 import re 
 import logging 
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from backend .api .deps import settings ,vault ,llm
+from backend .api .deps import vault ,llm
 from backend .core .paths import VAULT_DIR
 from backend.core.deprecated import deprecated 
 

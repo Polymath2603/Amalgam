@@ -57,7 +57,12 @@ class HybridRetrieval:
     def rebuild_bm25(self, messages: list[dict]):
         """Full rebuild from a list of messages (used for migration/initial load)."""
         self._bm25_docs = messages
+        self._tokenized_corpus = [
+            re.findall(r'\w+(?:[.:_]\w+)*', m.get('content', '').lower())
+            for m in messages
+        ]
         self._rebuild()
+        self._docs_since_rebuild = 0
 
     async def retrieve(self, query: str, query_emb: list[float],
                        session_id: str, top_k: int = 5) -> list[dict]:
