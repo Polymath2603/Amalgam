@@ -29,8 +29,21 @@ class SecretsManager :
                 self ._data ={}
 
     def _save (self ):
-        self ._path .write_text (json .dumps (self ._data ,indent =2 ))
-        self ._path .chmod (0o600 )
+        """Atomically save secrets with file locking and restricted permissions."""
+        text = json .dumps (self ._data ,indent =2 )
+        try :
+            import fcntl
+            fd = os .open (str (self ._path ), os .O_CREAT | os .O_WRONLY | os .O_TRUNC , 0o600 )
+            try :
+                fcntl .flock (fd , fcntl .LOCK_EX )
+                os .write (fd , text .encode ("utf-8" ))
+                os .fsync (fd )
+            finally :
+                os .close (fd )
+        except (ImportError , OSError , AttributeError ):
+            # Fallback for systems without fcntl (Windows)
+            self ._path .write_text (text )
+            self ._path .chmod (0o600 )
 
     def get (self ,key :str ,profile :str ="default")->Optional [str ]:
         return self ._data .get (profile ,{}).get (key )

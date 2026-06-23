@@ -164,7 +164,7 @@ export class AvatarRenderer {
         }, false);
 
         this.renderer.domElement.addEventListener('webglcontextrestored', () => {
-            console.log('[Avatar] WebGL context restored — resuming');
+            console.debug('[Avatar] WebGL context restored — resuming');
             this._animate();
         }, false);
 

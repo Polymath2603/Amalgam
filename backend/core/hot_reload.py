@@ -10,7 +10,7 @@ Usage: HotReloader is started in FastAPI lifespan and stopped on shutdown.
 import asyncio
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from backend.core.paths import DATA_DIR
 
@@ -26,6 +26,7 @@ class HotReloader:
     def __init__(self):
         self._handlers: dict[Path, list[Callable]] = {}
         self._mtimes: dict[Path, float] = {}
+        self._cached_files: dict[Path, list[Path]] = {}  # 28.1: cache file list
         self._running = False
 
     def watch(self, path: Path, handler: Callable[[Path], None]):
@@ -38,9 +39,9 @@ class HotReloader:
         if path.is_file():
             self._mtimes[path] = path.stat().st_mtime if path.exists() else 0
         elif path.is_dir():
-            for f in path.glob("*.md"):
-                self._mtimes[f] = f.stat().st_mtime
-            for f in path.glob("*.yaml"):
+            files = list(path.glob("*.md")) + list(path.glob("*.yaml"))
+            self._cached_files[path] = files  # 28.1: cache file list
+            for f in files:
                 self._mtimes[f] = f.stat().st_mtime
 
     async def start(self):
@@ -57,7 +58,11 @@ class HotReloader:
             if watch_path.is_file():
                 self._check_file(watch_path, handlers)
             elif watch_path.is_dir():
-                for f in list(watch_path.glob("*.md")) + list(watch_path.glob("*.yaml")):
+                # Use cached file list and re-scan only when needed
+                cached = self._cached_files.get(watch_path)
+                if cached is None:
+                    cached = []
+                for f in cached:
                     self._check_file(f, handlers)
 
     def _check_file(self, path: Path, handlers: list[Callable]):
@@ -90,16 +95,16 @@ def setup_hot_reload(skill_loader, constitution):
     constitution: module with reload_cache() function
     """
 
-    # Skills
+    # Skills (28.3: capture skill_loader by value via default arg)
     _reloader.watch(
         DATA_DIR / "skills",
-        lambda p: _reload_skill(p, skill_loader),
+        lambda p, loader=skill_loader: _reload_skill(p, loader),
     )
 
     # Constitution
     _reloader.watch(
         DATA_DIR / "constitution.md",
-        lambda p: _reload_constitution(constitution),
+        lambda p, mod=constitution: _reload_constitution(mod),
     )
 
     # Characters
@@ -112,10 +117,9 @@ def setup_hot_reload(skill_loader, constitution):
 
 
 def _reload_skill(path: Path, loader):
-    skill = loader._load(path)
+    # 28.2: use public load_file method instead of loader._load
+    skill = loader.load_file(path)
     if skill:
-        loader.skills = [s for s in loader.skills if s.name != skill.name]
-        loader.skills.append(skill)
         logger.info(f"[HotReload] Skill reloaded: {skill.name}")
 
 

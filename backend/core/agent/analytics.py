@@ -36,7 +36,7 @@ class ToolAnalytics:
                 "successes": 0,
                 "failures": 0,
                 "total_latency_ms": 0.0,
-                "min_latency_ms": float("inf"),
+                "min_latency_ms": 0.0,
                 "max_latency_ms": 0.0,
                 "last_error": None,
                 "last_called": 0,
@@ -49,7 +49,10 @@ class ToolAnalytics:
                 if error:
                     info["last_error"] = error[:200]
             info["total_latency_ms"] += latency_ms
-            info["min_latency_ms"] = min(info["min_latency_ms"], latency_ms)
+            if info["min_latency_ms"] == 0.0:
+                info["min_latency_ms"] = latency_ms
+            else:
+                info["min_latency_ms"] = min(info["min_latency_ms"], latency_ms)
             info["max_latency_ms"] = max(info["max_latency_ms"], latency_ms)
             info["last_called"] = time.time()
 
@@ -97,7 +100,7 @@ class ToolAnalytics:
             "failures": info["failures"],
             "success_rate": round(info["successes"] / calls * 100, 1) if calls else 0,
             "avg_latency_ms": round(info["total_latency_ms"] / calls, 1) if calls else 0,
-            "min_latency_ms": info["min_latency_ms"] if info["min_latency_ms"] != float("inf") else 0,
+            "min_latency_ms": info["min_latency_ms"],
             "max_latency_ms": info["max_latency_ms"],
             "last_error": info["last_error"],
             "last_called": info["last_called"],
@@ -108,6 +111,28 @@ class ToolAnalytics:
         with self._lock:
             self._tools.clear()
             self._history.clear()
+
+    def start_periodic_persist(self, interval: float = 60.0):
+        """Start a background timer to periodically persist analytics to disk."""
+        self._persist_interval = interval
+        self._persist_timer = threading.Timer(interval, self._periodic_persist)
+        self._persist_timer.daemon = True
+        self._persist_timer.start()
+        logger.info("Tool analytics periodic persistence started (every %ss)", interval)
+
+    def _periodic_persist(self):
+        """Timer callback that persists and reschedules."""
+        self.persist()
+        if hasattr(self, '_persist_interval') and self._persist_interval > 0:
+            self._persist_timer = threading.Timer(self._persist_interval, self._periodic_persist)
+            self._persist_timer.daemon = True
+            self._persist_timer.start()
+
+    def stop_periodic_persist(self):
+        """Stop the periodic persistence timer."""
+        if hasattr(self, '_persist_timer') and self._persist_timer:
+            self._persist_timer.cancel()
+            self._persist_timer = None
 
     def _load(self):
         """Load persisted analytics from disk."""

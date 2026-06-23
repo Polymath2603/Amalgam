@@ -42,17 +42,20 @@ class ServiceError(Exception):
         recoverable: bool = False,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
         self.service = service
         self.recoverable = recoverable
         self.suggestion = suggestion
         self.details = details or {}
         super().__init__(message)
+        if cause is not None:
+            self.__cause__ = cause
 
     def to_dict(self) -> dict:
         """Serialize to dict for WebSocket/frontend consumption."""
         return {
-            "type": "error",
+            "error_type": "error",
             "service": self.service,
             "message": str(self),
             "recoverable": self.recoverable,
@@ -74,8 +77,9 @@ class LLMError(ServiceError):
         recoverable: bool = True,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
-        super().__init__(message, service, recoverable, suggestion, details)
+        super().__init__(message, service, recoverable, suggestion, details, cause=cause)
 
 
 class ProviderAuthError(LLMError):
@@ -85,16 +89,20 @@ class ProviderAuthError(LLMError):
         self,
         provider: str = "unknown",
         service: str = "",
+        recoverable: bool = True,
+        suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
         service = service or f"llm.provider.{provider}"
-        suggestion = f"Check your {provider} API key in Settings → Provider → {provider}"
+        suggestion = suggestion or f"Check your {provider} API key in Settings → Provider → {provider}"
         super().__init__(
             f"{provider}: API key is invalid or missing",
             service=service,
-            recoverable=True,
+            recoverable=recoverable,
             suggestion=suggestion,
             details=details,
+            cause=cause,
         )
 
 
@@ -106,31 +114,40 @@ class ProviderTimeoutError(LLMError):
         provider: str = "unknown",
         timeout: int = 30,
         service: str = "",
+        recoverable: bool = True,
+        suggestion: str = "",
+        cause: Optional[BaseException] = None,
     ):
         service = service or f"llm.provider.{provider}"
+        suggestion = suggestion or f"Check your network connection or increase timeout in Advanced settings"
         super().__init__(
             f"{provider}: request timed out after {timeout}s",
             service=service,
-            recoverable=True,
-            suggestion=f"Check your network connection or increase timeout in Advanced settings",
+            recoverable=recoverable,
+            suggestion=suggestion,
             details={"timeout": timeout},
+            cause=cause,
         )
 
 
 class ProviderRateLimitError(LLMError):
     """Rate limited by provider."""
 
-    def __init__(self, provider: str = "unknown", retry_after: int = 0, service: str = ""):
+    def __init__(self, provider: str = "unknown", retry_after: int = 0, service: str = "",
+                 recoverable: bool = True, suggestion: str = "",
+                 cause: Optional[BaseException] = None):
         service = service or f"llm.provider.{provider}"
+        suggestion = suggestion or "Wait before sending another request, or switch to a different provider"
         msg = f"{provider}: rate limited"
         if retry_after:
             msg += f" (retry after {retry_after}s)"
         super().__init__(
             msg,
             service=service,
-            recoverable=True,
-            suggestion="Wait before sending another request, or switch to a different provider",
+            recoverable=recoverable,
+            suggestion=suggestion,
             details={"retry_after": retry_after},
+            cause=cause,
         )
 
 
@@ -144,35 +161,44 @@ class TTSError(ServiceError):
         recoverable: bool = True,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
-        super().__init__(message, service, recoverable, suggestion, details)
+        super().__init__(message, service, recoverable, suggestion, details, cause=cause)
 
 
 class TTSModelNotFoundError(TTSError):
     """TTS model file not found."""
 
-    def __init__(self, engine: str = "unknown", model: str = "", service: str = ""):
+    def __init__(self, engine: str = "unknown", model: str = "", service: str = "",
+                 recoverable: bool = True, suggestion: str = "",
+                 cause: Optional[BaseException] = None):
         service = service or f"voice.tts.{engine}"
+        suggestion = suggestion or f"Install the {model} model or switch to a different TTS engine"
         super().__init__(
             f"{engine}: model not found ({model})",
             service=service,
-            recoverable=True,
-            suggestion=f"Install the {model} model or switch to a different TTS engine",
+            recoverable=recoverable,
+            suggestion=suggestion,
             details={"engine": engine, "model": model},
+            cause=cause,
         )
 
 
 class TTSConnectionError(TTSError):
     """Cannot connect to TTS service."""
 
-    def __init__(self, engine: str = "unknown", url: str = "", service: str = ""):
+    def __init__(self, engine: str = "unknown", url: str = "", service: str = "",
+                 recoverable: bool = True, suggestion: str = "",
+                 cause: Optional[BaseException] = None):
         service = service or f"voice.tts.{engine}"
+        suggestion = suggestion or f"Make sure {engine} is running at {url}"
         super().__init__(
             f"{engine}: cannot connect to {url}",
             service=service,
-            recoverable=True,
-            suggestion=f"Make sure {engine} is running at {url}",
+            recoverable=recoverable,
+            suggestion=suggestion,
             details={"engine": engine, "url": url},
+            cause=cause,
         )
 
 
@@ -186,35 +212,44 @@ class STTError(ServiceError):
         recoverable: bool = True,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
-        super().__init__(message, service, recoverable, suggestion, details)
+        super().__init__(message, service, recoverable, suggestion, details, cause=cause)
 
 
 class STTModelNotFoundError(STTError):
     """STT model file not found."""
 
-    def __init__(self, engine: str = "unknown", model: str = "", service: str = ""):
+    def __init__(self, engine: str = "unknown", model: str = "", service: str = "",
+                 recoverable: bool = True, suggestion: str = "",
+                 cause: Optional[BaseException] = None):
         service = service or f"voice.stt.{engine}"
+        suggestion = suggestion or f"Install the {model} model: python -m faster_whisper.download {model}"
         super().__init__(
             f"{engine}: model not found ({model})",
             service=service,
-            recoverable=True,
-            suggestion=f"Install the {model} model: python -m faster_whisper.download {model}",
+            recoverable=recoverable,
+            suggestion=suggestion,
             details={"engine": engine, "model": model},
+            cause=cause,
         )
 
 
 class STTConnectionError(STTError):
     """Cannot connect to STT service."""
 
-    def __init__(self, engine: str = "unknown", url: str = "", service: str = ""):
+    def __init__(self, engine: str = "unknown", url: str = "", service: str = "",
+                 recoverable: bool = True, suggestion: str = "",
+                 cause: Optional[BaseException] = None):
         service = service or f"voice.stt.{engine}"
+        suggestion = suggestion or f"Make sure {engine} is running at {url}"
         super().__init__(
             f"{engine}: cannot connect to {url}",
             service=service,
-            recoverable=True,
-            suggestion=f"Make sure {engine} is running at {url}",
+            recoverable=recoverable,
+            suggestion=suggestion,
             details={"engine": engine, "url": url},
+            cause=cause,
         )
 
 
@@ -228,9 +263,10 @@ class MCPServerError(ServiceError):
         recoverable: bool = True,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
         service = f"mcp.server.{server}"
-        super().__init__(message, service, recoverable, suggestion, details)
+        super().__init__(message, service, recoverable, suggestion, details, cause=cause)
 
 
 class MemoryError(ServiceError):
@@ -243,8 +279,9 @@ class MemoryError(ServiceError):
         recoverable: bool = False,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
-        super().__init__(message, service, recoverable, suggestion, details)
+        super().__init__(message, service, recoverable, suggestion, details, cause=cause)
 
 
 class AgentError(ServiceError):
@@ -257,8 +294,9 @@ class AgentError(ServiceError):
         recoverable: bool = False,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
-        super().__init__(message, service, recoverable, suggestion, details)
+        super().__init__(message, service, recoverable, suggestion, details, cause=cause)
 
 
 class ConfigurationError(ServiceError):
@@ -271,5 +309,6 @@ class ConfigurationError(ServiceError):
         recoverable: bool = True,
         suggestion: str = "",
         details: Optional[dict] = None,
+        cause: Optional[BaseException] = None,
     ):
-        super().__init__(message, service, recoverable, suggestion, details)
+        super().__init__(message, service, recoverable, suggestion, details, cause=cause)

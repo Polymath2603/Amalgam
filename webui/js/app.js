@@ -1061,10 +1061,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     window.addEventListener('online', _onlineHandler);
     window.addEventListener('offline', _offlineHandler);
-
-})(/**
- * app.js — Main orchestrator (entry point)
- *
- * Wires all modules together and handles DOMContentLoaded bootstrap.
- * Replaces the original 3975-line monolith.
- */);
+});

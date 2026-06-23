@@ -22,6 +22,7 @@ Both types coexist.
 import re
 import yaml
 import logging
+import threading
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -101,8 +102,10 @@ class MDSkillLoader:
 
     def for_query(self, query: str, max_skills: int = 2) -> list[MDSkill]:
         matching = [s for s in self.skills if s.matches(query)]
+        ql = query.lower()
         matching.sort(
-            key=lambda s: sum(1 for t in s.triggers if t.lower() in query.lower()),
+            key=lambda s: sum(1 for t in s.triggers if t.lower() in ql)
+                         / max(len(s.triggers), 1),
             reverse=True,
         )
         return matching[:max_skills]
@@ -112,21 +115,35 @@ class MDSkillLoader:
         if any(p in content.lower() for p in INJECTION_PATTERNS):
             raise ValueError(f"Skill rejected: contains injection pattern")
         path = self.dir / f"{name}.md"
+        if path.exists():
+            logger.warning(f"Overwriting existing skill file: {name}")
         path.write_text(content, encoding="utf-8")
         skill = self._load(path)
         if skill:
+            self.skills = [s for s in self.skills if s.name != skill.name]
             self.skills.append(skill)
             return True
         return False
 
+    def load_file(self, path: Path) -> "MDSkill | None":
+        """Load a single skill file and update the skills list. Public API for hot-reload."""
+        skill = self._load(path)
+        if skill:
+            self.skills = [s for s in self.skills if s.name != skill.name]
+            self.skills.append(skill)
+        return skill
+
 
 # Module-level singleton
 _skill_loader: MDSkillLoader | None = None
+_loader_lock: threading.Lock = threading.Lock()
 
 
 def get_loader() -> MDSkillLoader:
     global _skill_loader
     if _skill_loader is None:
-        _skill_loader = MDSkillLoader(str(SKILLS_DIR))
-        _skill_loader.load_all()
+        with _loader_lock:
+            if _skill_loader is None:
+                _skill_loader = MDSkillLoader(str(SKILLS_DIR))
+                _skill_loader.load_all()
     return _skill_loader

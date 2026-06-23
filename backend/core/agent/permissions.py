@@ -103,7 +103,13 @@ class ToolPermissions:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ToolPermissions":
-        inst = cls(level=PermissionLevel(data.get("level", "full")))
+        level_str = data.get("level", "full")
+        try:
+            level = PermissionLevel(level_str)
+        except ValueError:
+            logger.warning("Invalid permission level: %r, falling back to 'full'", level_str)
+            level = PermissionLevel.FULL
+        inst = cls(level=level)
         inst._approved_once = set(data.get("approved_once", []))
         return inst
 
@@ -227,7 +233,7 @@ class PermissionGate:
 
             prompt = (
                 f"Allow {tool_name}{input_preview}? "
-                f"[tier: {tier.name}] — y/n/always: "
+                f"[tier: {tier.name.lower()}] — y/n/always: "
             )
             response = await self.ask_fn(prompt)
             if isinstance(response, str):

@@ -4,6 +4,7 @@ import os
 import asyncio
 import logging
 import re
+from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -36,6 +37,8 @@ DEPTH_MARKERS ={"why","how","because","think","feel","believe","imagine",
 SECONDS_PER_DAY =86400 
 DECAY_RATE_PER_DAY =0.05 
 
+_CACHE_MAX_SIZE = 1000
+
 STAGES =[
 ("stranger",{"interaction_count":0 ,"avg_sentiment":0.0 ,"avg_depth":0.0 }),
 ("acquaintance",{"interaction_count":5 ,"avg_sentiment":0.0 ,"avg_depth":0.0 }),
@@ -52,7 +55,7 @@ class Relationship :
             db_path =RELATIONSHIP_DB 
         self ._db_path =str (db_path)
         os .makedirs (os .path .dirname (self._db_path ),exist_ok =True )
-        self ._cache :Dict [str ,Dict ]={}
+        self ._cache :OrderedDict [str ,Dict ]=OrderedDict ()
         self ._initialized =False 
         self ._init_lock =asyncio .Lock ()
 
@@ -91,6 +94,7 @@ class Relationship :
 
     async def _load (self ,character_id :str )->Dict :
         if character_id in self ._cache :
+            self ._cache .move_to_end (character_id )
             return self ._cache [character_id ]
         
         await self ._ensure_db ()
@@ -103,15 +107,22 @@ class Relationship :
                 row = await cursor.fetchone()
         if row :
             stats =json .loads (row [0 ])
-            self ._cache [character_id ]=stats 
+            self ._cache [character_id ]=stats
+            self ._cache .move_to_end (character_id )
             return stats 
         stats =self ._default_stats ()
-        self ._cache [character_id ]=stats 
+        self ._cache [character_id ]=stats
+        self ._cache .move_to_end (character_id )
+        if len (self ._cache )>_CACHE_MAX_SIZE :
+            self ._cache .popitem (last =False )
         return stats 
 
     async def _save (self ,character_id :str ,stats :Dict ):
         stats ["updated_at"]=datetime .now (timezone .utc ).isoformat ()
-        self ._cache [character_id ]=stats 
+        self ._cache [character_id ]=stats
+        self ._cache .move_to_end (character_id )
+        if len (self ._cache )>_CACHE_MAX_SIZE :
+            self ._cache .popitem (last =False )
         
         await self ._ensure_db ()
         
@@ -124,6 +135,8 @@ class Relationship :
 
     def _apply_time_decay (self ,stats :Dict ):
         last =datetime .fromisoformat (stats ["last_interaction"])
+        if last .tzinfo is None :
+            last =last .replace (tzinfo =timezone .utc )
         now =datetime .now (timezone .utc )
         elapsed =(now -last ).total_seconds ()
         days =elapsed /SECONDS_PER_DAY 

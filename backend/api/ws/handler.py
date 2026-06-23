@@ -337,10 +337,10 @@ class ChatSession:
                     # CorrectionStore: detect user corrections
                     if self._correction_store.detect_correction(text, full_response):
                         sid = memory().get_current_session()
-                        self._correction_store.extract_correction(sid, text, full_response)
+                        await self._correction_store.extract_correction(sid, text, full_response)
 
                     # PreferenceLearner: observe interactions for preference patterns
-                    self._preference_learner.observe_interaction(text, full_response)
+                    await self._preference_learner.observe_interaction(text, full_response)
                 except Exception as e:
                     logger.debug(f"Self-learning error (non-blocking): {e}")
 

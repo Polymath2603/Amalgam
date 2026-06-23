@@ -4,8 +4,9 @@ Constitution is always first. Character soul follows. Character can override.
 
 Usage:
     from backend.core.constitution import build_system_prompt
-    system = build_system_prompt(character_soul="You are Aria...", character_name="aria")
+    system = await build_system_prompt(character_soul="You are Aria...", character_name="aria")
 """
+import asyncio
 from pathlib import Path
 import logging
 
@@ -14,21 +15,26 @@ from backend.core.paths import DATA_DIR
 logger = logging.getLogger(__name__)
 CONSTITUTION_PATH = DATA_DIR / "constitution.md"
 
-# Cache for hot-reload support — _reload_constitution sets this to None
+# Cache for hot-reload support — reload_cache() sets this to None
 _cache: str | None = None
+_lock = asyncio.Lock()
 
 
-def load_constitution() -> str:
-    """Load the global constitution. Returns empty string if file doesn't exist."""
-    global _cache
+async def load_constitution() -> str:
+    """Load the global constitution asynchronously. Returns empty string if file doesn't exist."""
+    global _cache, _lock
     if _cache is not None:
         return _cache
-    if CONSTITUTION_PATH.exists():
-        _cache = CONSTITUTION_PATH.read_text(encoding="utf-8").strip()
-        return _cache
-    logger.warning("constitution.md not found — no global rules applied")
-    _cache = ""
-    return ""
+    async with _lock:
+        # Double-check after acquiring lock
+        if _cache is not None:
+            return _cache
+        if CONSTITUTION_PATH.exists():
+            _cache = (await asyncio.to_thread(CONSTITUTION_PATH.read_text, encoding="utf-8")).strip()
+            return _cache
+        logger.warning("constitution.md not found — no global rules applied")
+        _cache = ""
+        return ""
 
 
 def reload_cache():
@@ -40,7 +46,7 @@ def reload_cache():
     _cache = None
 
 
-def build_system_prompt(
+async def build_system_prompt(
     character_soul: str,
     character_name: str = "",
     skip_constitution: bool = False,
@@ -52,7 +58,7 @@ def build_system_prompt(
     if skip_constitution:
         return character_soul
 
-    constitution = load_constitution()
+    constitution = await load_constitution()
     parts = []
 
     if constitution:

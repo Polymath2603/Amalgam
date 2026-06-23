@@ -7,6 +7,7 @@ import copy
 import os
 import asyncio
 import logging
+from typing import Optional
 
 from backend.core.deps import get_shared, set_shared
 from backend.core.paths import VAULT_DIR
@@ -40,6 +41,10 @@ async def init_application():
     settings = shared["settings"]
 
     log_level = settings.get("log.level", "WARNING")
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    if log_level.upper() not in valid_levels:
+        logger.warning("Invalid log level: %r, falling back to WARNING", log_level)
+        log_level = "WARNING"
     log_format = settings.get("log.format", "console")
     from backend.core.log_config import configure_logging
     configure_logging(level=log_level, log_format=log_format)
@@ -127,9 +132,17 @@ def make_settings_reloader(mcp_client, *, loop):
                         s.setdefault("env", {})
                         s["env"]["AMALGAM_SHELL_MODE"] = shell_mode
                         s["env"]["AMALGAM_SHELL_ALLOWED_COMMANDS"] = ",".join(shell_prefixes)
-                asyncio.run_coroutine_threadsafe(
+                future = asyncio.run_coroutine_threadsafe(
                     mcp_client.connect_from_settings(mcp_servers), loop
                 )
+                def _log_future_error(f):
+                    try:
+                        exc = f.exception()
+                        if exc:
+                            logger.warning("Settings hot-reload MCP connect failed: %s", exc)
+                    except asyncio.CancelledError:
+                        pass
+                future.add_done_callback(_log_future_error)
 
             # Use public API instead of private attribute (fix C3)
             settings.reload_characters()

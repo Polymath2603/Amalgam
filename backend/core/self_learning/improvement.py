@@ -109,6 +109,9 @@ class SkillImprover:
         if not self._last_review:
             return []
 
+        if dry_run:
+            logger.info("Dry-run mode — no skills will be deleted")
+
         pruned = []
         for skill in self._last_review.get("stale", []):
             name = skill["name"]
@@ -157,7 +160,7 @@ class SkillImprover:
     def _discover_skills(self) -> list[dict]:
         """List all skills in the skills directory.
 
-        Only reads the first ~512 bytes of each SKILL.md to extract
+        Only reads the first ~4096 bytes of each SKILL.md to extract
         the created timestamp, reducing I/O overhead for large skill libraries.
         """
         if not SKILLS_DIR.exists():
@@ -167,8 +170,8 @@ class SkillImprover:
             skill_path = entry / "SKILL.md"
             if skill_path.exists():
                 try:
-                    # Read only frontmatter (first ~512 bytes) instead of full content
-                    head = skill_path.read_bytes()[:512]
+                    # Read only frontmatter (first ~4096 bytes) instead of full content
+                    head = skill_path.read_bytes()[:4096]
                     created = self._extract_created(head)
                     skills.append({
                         "name": entry.name,
@@ -188,10 +191,9 @@ class SkillImprover:
             return False
         try:
             created_dt = datetime.fromisoformat(created)
-            # Make timezone-aware if it's naive (so comparison works with utcnow)
-            if created_dt.tzinfo is None:
-                created_dt = created_dt.replace(tzinfo=timezone.utc)
-            age = (datetime.now(timezone.utc) - created_dt).days
+            # Strip timezone info from both sides for naive comparison
+            created_dt = created_dt.replace(tzinfo=None)
+            age = (datetime.now() - created_dt).days
             return age >= STALE_AGE_DAYS
         except (ValueError, TypeError):
             return False

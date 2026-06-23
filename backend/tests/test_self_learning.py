@@ -189,10 +189,11 @@ class TestCorrectionStore:
         assert not cs.detect_correction("Hello, how are you?")
         assert not cs.detect_correction("That's interesting, tell me more")
 
-    def test_extract_correction_stores_record(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_extract_correction_stores_record(self, tmp_path):
         from backend.core.self_learning.corrections import CorrectionStore
         cs = CorrectionStore(data_dir=str(tmp_path))
-        record = cs.extract_correction("session1", "no, I meant the other one", "OK here")
+        record = await cs.extract_correction("session1", "no, I meant the other one", "OK here")
         assert record is not None
 
 

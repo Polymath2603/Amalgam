@@ -284,7 +284,7 @@ class Agent:
 
             plugins = get_plugin_registry()
             tools = await plugins.hook_tool_definition(tools)
-            messages = self.context_builder.build(
+            messages = await self.context_builder.build(
                 tools, history, current_input,
                 character_id=character_id,
                 additional_prompt=additional_prompt,

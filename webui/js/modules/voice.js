@@ -111,7 +111,7 @@ export function startBrowserSpeechRec() {
 
     try {
         browserSpeechRec.start();
-        console.log('Browser SpeechRecognition started');
+        console.debug('Browser SpeechRecognition started');
     } catch (e) {
         console.warn('Browser SpeechRecognition start failed:', e);
         // Clear reference so onend won't try to restart a broken instance

@@ -178,7 +178,7 @@ class ContextBuilder:
 
         return ""
 
-    def build(self, tools: List[Dict], history: List[Dict], user_msg: str,
+    async def build(self, tools: List[Dict], history: List[Dict], user_msg: str,
               character_id: str = None, additional_prompt: str = "",
               summary: str = "", relevant: List[Dict] = None,
               tts_emotions: List[str] = None, expression_names: List[str] = None,
@@ -187,7 +187,7 @@ class ContextBuilder:
             character_id = self.settings.get("character.active", "default")
         character = self._characters.get(character_id, {})
 
-        char_ctx = self._build_character_prompt(
+        char_ctx = await self._build_character_prompt(
             character, additional_prompt, character_id, tools
         )
 
@@ -306,7 +306,7 @@ class ContextBuilder:
             return ""
         return f"\n\n### About the User (from previous interactions)\n{relationship_context}"
 
-    def _build_character_prompt(self, character: Dict, additional_prompt: str = "",
+    async def _build_character_prompt(self, character: Dict, additional_prompt: str = "",
                                 character_id: str = None, tools: list = None) -> dict:
         name = character.get("name", "Assistant") if character else "Assistant"
         system_prompt = character.get("system_prompt", "") if character else ""
@@ -325,7 +325,7 @@ class ContextBuilder:
         identity_content = system_prompt or f"You are {name}, a helpful AI assistant."
         if char_desc:
             identity_content = f"### About You\n{char_desc}\n\n{identity_content}"
-        identity = build_system_prompt(
+        identity = await build_system_prompt(
             character_soul=identity_content,
             character_name=name,
         )

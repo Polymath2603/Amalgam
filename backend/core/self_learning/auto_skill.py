@@ -33,6 +33,9 @@ MAX_NAME_WORDS = 4
 # Collision-safe hash length for deduplication (48 bits ≈ 281 trillion space)
 NAME_HASH_LENGTH = 12
 
+# Prompt truncation limit for LLM skill generation
+_PROMPT_TRUNCATION_LIMIT = 1000
+
 # Common stopwords — frozenset for O(1) membership checks
 _STOPWORDS = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "to", "for",
@@ -204,6 +207,14 @@ class AutoSkillCreator:
             indent=2,
         )
 
+        # Truncate full_response for the prompt to avoid exceeding context limits
+        truncated_response = full_response[:_PROMPT_TRUNCATION_LIMIT]
+        if len(full_response) > _PROMPT_TRUNCATION_LIMIT:
+            logger.warning(
+                f"Truncating full_response from {len(full_response)} to "
+                f"{_PROMPT_TRUNCATION_LIMIT} chars for LLM skill generation prompt"
+            )
+
         prompt = f"""You are a skill extraction system. Based on the following interaction, create a reusable SKILL.md file that captures the approach used.
 
 The user asked: "{user_message}"
@@ -211,7 +222,7 @@ The user asked: "{user_message}"
 The agent used these tools:
 {tools_text}
 
-The agent's response was: "{full_response[:1000]}"
+The agent's response was: "{truncated_response}"
 
 Create a SKILL.md with YAML frontmatter and clear sections that explain:
 1. What problem this skill solves (description)
@@ -324,7 +335,17 @@ auto_generated: true
 
         Uses _get_tool_name for the tool name to avoid duplicating
         the isinstance logic from _get_tool_name.
+
+        Raises
+        ------
+        TypeError
+            If tc is neither a dict nor an object with tool_name attribute.
         """
+        if not isinstance(tc, dict) and not hasattr(tc, "tool_name"):
+            raise TypeError(
+                f"Expected dict or object with tool_name attribute, "
+                f"got {type(tc).__name__}"
+            )
         if isinstance(tc, dict):
             return {
                 "tool": tc.get("tool_name", "unknown"),

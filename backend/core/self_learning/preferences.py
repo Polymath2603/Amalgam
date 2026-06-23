@@ -233,7 +233,7 @@ class PreferenceLearner:
     # Persistence
     # ------------------------------------------------------------------
 
-    def _save(self):
+    async def _save(self):
         data = {
             "interactions": [
                 {"response_length": r.response_length, "engaged": r.engaged}
@@ -242,18 +242,25 @@ class PreferenceLearner:
             "topics": dict(self._topics),
             "updated": datetime.now(timezone.utc).isoformat(),
         }
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            logger.error(f"Failed to create preferences directory: {e}")
-            return
-        try:
-            self._path.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-        except OSError as e:
-            logger.error(f"Failed to save preference signals: {e}")
+
+        def _write():
+            try:
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                logger.error(f"Failed to create preferences directory: {e}")
+                return
+            try:
+                self._path.write_text(
+                    json.dumps(data, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except OSError as e:
+                logger.error(f"Failed to save preference signals: {e}")
+
+        await asyncio.to_thread(_write)
+
+        # Invalidate cache after save as data may have changed
+        self._cached_prefs = None
 
     def _load(self):
         if self._path.exists():
@@ -273,5 +280,6 @@ class PreferenceLearner:
                     for r in raw
                 )
                 self._topics = defaultdict(int, data.get("topics", {}))
+                self._cached_prefs = None
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Failed to load preference signals from {self._path}: {e}")
