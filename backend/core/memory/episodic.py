@@ -26,15 +26,11 @@ class EpisodicMemory:
             "role": turn.get("role", "user"),
             "timestamp": turn.get("timestamp", datetime.now(timezone.utc).isoformat()),
         }
-        # ChromaDB's Rust backend is NOT thread-safe. Acquire the global
-        # ChromaDB lock before calling Collection.add().
-        from backend.core.memory.manager import Memory
-        with Memory._chroma_lock:
-            self._collection.add(
-                documents=[turn.get("content", "")],
-                metadatas=[metadata],
-                ids=[eid],
-            )
+        self._collection.add(
+            documents=[turn.get("content", "")],
+            metadatas=[metadata],
+            ids=[eid],
+        )
         logger.debug(f"EpisodicMemory: added episode {eid}")
         return eid
 
@@ -42,13 +38,11 @@ class EpisodicMemory:
         """Query episodes by semantic similarity, scoped to this session."""
         if self._collection is None:
             return []
-        from backend.core.memory.manager import Memory
-        with Memory._chroma_lock:
-            results = self._collection.query(
-                query_texts=[query],
-                n_results=k,
-                where={"session_id": self._session_id},
-            )
+        results = self._collection.query(
+            query_texts=[query],
+            n_results=k,
+            where={"session_id": self._session_id},
+        )
         episodes = []
         documents = (results.get("documents") or [[]])[0]
         metadatas = (results.get("metadatas") or [[]])[0] or []
@@ -64,6 +58,4 @@ class EpisodicMemory:
     def count(self) -> int:
         if self._collection is None:
             return 0
-        from backend.core.memory.manager import Memory
-        with Memory._chroma_lock:
-            return self._collection.count()
+        return self._collection.count()

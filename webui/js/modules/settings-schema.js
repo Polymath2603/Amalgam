@@ -184,6 +184,30 @@ export const SETTINGS_SCHEMA = {
                 key: "companion.personality_notes",
                 description: "Extra personality instructions for the companion",
             },
+            companion_overlay_position_x: {
+                label: 'Overlay Position X',
+                type: 'hidden',
+                key: 'companion.overlay_position_x',
+                description: 'Companion overlay horizontal position',
+            },
+            companion_overlay_position_y: {
+                label: 'Overlay Position Y',
+                type: 'hidden',
+                key: 'companion.overlay_position_y',
+                description: 'Companion overlay vertical position',
+            },
+            companion_overlay_scale: {
+                label: 'Overlay Scale',
+                type: 'hidden',
+                key: 'companion.overlay_scale',
+                description: 'Companion avatar scale factor',
+            },
+            companion_overlay_last_state: {
+                label: 'Last Overlay State',
+                type: 'hidden',
+                key: 'companion.overlay_last_state',
+                description: 'Whether companion overlay was active (companion or chat)',
+            },
         }
     },
     "Provider": {

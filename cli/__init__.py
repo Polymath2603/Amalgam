@@ -555,7 +555,7 @@ async def run_cli_direct():
                 for row in [
                     ("/clear", "Clear terminal and reprint banner"),
                     ("/compact", "Force memory compaction"),
-                    ("/companion [on|off]", "Toggle, enable, or disable companion mode (voice + avatar)"),
+                    ("/companion [on|off]", "Toggle, enable, or disable companion mode (voice, avatar, proactive messages)"),
                     ("/crash", "Simulate a crash (for testing recovery)"),
                     ("/exit", "Quit the CLI"),
                     ("/health", "Show live service health report"),
@@ -588,6 +588,15 @@ async def run_cli_direct():
                     continue
                 settings.set("voice.input_enabled", new_state)
                 settings.set("voice.output_enabled", new_state)
+                settings.set("companion.enabled", new_state)
+                # Broadcast settings_update to any active WebSocket clients
+                try:
+                    from backend.api.deps import companion as _companion_dep
+                    sched = _companion_dep()
+                    if sched and hasattr(sched, 'broadcast'):
+                        sched.broadcast({"type": "settings_update", "settings": {"companion.enabled": new_state}})
+                except Exception:
+                    pass
                 con.print(f"[green]Companion mode ON[/green]" if new_state else "[red]Companion mode OFF[/red]")
                 continue
 

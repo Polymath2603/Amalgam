@@ -1271,6 +1271,16 @@ class ChatSession:
                             data={"session_id": memory().get_current_session()},
                         ))))
 
+                elif msg_type == "companion_state":
+                    # Client toggled companion mode; broadcast settings_update to all connected clients
+                    state_str = data.get("state", "").lower()
+                    if state_str in ("on", "off"):
+                        new_state = state_str == "on"
+                        settings().set("companion.enabled", new_state)
+                        sched = companion()
+                        if sched and hasattr(sched, 'broadcast'):
+                            sched.broadcast({"type": "settings_update", "settings": {"companion.enabled": new_state}})
+
                 elif msg_type == "retry_tool":
                     # Retry a failed tool call from the frontend
                     tool_name = data.get("tool", "")

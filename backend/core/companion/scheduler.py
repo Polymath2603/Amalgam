@@ -103,6 +103,14 @@ class CompanionScheduler:
         self._is_idle.pop(session_id, None)
         self._last_companion_time.pop(session_id, None)
 
+    def broadcast(self, payload: dict) -> None:
+        """Send a message to all registered WebSocket sessions."""
+        for sid, send_fn in list(self._ws_sessions.items()):
+            try:
+                asyncio.create_task(send_fn(payload))
+            except Exception:
+                pass
+
     # -- Event handlers -----------------------------------------------------
 
     async def on_event(self, event: CompanionEvent) -> None:

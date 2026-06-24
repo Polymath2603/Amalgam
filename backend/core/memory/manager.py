@@ -36,56 +36,6 @@ _LOCAL_EMBEDDING_LOCK = threading.Lock()
 _MAX_CACHED_SESSIONS = 100
 
 
-class _SharedEmbeddingFunction:
-    """ChromaDB embedding function that wraps our pre-loaded SentenceTransformer.
-
-    Avoids the race condition where ChromaDB's default embedding function and
-    _get_local_embedding() both try to load SentenceTransformer concurrently,
-    causing a segfault in the native code.
-    """
-
-    def __init__(self, model) -> None:
-        self._model = model
-
-    def __call__(self, input: list[str]) -> list[list[float]]:
-        return self._model.encode(input).tolist()  # type: ignore[no-any-return]
-
-    def embed_query(self, query: str) -> list[float]:
-        return self._model.encode([query])[0].tolist()  # type: ignore[no-any-return]
-
-    def embed_with_retries(self, input: list[str]) -> list[list[float]]:
-        return self.__call__(input)
-
-    @staticmethod
-    def name() -> str:
-        return "shared_sentence_transformers"
-
-    @staticmethod
-    def default_space() -> str:
-        return "cosine"
-
-    @staticmethod
-    def supported_spaces() -> list[str]:
-        return ["cosine", "l2", "ip"]
-
-    def get_config(self) -> dict:
-        return {"model_name": "all-MiniLM-L6-v2"}
-
-    @staticmethod
-    def build_from_config(config: dict) -> "_SharedEmbeddingFunction":
-        return _SharedEmbeddingFunction(_get_local_embedding())
-
-    @staticmethod
-    def is_legacy() -> bool:
-        return False
-
-    def validate_config(self, config: dict) -> None:
-        pass
-
-    def validate_config_update(self, old: dict, new: dict) -> None:
-        pass
-
-
 def _get_local_embedding():
     """Lazy-load SentenceTransformer on first use (saves ~18s at startup)."""
     global _LOCAL_EMBEDDING, _LOCAL_EMBEDDING_LOADED
@@ -106,27 +56,6 @@ def _get_local_embedding():
 
 
 class Memory:
-    def _get_or_create_collection_shared(self, name: str, metadata: dict) -> Any:
-        """Get or create a ChromaDB collection, using the shared embedding function.
-
-        If the collection already exists with a different embedding function
-        (e.g. created by an older version), we return it as-is to avoid the
-        "Embedding function already exists" error.
-        """
-        try:
-            return self.chroma.get_or_create_collection(
-                name=name,
-                metadata=metadata,
-                embedding_function=self._shared_ef,
-            )
-        except Exception as exc:
-            # ChromaDB raises various errors when EF conflicts with an
-            # existing collection; in that case, just get it without EF.
-            err_str = str(exc).lower()
-            if "embedding function" in err_str or "already exists" in err_str:
-                return self.chroma.get_collection(name=name)
-            raise
-
     _chroma_lock = threading.Lock()
     """ChromaDB's Rust backend is NOT thread-safe. All operations go through this lock."""
 
@@ -151,22 +80,19 @@ class Memory:
 
         EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Pre-load embedding model and create a shared embedding function
-        # to avoid a race where ChromaDB's default embedding function and
-        # _get_local_embedding() both try to load SentenceTransformer
-        # concurrently, causing a segfault in the native code.
-        shared_ef = _SharedEmbeddingFunction(_get_local_embedding())
-
         if _HAS_CHROMADB:
+            # IMPORTANT: Pre-load the embedding model BEFORE creating ChromaDB
+            # collections. ChromaDB's DefaultEmbeddingFunction loads
+            # SentenceTransformer lazily on the first add/query. If multiple
+            # threads trigger this lazy load simultaneously (e.g. via thread
+            # pool executor), SentenceTransformer's native code segfaults.
+            _get_local_embedding()
+
             self.chroma = chromadb.PersistentClient(
                 path=str(EMBEDDINGS_DIR),
                 settings=ChromaSettings(anonymized_telemetry=False),
             )
-            # Use shared embedding function for new collections; existing
-            # collections may have been created with the default embedding
-            # function and cannot be reconfigured in-place.
-            self._shared_ef = shared_ef
-            self.chroma_col = self._get_or_create_collection_shared(
+            self.chroma_col = self.chroma.get_or_create_collection(
                 name="conversations",
                 metadata={"hnsw:space": "cosine"},
             )
@@ -517,7 +443,7 @@ class Memory:
         """Get or create EpisodicMemory for the given session."""
         if session_id not in self._episodic_memories:
             if self.chroma is not None:
-                ep_collection = self._get_or_create_collection_shared(
+                ep_collection = self.chroma.get_or_create_collection(
                     name="episodic",
                     metadata={"hnsw:space": "cosine"},
                 )

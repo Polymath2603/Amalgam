@@ -1,0 +1,191 @@
+/* Companion overlay — transparent fullscreen layer */
+.companion-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999;
+    background: transparent;
+    pointer-events: auto;
+    overflow: hidden;
+    transition: opacity 0.3s ease;
+}
+.companion-overlay.hidden {
+    display: none;
+}
+.companion-overlay.fade-in {
+    opacity: 1;
+}
+
+/* Avatar canvas container — draggable, resizable */
+.companion-avatar-container {
+    position: absolute;
+    /* Default: centered, 60vh tall */
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(1);
+    width: 40vw;
+    height: 60vh;
+    min-width: 200px;
+    min-height: 300px;
+    max-width: 100vw;
+    max-height: 100vh;
+    cursor: grab;
+    pointer-events: auto;
+    z-index: 10000;
+    transition: width 0.1s, height 0.1s;
+}
+.companion-avatar-container.dragging {
+    cursor: grabbing;
+}
+.companion-avatar-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+/* Tool palette — floating, auto-hides */
+.companion-palette {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    padding: 6px 10px;
+    background: rgba(26, 27, 36, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    z-index: 10001;
+    pointer-events: auto;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+.companion-palette.hidden {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px);
+    pointer-events: none;
+}
+.companion-palette.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+}
+
+.palette-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: #d1d5db;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.palette-btn:hover {
+    background: rgba(125, 108, 241, 0.2);
+    color: #c4b5fd;
+}
+.palette-btn:active {
+    background: rgba(125, 108, 241, 0.35);
+}
+.palette-btn.active {
+    color: #7d6cf1;
+    background: rgba(125, 108, 241, 0.15);
+}
+.palette-btn.danger:hover {
+    background: rgba(255, 92, 92, 0.2);
+    color: #ff5c5c;
+}
+.palette-btn .material-icons-round {
+    font-size: 20px;
+}
+
+/* Mute indicator — top-right overlay */
+.companion-mute-indicator {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(255, 92, 92, 0.15);
+    border: 1px solid rgba(255, 92, 92, 0.3);
+    border-radius: 8px;
+    color: #ff5c5c;
+    font-size: 12px;
+    z-index: 10002;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+.companion-mute-indicator.hidden {
+    opacity: 0;
+}
+
+/* TTS indicator — top-left overlay */
+.companion-tts-indicator {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(0, 230, 153, 0.15);
+    border: 1px solid rgba(0, 230, 153, 0.3);
+    border-radius: 8px;
+    color: #00e699;
+    font-size: 12px;
+    z-index: 10002;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+.companion-tts-indicator.hidden {
+    opacity: 0;
+}
+
+/* Resize handle — bottom-right corner */
+.companion-resize-handle {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 50%, rgba(125,108,241,0.4) 50%);
+    border-radius: 0 0 4px 0;
+    z-index: 10001;
+    pointer-events: auto;
+}
+
+/* Mobile: palette higher on screen, avatar full width */
+@media (max-width: 768px) {
+    .companion-avatar-container {
+        width: 90vw;
+        height: 50vh;
+    }
+    .companion-palette {
+        bottom: 16px;
+        gap: 2px;
+        padding: 4px 8px;
+    }
+    .palette-btn {
+        width: 36px;
+        height: 36px;
+    }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .companion-overlay,
+    .companion-palette {
+        transition: none;
+    }
+}

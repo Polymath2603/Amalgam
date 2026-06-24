@@ -56,8 +56,14 @@ let _pongTimeout = null;
 
 // Companion mode
 const urlParams = new URLSearchParams(window.location.search);
-const IS_COMPANION = urlParams.get('mode') === 'companion';
-if (IS_COMPANION) document.body.classList.add('companion-mode');
+const IS_COMPANION_LEGACY = urlParams.get('mode') === 'companion';
+if (IS_COMPANION_LEGACY) {
+    document.body.classList.add('companion-mode');
+    // If in legacy mode, auto-enable companion
+    import('./companion.js').then(m => {
+        if (!m.isCompanionEnabled()) m.enableCompanionMode({ silent: true });
+    });
+}
 
 function _startHeartbeat(wsRef) {
     _stopHeartbeat();
@@ -438,6 +444,16 @@ export function handleWSMessage(data) {
             if (data.context) cam.dataset.companionContext = data.context;
         }
         _setStatus?.('ready');
+        // Also notify companion module for potential overlay speech bubble
+        import('./companion.js').then(m => m.handleCompanionWSMessage(data));
+    } else if (data.type === 'companion_state_ack') {
+        // Backend acknowledged companion state change — nothing to do
+        console.debug('[Companion] Backend acknowledged state:', data.enabled);
+    } else if (data.type === 'tts_state') {
+        // Notify companion overlay of TTS play state
+        if (data.playing !== undefined) {
+            import('./companion.js').then(m => m.setCompanionTtsPlaying(data.playing));
+        }
     } else if (data.type === 'interrupt') {
         if (data.action === 'stop_audio_and_animation') {
             flushTTSQueue();

@@ -28,6 +28,7 @@ import { _applyVoiceInput, _applyVoiceOutput, isBrowserStt, initVoiceToggles, up
 import { connectWS, getPendingMessages } from './modules/ws.js';
 import { loadMCP } from './modules/mcp.js';
 import { initCompanion, updateCompanionSettings } from './modules/companion.js';
+import { initOverlay, isOverlayVisible, getLastState } from './modules/companion-overlay.js';
 import { initMemoryGraph, destroyMemoryGraph } from './modules/memory-graph.js';
 import { initMcpCommand, openMcpPanel, closeMcpPanel, isMcpPanelOpen, handleMcpKeydown } from './modules/mcp-command.js';
 import { updateHealthBar, refreshHealth } from './modules/health.js';
@@ -940,6 +941,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // ── Escape: Close any open modal/dropdown/panel ──
             if (e.key === 'Escape') {
+                // If companion overlay is visible, hide palette instead of closing
+                if (isOverlayVisible()) {
+                    const palette = document.getElementById('companion-palette');
+                    if (palette && palette.classList.contains('visible')) {
+                        e.preventDefault();
+                        palette.classList.remove('visible');
+                        palette.classList.add('hidden');
+                        return;
+                    }
+                }
                 // Close MCP panel first
                 if (isMcpPanelOpen()) {
                     e.preventDefault();
@@ -1106,6 +1117,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('Init failed:', e);
         showToast('Failed to connect to server', 'danger');
         _initComplete = true;
+    });
+
+    // ─── Companion action dispatch from palette ───
+    document.addEventListener('companion:action', (e) => {
+        const { action } = e.detail || {};
+        // Most actions handled by companion.js
+        // Settings tab switch handled here
+        if (action === 'settings') {
+            switchTab('settings');
+        }
+    });
+
+    // ─── Companion state change ───
+    document.addEventListener('companion:state', (e) => {
+        const { enabled } = e.detail || {};
+        // Update header toggle button states if companion mode changes
+        const companionToggle = document.querySelector('[data-action="companion-toggle"]');
+        if (companionToggle) {
+            companionToggle.classList.toggle('active', enabled);
+        }
     });
 
     async function init() {

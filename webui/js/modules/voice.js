@@ -164,6 +164,9 @@ export function _applyVoiceInput(enabled, { persist = false, toast = false } = {
         });
     }
     if (toast) showToast(enabled ? 'Voice input on' : 'Voice input off');
+
+    // Notify companion overlay of mute state
+    document.dispatchEvent(new CustomEvent('companion:voice-input', { detail: { enabled } }));
 }
 
 export function _applyVoiceOutput(enabled, { persist = false, toast = false } = {}) {
@@ -187,6 +190,9 @@ export function _applyVoiceOutput(enabled, { persist = false, toast = false } = 
         });
     }
     if (toast) showToast(enabled ? 'Voice output on' : 'Voice output off');
+
+    // Notify companion overlay of TTS state
+    document.dispatchEvent(new CustomEvent('companion:voice-output', { detail: { enabled } }));
 }
 
 // Called by orchestrator to wire up toggle event listeners
