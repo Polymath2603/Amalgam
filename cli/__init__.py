@@ -194,7 +194,7 @@ def _categorize_error(error_str: str) -> dict:
 
 def _fuzzy_command_suggestion(bad_cmd: str) -> str | None:
     """Find closest matching command using difflib.get_close_matches."""
-    matches = difflib.get_close_matches(bad_cmd, _COMMANDS, n=1, cutoff=0.3)
+    matches = difflib.get_close_matches(bad_cmd, _COMMANDS, n=1, cutoff=0.5)
     return matches[0] if matches else None
 
 
