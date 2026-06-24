@@ -2,14 +2,11 @@
 Telegram bot interface for Amalgam.
 Provides a remote chat interface with support for text and voice messages.
 """
-import os 
 import asyncio 
 import logging 
-import json 
 import io 
-from typing import Optional 
 
-from telegram import Update ,Bot 
+from telegram import Update 
 from telegram .ext import ApplicationBuilder ,CommandHandler ,MessageHandler ,ContextTypes ,filters 
 from telegram .constants import ParseMode 
 

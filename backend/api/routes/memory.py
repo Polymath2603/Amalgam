@@ -17,6 +17,13 @@ async def get_sessions():
     return {"sessions": sessions, "current": memory().get_current_session()}
 
 
+@router.get("/api/memory/session/current")
+async def get_current_session_messages():
+    sid = memory().get_current_session()
+    messages = memory().get_session_messages(sid)
+    return {"session_id": sid, "messages": messages}
+
+
 @router.get("/api/memory/session/{session_id}")
 async def get_session_messages(session_id: str):
     # Validate session_id length to prevent abuse
@@ -73,13 +80,6 @@ async def clear_memory():
     await memory().clear()
     sid = await memory().start_session()
     return {"status": "ok", "session_id": sid}
-
-
-@router.get("/api/memory/session/current")
-async def get_current_session_messages():
-    sid = memory().get_current_session()
-    messages = memory().get_session_messages(sid)
-    return {"session_id": sid, "messages": messages}
 
 
 @router.post("/api/memory/new-session")

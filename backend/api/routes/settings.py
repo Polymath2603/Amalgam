@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter ,HTTPException 
 from pydantic import BaseModel 
 from backend .api .deps import settings ,llm ,tts ,agent
-from backend .core .config .settings import BUILTIN_VOICES
 from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )
@@ -430,8 +429,6 @@ async def get_settings_safe ():
 
     Used by the frontend to display settings without leaking secrets.
     """
-    import re as _re
-
     def _mask(val: str) -> str:
         if not val or not isinstance(val, str) or len(val) < 8:
             return "****"
@@ -491,10 +488,10 @@ async def reset_settings (target :str ="voice"):
         for k in ui_keys:
             s.set(k, defaults[k])
     elif target == "all":
-        # Preserve provider keys (API keys are sensitive)
+        # Preserve all provider keys (API keys, access keys, secrets are sensitive)
         preserved = {}
         for k, v in s.get_all().items():
-            if k.startswith("provider.") and "api_key" in k.lower():
+            if k.startswith("provider."):
                 preserved[k] = v
         for k, v in defaults.items():
             s.set(k, v)

@@ -4,7 +4,7 @@ Metrics API route — exposes tool analytics and per-turn metrics.
 
 import time
 import logging
-from collections import defaultdict, deque
+from collections import deque
 from typing import Optional
 
 from fastapi import APIRouter

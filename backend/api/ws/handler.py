@@ -9,19 +9,17 @@ import os
 import time
 
 from collections.abc import AsyncGenerator
-from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
-from backend.api.deps import settings, memory, tts, agent, relationship, wakeword, mcp, orchestrator, llm, companion
-from backend.api.ws.tts_service import OrderedTTSScheduler, synthesize_sentence, synthesize_now
-from backend.core.translation import TranslationService
+from backend.api.deps import settings, memory, agent, relationship, wakeword, mcp, orchestrator, llm, companion
+from backend.api.ws.tts_service import OrderedTTSScheduler, synthesize_now
 from backend.core.orchestrator import AgentProtocol
 from backend.api.routes.metrics import record_turn
 from pathlib import Path
 from backend.core.paths import CHARACTERS_DIR, PROJECT_ROOT
 from backend.voice.pipeline import VoicePipeline
 from backend.core.errors import ServiceError
-from backend.core.llm.litellm_provider import RateLimitError, LLMProviderError
+from backend.core.llm.litellm_provider import RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +258,7 @@ class ChatSession:
                         await self.send({"type": "animation", "name": sig_val,
                                         "url": anim_url})
                     elif sig_type == '__avatar__':
-                        await self._handle_avatar_signal(sig_val, current_emotion, full_response, sentence_buffer, char_id)
+                        await self._handle_avatar_signal(sig_val, char_id)
                         continue
                     elif sig_type == '__tool__':
                         await self.send({"type": "tool_call", "text": sig_val})
@@ -448,7 +446,7 @@ class ChatSession:
             # Remove completed tasks to prevent unbounded growth
             self.pending_tasks = {t for t in self.pending_tasks if not t.done()}
 
-    async def _handle_avatar_signal(self, sig_val, current_emotion, full_response, sentence_buffer, char_id):
+    async def _handle_avatar_signal(self, sig_val, char_id):
         """Handle __avatar__ signals for emotion/expression/roleplay."""
         try:
             av = json.loads(sig_val)

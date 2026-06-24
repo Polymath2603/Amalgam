@@ -7,7 +7,6 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from backend .api .deps import vault ,llm
-from backend .core .paths import VAULT_DIR
 from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )

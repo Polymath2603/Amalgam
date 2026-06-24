@@ -52,7 +52,6 @@ async def get_animations (char_id :str =None ):
     """Return available VRMA animation files."""
     # Sanitize char_id to prevent path traversal
     if char_id:
-        import os as _os
         if '..' in char_id or '/' in char_id or '\\' in char_id or not char_id.isprintable():
             logger.warning("Path traversal attempt in get_animations: %r", char_id)
             char_id = None

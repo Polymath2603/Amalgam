@@ -10,7 +10,7 @@ Endpoints:
   POST /api/setup/step3         → Configure character + behavior preferences
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 import logging
 

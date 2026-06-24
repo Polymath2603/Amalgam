@@ -7,7 +7,6 @@ import json
 import logging
 import fcntl
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
