@@ -41,7 +41,7 @@ if "HF_TOKEN" not in os.environ:
 
 log = logging.getLogger(__name__)
 VERSION = "0.2.0"  # bumped for the refactored release
-_HISTFILE = os.path.join(os.path.expanduser("~"), ".amalgam_history")
+_HISTFILE = os.path.join(os.path.expanduser("~"), ".amalgam", "history")
 _CRASH_FILE = os.path.join(os.path.expanduser("~"), ".amalgam", "crash_state.json")
 _SNAPSHOT_FILE = os.path.join(os.path.expanduser("~"), ".amalgam", "last_session.json")
 _CLI_ARGS = None  # populated by main() before entering interactive mode
