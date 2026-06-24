@@ -9,12 +9,55 @@
     background: transparent;
     pointer-events: auto;
     overflow: hidden;
+    opacity: 0;
     transition: opacity 0.3s ease;
 }
 .companion-overlay.hidden {
     display: none;
 }
+.companion-overlay:not(.hidden) {
+    display: block;
+}
 .companion-overlay.fade-in {
+    opacity: 1;
+}
+.companion-overlay.fade-out {
+    opacity: 0;
+}
+
+/* Disconnected indicator overlay banner */
+.companion-overlay .companion-disconnected-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: #ff5c5c;
+    z-index: 10003;
+    animation: companion-pulse 2s ease-in-out infinite;
+}
+@keyframes companion-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+.companion-overlay .companion-disconnected-text {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    background: rgba(255, 92, 92, 0.9);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    z-index: 10003;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    white-space: nowrap;
+}
+.companion-overlay .companion-disconnected-text.visible {
     opacity: 1;
 }
 
@@ -168,17 +211,46 @@
 /* Mobile: palette higher on screen, avatar full width */
 @media (max-width: 768px) {
     .companion-avatar-container {
-        width: 90vw;
+        width: 80vw;
+        max-width: 80vw;
         height: 50vh;
+        max-height: 50vh;
     }
     .companion-palette {
         bottom: 16px;
         gap: 2px;
         padding: 4px 8px;
+        border-radius: 12px;
     }
     .palette-btn {
         width: 36px;
         height: 36px;
+    }
+    .palette-btn .material-icons-round {
+        font-size: 18px;
+    }
+    .companion-mute-indicator {
+        font-size: 10px;
+        padding: 4px 8px;
+        top: 8px;
+        right: 8px;
+    }
+    .companion-mute-indicator .material-icons-round {
+        font-size: 14px;
+    }
+    .companion-tts-indicator {
+        font-size: 10px;
+        padding: 4px 8px;
+        top: 8px;
+        left: 8px;
+    }
+    .companion-tts-indicator .material-icons-round {
+        font-size: 14px;
+    }
+    .companion-overlay .companion-disconnected-text {
+        font-size: 10px;
+        padding: 3px 8px;
+        top: 4px;
     }
 }
 
@@ -187,5 +259,8 @@
     .companion-overlay,
     .companion-palette {
         transition: none;
+    }
+    .companion-overlay .companion-disconnected-bar {
+        animation: none;
     }
 }

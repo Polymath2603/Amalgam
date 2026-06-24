@@ -23,7 +23,7 @@ import {
     getVoiceInputEnabled, setVoiceInputEnabled,
     getVoiceOutputEnabled, setVoiceOutputEnabled,
 } from './state.js';
-import { initOverlay, showOverlay, hideOverlay, isOverlayVisible, updateMuteIndicator, updateTtsIndicator, getLastState } from './companion-overlay.js';
+import { initOverlay, showOverlay, hideOverlay, isOverlayVisible, updateMuteIndicator, updateTtsIndicator, getLastState, showDisconnectedIndicator, hideDisconnectedIndicator } from './companion-overlay.js';
 import { _applyVoiceInput, _applyVoiceOutput } from './voice.js';
 
 // --- Internal state ---
@@ -64,6 +64,10 @@ export function initCompanion() {
 
     // Bind companion action events
     document.addEventListener('companion:action', _onCompanionAction);
+
+    // Bind WS disconnect/reconnect events
+    document.addEventListener('ws:disconnected', _onWsDisconnected);
+    document.addEventListener('ws:connected', _onWsReconnected);
 }
 
 /**
@@ -347,6 +351,45 @@ export function _onCompanionAction(e) {
             document.dispatchEvent(new CustomEvent('switch-tab', { detail: { tab: 'settings', section: 'Character' } }));
             break;
     }
+}
+
+// ═════════════════════════════════════════════════════════════════
+//  WS disconnect / reconnect handling
+// ═════════════════════════════════════════════════════════════════
+
+let _isDisconnected = false;
+
+function _onWsDisconnected() {
+    if (!_companionEnabled) return;
+    _isDisconnected = true;
+
+    // Show toast and disconnected indicator on overlay
+    showToast('Connection lost', 'warning');
+    showDisconnectedIndicator();
+}
+
+function _onWsReconnected() {
+    if (!_companionEnabled) {
+        _isDisconnected = false;
+        return;
+    }
+    _isDisconnected = false;
+
+    // Hide disconnected indicator
+    hideDisconnectedIndicator();
+
+    // Re-enable voice/STT on reconnect
+    if (getVoiceInputEnabled()) {
+        _applyVoiceInput(true, { persist: false, toast: false });
+    }
+    if (getVoiceOutputEnabled()) {
+        _applyVoiceOutput(true, { persist: false, toast: false });
+    }
+
+    // Refresh palette states
+    _updatePaletteStates();
+
+    showToast('Reconnected', 'success');
 }
 
 // ═════════════════════════════════════════════════════════════════

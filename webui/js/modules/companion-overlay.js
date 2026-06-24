@@ -4,6 +4,12 @@
  * Manages the overlay DOM, mounts/unmounts the avatar renderer,
  * handles visibility, position/size persistence, and coordinates
  * with the tool palette.
+ *
+ * Supports:
+ *  - Drag via pointer events (desktop) + touch events (mobile)
+ *  - Double-click (desktop) & double-tap (mobile) toggle avatar show/hide
+ *  - Tab visibility pausing (saves CPU when user switches tabs)
+ *  - WS disconnect indicator
  */
 import { BASE_URL } from './config.js';
 import { api } from './api-client.js';
@@ -16,6 +22,8 @@ let _avatarContainer = null;    // #companion-avatar-container
 let _paletteEl = null;          // #companion-palette
 let _muteIndicator = null;      // #companion-mute-indicator
 let _ttsIndicator = null;       // #companion-tts-indicator
+let _disconnectedBar = null;    // #companion-disconnected-bar
+let _disconnectedText = null;   // #companion-disconnected-text
 let _resizeHandle = null;       // .companion-resize-handle
 let _isVisible = false;
 let _avatarHidden = false;
@@ -27,6 +35,13 @@ let _resizeStart = { x: 0, y: 0, w: 0, h: 0 };
 let _savedPosition = null;      // { x, y } as percentage strings or px
 let _savedScale = 1;
 let _avatarRendererRef = null;  // reference to the active avatar renderer
+
+// Tab visibility
+let _tabVisible = true;
+let _renderPaused = false;
+
+// Double-tap detection
+let _lastTapTime = 0;
 
 // --- Persistence keys ---
 const STORAGE_PREFIX = 'companion_overlay_';
@@ -48,6 +63,8 @@ export function initOverlay() {
     _paletteEl = document.getElementById('companion-palette');
     _muteIndicator = document.getElementById('companion-mute-indicator');
     _ttsIndicator = document.getElementById('companion-tts-indicator');
+    _disconnectedBar = document.getElementById('companion-disconnected-bar');
+    _disconnectedText = document.getElementById('companion-disconnected-text');
 
     if (!_overlayEl || !_avatarContainer || !_paletteEl) {
         console.warn('[CompanionOverlay] Missing DOM elements');
@@ -61,6 +78,9 @@ export function initOverlay() {
 
     // Bind global events for drag/resize
     _bindEvents();
+
+    // Tab visibility listener
+    document.addEventListener('visibilitychange', _onVisibilityChange);
 }
 
 /**
@@ -115,10 +135,15 @@ export function showOverlay(options = {}) {
         requestAnimationFrame(() => renderer._onResize());
     }
 
-    // Show overlay with fade-in
-    _overlayEl.classList.remove('hidden');
+    // Show overlay with fade-in (two-phase to trigger CSS transition)
+    _overlayEl.classList.remove('hidden', 'fade-out');
+    // Force reflow so the browser registers the element as displayed with opacity 0
+    void _overlayEl.offsetWidth;
     _overlayEl.classList.add('fade-in');
     _isVisible = true;
+
+    // Persist last state as companion mode
+    _saveLastState('companion');
 
     // Show palette (starts visible, then auto-hides)
     showPalette();
@@ -126,6 +151,11 @@ export function showOverlay(options = {}) {
     // Reset indicators
     updateMuteIndicator(false);
     updateTtsIndicator(false);
+
+    // If tab is hidden, pause render immediately
+    if (_tabVisible === false) {
+        _pauseRender();
+    }
 }
 
 /**
@@ -135,7 +165,23 @@ export function showOverlay(options = {}) {
 export function hideOverlay() {
     if (!_overlayEl || !_isVisible) return;
 
-    // Move canvas back to original avatar container
+    // Clear disconnected indicator
+    hideDisconnectedIndicator();
+
+    // Resume render if paused so canvas moves back cleanly
+    if (_renderPaused) {
+        _resumeRender();
+    }
+
+    // Fade out then hide
+    _overlayEl.classList.remove('fade-in');
+    _overlayEl.classList.add('fade-out');
+    _isVisible = false;
+    _avatarHidden = false;
+    hidePalette();
+    clearPaletteTimer();
+
+    // Move canvas back to original avatar container after fade completes
     const renderer = getAvatarRenderer();
     if (renderer?.renderer?.domElement) {
         const canvas = renderer.renderer.domElement;
@@ -146,12 +192,12 @@ export function hideOverlay() {
         }
     }
 
-    _overlayEl.classList.add('hidden');
-    _overlayEl.classList.remove('fade-in');
-    _isVisible = false;
-    _avatarHidden = false;
-    hidePalette();
-    clearPaletteTimer();
+    // After fade animation, add hidden class
+    setTimeout(() => {
+        if (!_isVisible) {
+            _overlayEl.classList.add('hidden');
+        }
+    }, 300);
 
     // Persist last state
     _saveLastState('chat');
@@ -260,7 +306,9 @@ export function getLastState() {
 
 export function showPalette() {
     if (!_paletteEl) return;
+    // Two-phase to trigger CSS transition
     _paletteEl.classList.remove('hidden');
+    void _paletteEl.offsetWidth;
     _paletteEl.classList.add('visible');
     _startPaletteAutoHide();
 }
@@ -309,6 +357,67 @@ export function updateTtsIndicator(playing) {
     }
 }
 
+// --- WS disconnect / reconnect indicator ---
+
+export function showDisconnectedIndicator() {
+    if (!_overlayEl || !_isVisible) return;
+    if (_disconnectedBar) _disconnectedBar.style.display = '';
+    if (_disconnectedText) {
+        _disconnectedText.classList.add('visible');
+        _disconnectedText.style.display = '';
+    }
+    showToast('Connection lost', 'warning');
+}
+
+export function hideDisconnectedIndicator() {
+    if (_disconnectedBar) _disconnectedBar.style.display = 'none';
+    if (_disconnectedText) {
+        _disconnectedText.classList.remove('visible');
+        _disconnectedText.style.display = 'none';
+    }
+}
+
+// --- Tab visibility handling ---
+
+function _onVisibilityChange() {
+    _tabVisible = !document.hidden;
+    if (!_isVisible) return;
+
+    if (!_tabVisible) {
+        // Tab hidden — pause render loop
+        _pauseRender();
+    } else {
+        // Tab visible again — resume render loop
+        _resumeRender();
+    }
+}
+
+function _pauseRender() {
+    if (_renderPaused || !_avatarRendererRef) return;
+    _renderPaused = true;
+
+    if (_avatarRendererRef._rafId) {
+        cancelAnimationFrame(_avatarRendererRef._rafId);
+        _avatarRendererRef._rafId = null;
+        console.debug('[CompanionOverlay] Render loop paused (tab hidden)');
+    }
+}
+
+function _resumeRender() {
+    if (!_renderPaused || !_avatarRendererRef) return;
+    _renderPaused = false;
+
+    // Restart the animate loop
+    if (typeof _avatarRendererRef._animate === 'function') {
+        // Reset the clock to avoid huge delta
+        if (_avatarRendererRef.clock) {
+            _avatarRendererRef.clock.start();
+        }
+        _avatarRendererRef._animate();
+        console.debug('[CompanionOverlay] Render loop resumed (tab visible)');
+    }
+}
+
 // --- Drag / Resize event binding ---
 
 function _bindEvents() {
@@ -321,6 +430,9 @@ function _bindEvents() {
     // Resize: pointerdown on resize handle
     _resizeHandle?.addEventListener('pointerdown', _onResizeStart);
 
+    // Touch drag (mobile) — handled by pointer events but also bind for fallback
+    _avatarContainer?.addEventListener('touchstart', _onTouchDragStart, { passive: true });
+
     // Scroll to resize (desktop)
     _avatarContainer?.addEventListener('wheel', _onScrollResize, { passive: true });
 
@@ -328,8 +440,9 @@ function _bindEvents() {
     _avatarContainer?.addEventListener('gesturestart', (e) => e.preventDefault(), { passive: false });
     _avatarContainer?.addEventListener('gesturechange', _onPinchResize, { passive: true });
 
-    // Double-click to toggle fullscreen
+    // Double-click/tap: toggle avatar visibility
     _avatarContainer?.addEventListener('dblclick', _onDoubleClick);
+    _avatarContainer?.addEventListener('touchend', _onTouchEnd);
 
     // Palette button handlers (delegated)
     _paletteEl?.addEventListener('click', _onPaletteAction);
@@ -347,6 +460,7 @@ function _onMouseMove() {
 function _onDragStart(e) {
     if (e.target.classList.contains('companion-resize-handle')) return;
     if (_isResizing) return;
+    if (_isDragging) return;
 
     _isDragging = true;
     const rect = _avatarContainer.getBoundingClientRect();
@@ -376,6 +490,64 @@ function _onDragEnd() {
     document.removeEventListener('pointerup', _onDragEnd);
     _savePosition();
 }
+
+// --- Touch drag (mobile fallback) ---
+
+function _onTouchDragStart(e) {
+    if (e.target.classList.contains('companion-resize-handle')) return;
+    if (_isResizing) return;
+    if (_isDragging) return;
+
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    _isDragging = true;
+    const rect = _avatarContainer.getBoundingClientRect();
+    _dragOffset.x = touch.clientX - rect.left;
+    _dragOffset.y = touch.clientY - rect.top;
+    _avatarContainer.classList.add('dragging');
+
+    document.addEventListener('touchmove', _onTouchDragMove, { passive: false });
+    document.addEventListener('touchend', _onTouchDragEnd);
+}
+
+function _onTouchDragMove(e) {
+    if (!_isDragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const newLeft = touch.clientX - _dragOffset.x;
+    const newTop = touch.clientY - _dragOffset.y;
+    _avatarContainer.style.left = newLeft + 'px';
+    _avatarContainer.style.top = newTop + 'px';
+    _avatarContainer.style.transform = _avatarContainer.style.transform.replace(/translate\([^)]+\)/, '');
+}
+
+function _onTouchDragEnd() {
+    _isDragging = false;
+    _avatarContainer?.classList.remove('dragging');
+    document.removeEventListener('touchmove', _onTouchDragMove);
+    document.removeEventListener('touchend', _onTouchDragEnd);
+    _savePosition();
+}
+
+// --- Double-tap detection (mobile) ---
+
+function _onTouchEnd(e) {
+    // Only handle single-finger taps
+    if (e.changedTouches.length !== 1) return;
+    const now = Date.now();
+    const timeSince = now - _lastTapTime;
+    _lastTapTime = now;
+
+    if (timeSince < 300 && timeSince > 0) {
+        // Double-tap detected
+        e.preventDefault();
+        toggleAvatarVisibility();
+    }
+}
+
+// --- Resize ---
 
 function _onResizeStart(e) {
     e.stopPropagation();
@@ -480,17 +652,22 @@ export function destroyOverlay() {
     clearPaletteTimer();
     document.removeEventListener('mousemove', _onMouseMove);
     document.removeEventListener('touchstart', _resetPaletteTimer);
+    document.removeEventListener('visibilitychange', _onVisibilityChange);
     // Clean up drag/resize listeners
     if (_avatarContainer) {
         _avatarContainer.removeEventListener('pointerdown', _onDragStart);
+        _avatarContainer.removeEventListener('touchstart', _onTouchDragStart);
         _avatarContainer.removeEventListener('wheel', _onScrollResize);
         _avatarContainer.removeEventListener('dblclick', _onDoubleClick);
+        _avatarContainer.removeEventListener('touchend', _onTouchEnd);
     }
     if (_resizeHandle) {
         _resizeHandle.removeEventListener('pointerdown', _onResizeStart);
     }
     document.removeEventListener('pointermove', _onDragMove);
     document.removeEventListener('pointerup', _onDragEnd);
+    document.removeEventListener('touchmove', _onTouchDragMove);
+    document.removeEventListener('touchend', _onTouchDragEnd);
     document.removeEventListener('pointermove', _onResizeMove);
     document.removeEventListener('pointerup', _onResizeEnd);
 }

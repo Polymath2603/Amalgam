@@ -142,6 +142,9 @@ export function connectWS() {
         if (statusDot) statusDot.className = 'status-dot online';
         if (statusText) statusText.textContent = t('status.connected');
 
+        // Dispatch custom event for companion overlay etc.
+        document.dispatchEvent(new CustomEvent('ws:connected'));
+
         // Hide offline bar on successful connection (fixes race where
         // the bar is visible before initial connect or after reconnect).
         const offlineBar = document.getElementById('offline-bar');
@@ -187,6 +190,9 @@ export function connectWS() {
 
     wsInst.onclose = (event) => {
         _stopHeartbeat();
+
+        // Dispatch custom event for companion overlay etc.
+        document.dispatchEvent(new CustomEvent('ws:disconnected', { detail: { code: event.code } }));
 
         // Reset voice state on disconnect: flush TTS queue, stop audio, close AudioContext
         flushTTSQueue();

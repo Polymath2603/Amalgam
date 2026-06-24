@@ -27,7 +27,7 @@ import { processTTSQueue, flushTTSQueue, setTtsCallbacks } from './modules/tts.j
 import { _applyVoiceInput, _applyVoiceOutput, isBrowserStt, initVoiceToggles, updateVoiceState, setVoiceStatusCallback } from './modules/voice.js';
 import { connectWS, getPendingMessages } from './modules/ws.js';
 import { loadMCP } from './modules/mcp.js';
-import { initCompanion, updateCompanionSettings } from './modules/companion.js';
+import { initCompanion, updateCompanionSettings, enableCompanionMode, isCompanionEnabled } from './modules/companion.js';
 import { initOverlay, isOverlayVisible, getLastState } from './modules/companion-overlay.js';
 import { initMemoryGraph, destroyMemoryGraph } from './modules/memory-graph.js';
 import { initMcpCommand, openMcpPanel, closeMcpPanel, isMcpPanelOpen, handleMcpKeydown } from './modules/mcp-command.js';
@@ -1143,6 +1143,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const settings = await api(BASE_URL + '/api/settings');
         if (settings) { applySettings(settings); _settingsLoaded = true; }
         initCompanion();
+
+        // Auto-restore companion mode if overlay was left open in companion state
+        if (!isCompanionEnabled() && getSettings()?.companion?.overlay_last_state === 'companion') {
+            enableCompanionMode({ silent: true, restore: true });
+        }
+
         await loadCharacters();
         await fetchCommands();
         // Refresh commands periodically so new slash commands (e.g. from MCP) appear
