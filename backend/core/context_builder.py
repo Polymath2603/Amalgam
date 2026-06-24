@@ -1,3 +1,4 @@
+import asyncio
 import os
 import logging
 from pathlib import Path
@@ -146,7 +147,7 @@ class ContextBuilder:
             return self.settings.get("vault.path", str(VAULT_DIR))
         return str(VAULT_DIR)
 
-    def _build_vault_section(self) -> str:
+    async def _build_vault_section(self) -> str:
         vault_path = self._get_vault_path()
         if not os.path.exists(vault_path):
             return ""
@@ -161,8 +162,9 @@ class ContextBuilder:
         rules_path = os.path.join(vault_path, "rules.md")
         if os.path.exists(rules_path) and os.path.isfile(rules_path):
             try:
-                with open(rules_path, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
+                content = await asyncio.to_thread(
+                    lambda: open(rules_path, "r", encoding="utf-8").read().strip()
+                )
                 if content:
 
                     max_tokens = 200
@@ -417,7 +419,7 @@ class ContextBuilder:
             avatar_section = ""
 
         # --- Vault rules ---
-        vault_rules = self._build_vault_section()
+        vault_rules = await self._build_vault_section()
 
         # --- Reasoning note ---
         if self.settings and not self.settings.get("ui.thinking_enabled", True):

@@ -110,10 +110,8 @@ class Orchestrator:
             try:
                 self._loop = asyncio.get_running_loop()
             except RuntimeError:
-                # No running loop — caller should pass a loop or ensure one is running
-                raise RuntimeError(
-                    "No running event loop. The Orchestrator must be used within an async context."
-                )
+                # No running loop — create a new one for synchronous callers
+                self._loop = asyncio.new_event_loop()
         return self._loop
 
     def set_ws_sender(self, fn: Callable[[dict], Coroutine[Any, Any, None]]):

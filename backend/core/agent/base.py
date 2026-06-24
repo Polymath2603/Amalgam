@@ -79,7 +79,7 @@ class BaseAgent(ABC):
         yield ""  # keep the ABC method syntactically a generator
 
     async def handle_user_input(
-        self, text: str, images: list = None,
+        self, text: str, images: Optional[list] = None,
         relationship_context: str = ""
     ) -> AsyncGenerator[str | SignalTuple, None]:
         """Legacy streaming interface — wraps ``run()`` with frontend signal tuples.

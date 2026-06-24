@@ -51,3 +51,9 @@ class SessionIndex:
                 key=lambda x: x.get("updated", ""),
                 reverse=True,
             )
+
+    def clear(self) -> None:
+        """Remove all entries from the index."""
+        with self._lock:
+            self._index.clear()
+            self._save()

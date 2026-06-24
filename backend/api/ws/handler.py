@@ -43,8 +43,6 @@ def _normalize_error(error_text: str) -> str:
                     error_text = msg
         except Exception:
             logger.debug("JSON parse failed in _normalize_error")
-    if len(error_text) > _MAX_ERROR_LENGTH:
-        error_text = error_text[:_MAX_ERROR_LENGTH] + '...(truncated)'
 
     friendly = {
         "rate limit": "Rate limit exceeded. Please wait and try again.",
@@ -58,11 +56,14 @@ def _normalize_error(error_text: str) -> str:
         "402": "Payment required. Check your account billing.",
     }
     # Collapse all whitespace so "rate\nlimit\nexceeded" matches "rate limit"
-    normalized = re.sub(r'\s+', ' ', error_text.lower())[:2000].strip()
+    normalized = re.sub(r'\s+', ' ', error_text.lower()).strip()
 
     for key, msg in friendly.items():
         if key.lower() in normalized:
             return msg
+
+    if len(error_text) > _MAX_ERROR_LENGTH:
+        return error_text[:_MAX_ERROR_LENGTH] + '...(truncated)'
     return error_text
 
 

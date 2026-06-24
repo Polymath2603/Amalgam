@@ -70,6 +70,10 @@ class ReflectiveAgent(BaseAgent):
         return await super().subconscious_reflect()
 
     def update_settings(self, settings):
+        # Update our own settings as well so future __init__-time references
+        # via BaseAgent (e.g. self.settings / self.config) are not stale.
+        self.settings = settings
+        self.config = settings if isinstance(settings, dict) else (settings or {})
         if hasattr(self.inner, 'update_settings'):
             self.inner.update_settings(settings)
 

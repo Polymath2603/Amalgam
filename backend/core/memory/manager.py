@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _LOCAL_EMBEDDING = None
 _LOCAL_EMBEDDING_LOADED = False
+_LOCAL_EMBEDDING_LOCK = threading.Lock()
 
 # Maximum number of session data cache entries before LRU eviction
 _MAX_CACHED_SESSIONS = 100
@@ -38,7 +39,11 @@ _MAX_CACHED_SESSIONS = 100
 def _get_local_embedding():
     """Lazy-load SentenceTransformer on first use (saves ~18s at startup)."""
     global _LOCAL_EMBEDDING, _LOCAL_EMBEDDING_LOADED
-    if not _LOCAL_EMBEDDING_LOADED:
+    if _LOCAL_EMBEDDING_LOADED:
+        return _LOCAL_EMBEDDING
+    with _LOCAL_EMBEDDING_LOCK:
+        if _LOCAL_EMBEDDING_LOADED:
+            return _LOCAL_EMBEDDING
         _LOCAL_EMBEDDING_LOADED = True
         try:
             from sentence_transformers import SentenceTransformer
@@ -63,6 +68,7 @@ class Memory:
         self._session_locks: Dict[str, threading.RLock] = {}
         self._session_locks_lock = threading.Lock()
         self._session_data_cache: OrderedDict[str, Dict] = OrderedDict()
+        self._cache_lock = threading.Lock()  # protects _session_data_cache (shared across sessions)
         self._executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=max(os.cpu_count() or 4, 2),
             thread_name_prefix="mem_io"
@@ -118,24 +124,27 @@ class Memory:
 
     def _cache_get(self, session_id: str) -> Optional[Dict]:
         """Get from LRU cache; promotes accessed entry."""
-        if session_id in self._session_data_cache:
-            data = self._session_data_cache.pop(session_id)
-            self._session_data_cache[session_id] = data
-            return data
-        return None
+        with self._cache_lock:
+            if session_id in self._session_data_cache:
+                data = self._session_data_cache.pop(session_id)
+                self._session_data_cache[session_id] = data
+                return data
+            return None
 
     def _cache_put(self, session_id: str, data: Dict):
         """Put into LRU cache with eviction of oldest entry if over limit."""
-        if session_id in self._session_data_cache:
-            self._session_data_cache.pop(session_id)
-        self._session_data_cache[session_id] = data
-        if len(self._session_data_cache) > _MAX_CACHED_SESSIONS:
-            # Remove oldest entry (LRU eviction)
-            self._session_data_cache.popitem(last=False)
+        with self._cache_lock:
+            if session_id in self._session_data_cache:
+                self._session_data_cache.pop(session_id)
+            self._session_data_cache[session_id] = data
+            if len(self._session_data_cache) > _MAX_CACHED_SESSIONS:
+                # Remove oldest entry (LRU eviction)
+                self._session_data_cache.popitem(last=False)
 
     def _cache_remove(self, session_id: str):
         """Remove a session from cache."""
-        self._session_data_cache.pop(session_id, None)
+        with self._cache_lock:
+            self._session_data_cache.pop(session_id, None)
 
     def _memory_enabled(self) -> bool:
         """Check if memory persistence is enabled in settings. Defaults to True."""
@@ -266,8 +275,8 @@ class Memory:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(self._executor, self._write_sync, session_id, data)
 
-    async def start_session(self) -> str:
-        """Start a new session using async write to avoid blocking the event loop."""
+    def start_session(self) -> str:
+        """Start a new session synchronously."""
         now = datetime.now(timezone.utc)
         ts = now.strftime("%Y-%m-%d_%H%M%S")
         session_id = ts
@@ -287,7 +296,7 @@ class Memory:
             "messages": [],
             "summary": None,
         }
-        await self._write(session_id, data)
+        self._write_sync(session_id, data)
         self._session_index.upsert(session_id, {
             "id": session_id,
             "created": now.isoformat(),
@@ -519,13 +528,17 @@ class Memory:
 
         await self._run_session_mutation(session_id, _do_add_turn)
 
-        # 4. Update session index (idempotent, lightweight)
-        self._session_index.upsert(session_id, {
-            "id": session_id,
-            "updated": timestamp,
-            "message_count": len(data.get("messages", [])),
-            "title": data.get("title", "New Session"),
-        })
+        # 4. Update session index (idempotent, lightweight) — offload to executor
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor,
+            lambda: self._session_index.upsert(session_id, {
+                "id": session_id,
+                "updated": timestamp,
+                "message_count": len(data.get("messages", [])),
+                "title": data.get("title", "New Session"),
+            })
+        )
 
         # 5. Incremental BM25 update (avoid O(n) full rebuild on every turn)
         self._hybrid.add_document(msg)
@@ -553,14 +566,20 @@ class Memory:
         msg_index = len(data["messages"]) - 1
         msg_id = f"{session_id}_{msg_index}"
         try:
-            self._fts.index_message(session_id, msg_id, role, content, timestamp)
+            await loop.run_in_executor(
+                self._executor,
+                self._fts.index_message, session_id, msg_id, role, content, timestamp,
+            )
         except Exception as e:
             logger.warning(f"FTS index failed for {session_id}: {e}")
 
         # 9. Store in episodic memory for per-session recall
         ep = self._get_episodic(session_id)
         try:
-            ep.add_episode({"role": role, "content": content, "timestamp": timestamp})
+            await loop.run_in_executor(
+                self._executor,
+                ep.add_episode, {"role": role, "content": content, "timestamp": timestamp},
+            )
         except Exception as e:
             logger.warning(f"Episodic add_episode failed for {session_id}: {e}")
 
@@ -888,8 +907,9 @@ class Memory:
                 threshold = self._setting("memory.summarize_threshold", 40)
                 keep = self._setting("memory.summarize_keep", 15)
                 session_id = self.get_current_session()
+                loop = asyncio.get_running_loop()
 
-                data = self._read_sync(session_id)
+                data = await loop.run_in_executor(self._executor, self._read_sync, session_id)
                 if data is None:
                     return
 
@@ -899,7 +919,7 @@ class Memory:
 
                 await self._prune_tool_outputs(session_id)
 
-                data = self._read_sync(session_id)
+                data = await loop.run_in_executor(self._executor, self._read_sync, session_id)
                 msgs = data["messages"]
                 to_summarize = msgs[:-keep] if keep < len(msgs) else msgs
 
@@ -946,9 +966,9 @@ class Memory:
             await loop.run_in_executor(self._executor, path.unlink)
         with self._session_locks_lock:
             self._session_locks.clear()
-        self._session_data_cache.clear()
-        self._session_index._index.clear()
-        self._session_index._save()
+        with self._cache_lock:
+            self._session_data_cache.clear()
+        self._session_index.clear()
         self._hybrid = HybridRetrieval(self.chroma_col)
         # Reset all memory tiers
         self._working.clear()

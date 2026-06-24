@@ -237,7 +237,7 @@ class Agent:
             return "reflection"
         return "tool_execution"  # default for action-oriented requests
 
-    async def handle_user_input(self, text: str, images: list = None, relationship_context: str = "") -> AsyncIterator[Union[str, Tuple[str, str]]]:
+    async def handle_user_input(self, text: str, images: Optional[list] = None, relationship_context: str = "") -> AsyncIterator[Union[str, Tuple[str, str]]]:
         await self.memory.add_turn("user", text)
         _metrics_start = time.monotonic()
         _metrics_session = self.memory.get_current_session()

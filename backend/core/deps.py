@@ -16,6 +16,7 @@ from backend.core.context_manager import ContextManager
 from backend.core.vault import VaultManager
 from backend.core.paths import EMBEDDINGS_DIR
 from backend.core.agent.core import Agent
+from backend.core.agent.base import BaseAgent
 from backend.core.agent.factory import AgentFactory
 from backend.core.metacognitive.strategy_selector import StrategySelector
 from backend.core.relationship import Relationship
@@ -173,8 +174,8 @@ def get_shared() -> MappingProxyType:
                 logger.warning("cli.provider not importable — provider_models not available")
                 _shared["provider_models"] = {}
 
-        # Return read-only proxy (fix H6)
-        return MappingProxyType(_shared)
+        # Return the shared dict (callers expect a plain dict)
+        return _shared
 
 
 def set_shared(key: str, value: Any) -> None:
@@ -210,7 +211,7 @@ def mcp() -> MCPClient:
 def tts() -> TTS:
     return _shared["tts"]
 
-def agent() -> Agent:
+def agent() -> BaseAgent:
     return _shared["agent"]
 
 def relationship() -> Relationship:

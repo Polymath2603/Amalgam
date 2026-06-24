@@ -192,15 +192,14 @@ class PluginRegistry:
         for p in self._plugins.values():
             if not p.is_enabled():
                 continue
-            try:
-                tools = await _call_with_timeout(
-                    lambda p=p, tools=tools: p.on_tool_definition(tools),
-                    p.name,
-                    "on_tool_definition",
-                    timeout=timeout,
-                )
-            except (asyncio.TimeoutError, Exception):
-                pass  # already logged by _call_with_timeout
+            result = await _call_with_timeout(
+                lambda p=p, tools=tools: p.on_tool_definition(tools),
+                p.name,
+                "on_tool_definition",
+                timeout=timeout,
+            )
+            if result is not None:
+                tools = result
         return tools
 
     async def hook_system_prompt(
@@ -209,15 +208,14 @@ class PluginRegistry:
         for p in self._plugins.values():
             if not p.is_enabled():
                 continue
-            try:
-                prompt = await _call_with_timeout(
-                    lambda p=p, prompt=prompt: p.on_system_prompt(prompt),
-                    p.name,
-                    "on_system_prompt",
-                    timeout=timeout,
-                )
-            except (asyncio.TimeoutError, Exception):
-                pass
+            result = await _call_with_timeout(
+                lambda p=p, prompt=prompt: p.on_system_prompt(prompt),
+                p.name,
+                "on_system_prompt",
+                timeout=timeout,
+            )
+            if result is not None:
+                prompt = result
         return prompt
 
     async def hook_messages(
@@ -226,15 +224,14 @@ class PluginRegistry:
         for p in self._plugins.values():
             if not p.is_enabled():
                 continue
-            try:
-                messages = await _call_with_timeout(
-                    lambda p=p, messages=messages: p.on_messages(messages),
-                    p.name,
-                    "on_messages",
-                    timeout=timeout,
-                )
-            except (asyncio.TimeoutError, Exception):
-                pass
+            result = await _call_with_timeout(
+                lambda p=p, messages=messages: p.on_messages(messages),
+                p.name,
+                "on_messages",
+                timeout=timeout,
+            )
+            if result is not None:
+                messages = result
         return messages
 
     async def hook_compaction(
@@ -243,15 +240,14 @@ class PluginRegistry:
         for p in self._plugins.values():
             if not p.is_enabled():
                 continue
-            try:
-                summary = await _call_with_timeout(
-                    lambda p=p, summary=summary: p.on_compaction(summary),
-                    p.name,
-                    "on_compaction",
-                    timeout=timeout,
-                )
-            except (asyncio.TimeoutError, Exception):
-                pass
+            result = await _call_with_timeout(
+                lambda p=p, summary=summary: p.on_compaction(summary),
+                p.name,
+                "on_compaction",
+                timeout=timeout,
+            )
+            if result is not None:
+                summary = result
         return summary
 
     async def hook_tool_result(
@@ -265,18 +261,17 @@ class PluginRegistry:
         for p in self._plugins.values():
             if not p.is_enabled():
                 continue
-            try:
-                result = await _call_with_timeout(
-                    lambda p=p, tool_name=tool_name, args=args,
-                    result=result: p.on_tool_result(
-                        tool_name, args, result
-                    ),
-                    p.name,
-                    "on_tool_result",
-                    timeout=timeout,
-                )
-            except (asyncio.TimeoutError, Exception):
-                pass
+            res = await _call_with_timeout(
+                lambda p=p, tool_name=tool_name, args=args,
+                result=result: p.on_tool_result(
+                    tool_name, args, result
+                ),
+                p.name,
+                "on_tool_result",
+                timeout=timeout,
+            )
+            if res is not None:
+                result = res
         return result
 
 

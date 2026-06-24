@@ -134,14 +134,12 @@ class MCPClient:
         if hasattr(agent, 'spawn_subagent'):
             self._subagent_spawner = agent.spawn_subagent
             self._subagent_capable = True
-            self._agent = None  # Break circular reference; spawner is now self-contained
         else:
             # Check for common sub-agent method names
             for attr_name in ('run_subagent', 'execute_subtask', 'spawn'):
                 if hasattr(agent, attr_name):
                     self._subagent_spawner = getattr(agent, attr_name)
                     self._subagent_capable = True
-                    self._agent = None  # Break circular reference
                     break
             else:
                 # No spawn method found; agent ref kept for legacy compatibility

@@ -141,7 +141,7 @@ class BasicAgent(BaseAgent):
         if full_response.strip():
             await self.memory.add_turn("assistant", full_response)
 
-    async def handle_user_input(self, text: str, images: list = None,
+    async def handle_user_input(self, text: str, images: Optional[list] = None,
                                 relationship_context: str = "") -> AsyncGenerator[str | SignalTuple, None]:
         """Legacy streaming interface — delegates to run()."""
         ctx = {
@@ -272,7 +272,7 @@ class BasicAgent(BaseAgent):
             return "reflection"
         return "tool_execution"  # default for action-oriented requests
 
-    async def _build_messages(self, text: str, images: list = None,
+    async def _build_messages(self, text: str, images: Optional[list] = None,
                               relationship_context: str = "") -> List[Dict]:
         system = await self._build_system_prompt(relationship_context)
         messages = [{"role": "system", "content": system}]
