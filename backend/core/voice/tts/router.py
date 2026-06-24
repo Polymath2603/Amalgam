@@ -260,3 +260,16 @@ class TTSRouter :
             except Exception as e :
                 logger .error (f"TTS synthesis failed for engine '{self .engine }': {type (e ).__name__ }: {e }")
                 return np .zeros (0 ,dtype =np .float32 ),[],self ._SR_MAP .get (self .engine ,16000 )
+
+    async def close(self):
+        """Close all cached providers, releasing HTTP clients and other resources."""
+        for name, provider in list(self._providers.items()):
+            try:
+                if hasattr(provider, 'close') and callable(provider.close):
+                    if asyncio.iscoroutinefunction(provider.close):
+                        await provider.close()
+                    else:
+                        provider.close()
+            except Exception as e:
+                logger.warning("Error closing TTS provider '%s': %s", name, e)
+        self._providers.clear()

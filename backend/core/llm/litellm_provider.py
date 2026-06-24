@@ -6,13 +6,10 @@ with a single class that delegates to litellm.acompletion().
 """
 
 import asyncio
-import functools
 import json
 import logging
-import os
 import random
 import re
-import time
 from typing import AsyncIterator, List, Dict, Any, Optional, Union
 
 import cachetools

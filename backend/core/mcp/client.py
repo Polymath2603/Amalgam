@@ -320,7 +320,7 @@ class MCPClient:
         except (asyncio.CancelledError, KeyboardInterrupt):
             await stack.aclose()
             raise
-        except BaseException as e:
+        except Exception as e:
             logger.error(f"Failed to connect to MCP server {name}: [{type(e).__name__}] {e}")
             await stack.aclose()
             return False

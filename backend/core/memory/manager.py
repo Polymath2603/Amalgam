@@ -64,6 +64,7 @@ class Memory:
         self.conv_dir.mkdir(parents=True, exist_ok=True)
         self._summarize_lock = asyncio.Lock()
         self._current_session: Optional[str] = None
+        self._current_session_lock = threading.Lock()
         # Per-session locks for thread-safe write+cache operations
         self._session_locks: Dict[str, threading.RLock] = {}
         self._session_locks_lock = threading.Lock()
@@ -278,7 +279,8 @@ class Memory:
     def start_session(self) -> str:
         """Start a new session synchronously."""
         now = datetime.now(timezone.utc)
-        ts = now.strftime("%Y-%m-%d_%H%M%S")
+        # Use microsecond + random suffix to avoid collisions under concurrent requests
+        ts = now.strftime("%Y-%m-%d_%H%M%S") + f"_{uuid.uuid4().hex[:6]}"
         session_id = ts
         character = self._setting("character.active", "default") if self.settings else None
         provider = self._setting("provider.active", None) if self.settings else None
@@ -306,13 +308,15 @@ class Memory:
             "provider": provider,
             "model": model,
         })
-        self._current_session = session_id
+        with self._current_session_lock:
+            self._current_session = session_id
         return session_id
 
     def _start_session_sync(self) -> str:
         """Synchronous session creation used by get_current_session() for backwards compatibility."""
         now = datetime.now(timezone.utc)
-        ts = now.strftime("%Y-%m-%d_%H%M%S")
+        # Use microsecond + random suffix to avoid collisions under concurrent requests
+        ts = now.strftime("%Y-%m-%d_%H%M%S") + f"_{uuid.uuid4().hex[:6]}"
         session_id = ts
         character = self._setting("character.active", "default") if self.settings else None
         provider = self._setting("provider.active", None) if self.settings else None
@@ -340,7 +344,8 @@ class Memory:
             "provider": provider,
             "model": model,
         })
-        self._current_session = session_id
+        with self._current_session_lock:
+            self._current_session = session_id
         return session_id
 
     def session_exists(self, session_id: str) -> bool:
@@ -349,15 +354,24 @@ class Memory:
 
     def has_active_session(self) -> bool:
         """Return True if a conversation session is already active."""
-        return self._current_session is not None
+        with self._current_session_lock:
+            return self._current_session is not None
 
     def set_current_session(self, session_id: str):
-        self._current_session = session_id
+        with self._current_session_lock:
+            self._current_session = session_id
 
     def get_current_session(self) -> str:
-        if not self._current_session:
-            self._start_session_sync()
-        return self._current_session
+        with self._current_session_lock:
+            if not self._current_session:
+                # Release lock before calling _start_session_sync to avoid deadlock
+                pass
+            else:
+                return self._current_session
+        # No current session; create one (outside lock to avoid potential lock ordering issues)
+        self._start_session_sync()
+        with self._current_session_lock:
+            return self._current_session
 
     def _setting(self, key: str, default):
         if self.settings:
@@ -698,7 +712,8 @@ class Memory:
             return working_turns
 
         # Fall back to disk for older messages
-        session_id = self._current_session
+        with self._current_session_lock:
+            session_id = self._current_session
         if not session_id:
             return working_turns or []
         data = self._read_sync(session_id)

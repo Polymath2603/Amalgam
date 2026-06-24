@@ -212,6 +212,7 @@ def main():
         help="Number of days for stats report (default: 7)",
     )
     parser.add_argument("-h", "--help", action="store_true", help="Show this help message")
+    parser.add_argument("--version", action="store_true", help="Show version and exit")
 
     args, unknown = parser.parse_known_args()
 
@@ -220,6 +221,12 @@ def main():
         _error(f"Unknown argument(s): {' '.join(unknown)}")
         _info("Run 'python main.py --help' for usage")
         sys.exit(2)
+
+    # Handle --version
+    if args.version:
+        from cli import VERSION
+        _get_con().print(f"[bold yellow]Amalgam[/bold yellow] version [cyan]{VERSION}[/cyan]")
+        sys.exit(0)
 
     # Handle --help or help command
     if args.help or args.frontend == "help":

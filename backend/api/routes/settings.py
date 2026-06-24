@@ -1,12 +1,13 @@
 """
 Settings API routes — /api/settings
 """
+import asyncio
 import logging 
 
 from typing import Any
 from fastapi import APIRouter ,HTTPException 
 from pydantic import BaseModel 
-from backend .api .deps import settings ,llm ,tts ,agent
+from backend .api .deps import settings ,llm ,tts ,agent ,companion
 from backend.core.deprecated import deprecated 
 
 logger =logging .getLogger (__name__ )

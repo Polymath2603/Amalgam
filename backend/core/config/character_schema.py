@@ -10,7 +10,6 @@ Defines the structure and validation for character definitions including:
 
 from pydantic import BaseModel, Field, field_validator, PrivateAttr
 from typing import Optional, List, Dict, Any
-from enum import Enum
 
 
 class VoiceConfig(BaseModel):

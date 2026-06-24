@@ -109,7 +109,7 @@ class Agent:
     async def spawn_subagent(self, prompt: str, session_id: str = None) -> str:
         sub_memory = Memory(llm_router=self.llm)
         if not session_id:
-            await sub_memory.start_session()
+            sub_memory.start_session()
         else:
             sub_memory.set_current_session(session_id)
         sub_agent = Agent(

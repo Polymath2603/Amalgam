@@ -78,13 +78,13 @@ async def delete_session(session_id: str):
 @router.post("/api/memory/clear")
 async def clear_memory():
     await memory().clear()
-    sid = await memory().start_session()
+    sid = memory().start_session()
     return {"status": "ok", "session_id": sid}
 
 
 @router.post("/api/memory/new-session")
 async def create_new_session():
-    sid = await memory().start_session()
+    sid = memory().start_session()
     return {"session_id": sid, "status": "ok"}
 
 

@@ -642,12 +642,12 @@ class ChatSession:
         """Handle slash commands (/clear, /new, /help, /settings, etc.)."""
         if cmd == "clear":
             await memory().clear()
-            sid = await memory().start_session()
+            sid = memory().start_session()
             relationship()._cache.clear()
             await self.send({"type": "chat_append", "role": "system",
                             "text": "Memory cleared.", "finished": True, "session_id": sid})
         elif cmd == "new":
-            sid = await memory().start_session()
+            sid = memory().start_session()
             await self.send({"type": "chat_append", "role": "system",
                             "text": f"New session started: {sid}", "finished": True, "session_id": sid})
         elif cmd == "help":

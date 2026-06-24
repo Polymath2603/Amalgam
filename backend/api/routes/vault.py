@@ -75,7 +75,9 @@ async def write_vault_file (filename :str ,body :VaultFileWriteRequest ):
 async def delete_vault_file (filename :str ):
     _validate_vault_filename(filename)
     ok =vault ().delete (filename )
-    return {"status":"ok"if ok else "error"}
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"File {filename} not found")
+    return {"status":"ok"}
 
 
 @router .get ("/api/vault/search")
