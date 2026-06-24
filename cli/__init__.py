@@ -436,6 +436,12 @@ async def run_cli_direct():
     memory = shared["memory"]
     settings = shared["settings"]
     llm = shared["llm"]
+    
+    # Mark this session as CLI/TUI mode so backend uses appropriate STT engine
+    try:
+        settings.set("ui.mode", "tui")
+    except Exception:
+        pass
     _last_message = [""]
     _show_thinking = [True]
 
@@ -553,37 +559,45 @@ async def run_cli_direct():
                     ("/rename <title>", "Rename the current session"),
                     ("/resume", "Show last 5 turns"),
                     ("/retry", "Retry your last message"),
-                    ("/companion", "Toggle companion mode (voice + avatar)"),
-                    ("/think", "Toggle thinking display"),
+                    ("/companion [on|off]", "Toggle, enable, or disable companion mode (voice + avatar)"),
+                    ("/think [on|off]", "Toggle, enable, or disable thinking display"),
                     ("/crash", "Simulate a crash (for testing recovery)"),
                 ]:
                     tbl.add_row(*row)
                 con.print(tbl)
                 continue
 
-            elif text == "/companion":
-                try:
-                    _voice_active = _voice_active
-                except NameError:
-                    _voice_active = [False]
-                # Check companion from settings
-                voice_enabled = settings.get("voice.input_enabled", False)
-                if voice_enabled:
-                    settings.set("voice.input_enabled", False)
-                    settings.set("voice.output_enabled", False)
-                    con.print("[red]Companion mode OFF[/red]")
+            elif text == "/companion" or text.startswith("/companion "):
+                parts = text.split(maxsplit=1)
+                arg = parts[1].lower() if len(parts) > 1 else ""
+                if arg == "on":
+                    new_state = True
+                elif arg == "off":
+                    new_state = False
+                elif arg == "":
+                    new_state = not settings.get("voice.input_enabled", False)
                 else:
-                    settings.set("voice.input_enabled", True)
-                    settings.set("voice.output_enabled", True)
-                    con.print("[green]Companion mode ON[/green]")
+                    con.print("[red]Usage: /companion [on|off][/red]")
+                    continue
+                settings.set("voice.input_enabled", new_state)
+                settings.set("voice.output_enabled", new_state)
+                con.print(f"[green]Companion mode ON[/green]" if new_state else "[red]Companion mode OFF[/red]")
                 continue
 
-            elif text == "/think":
-                _show_thinking[0] = not _show_thinking[0]
-                if _show_thinking[0]:
-                    con.print("[green]Thinking display: ON[/green]")
+            elif text == "/think" or text.startswith("/think "):
+                parts = text.split(maxsplit=1)
+                arg = parts[1].lower() if len(parts) > 1 else ""
+                if arg == "on":
+                    new_state = True
+                elif arg == "off":
+                    new_state = False
+                elif arg == "":
+                    new_state = not _show_thinking[0]
                 else:
-                    con.print("[red]Thinking display: OFF[/red]")
+                    con.print("[red]Usage: /think [on|off][/red]")
+                    continue
+                _show_thinking[0] = new_state
+                con.print(f"[green]Thinking display: ON[/green]" if new_state else "[red]Thinking display: OFF[/red]")
                 continue
 
             elif text == "/clear":
@@ -963,6 +977,12 @@ async def run_tui():
             if _CLI_ARGS:
                 _apply_cli_settings(settings, llm, memory, _CLI_ARGS)
 
+            # Mark this session as TUI mode so backend uses appropriate STT engine
+            try:
+                settings.set("ui.mode", "tui")
+            except Exception:
+                pass
+
             _check_crash_recovery_in_tui(settings, memory)
 
             sid = memory.get_current_session() if memory else ""
@@ -1206,6 +1226,8 @@ def _detect_providers_from_env() -> list[str]:
         "siliconflow": ["SILICONFLOW_API_KEY"],
         "huggingface": ["HUGGINGFACE_API_KEY"],
         "openrouter": ["OPENROUTER_API_KEY"],
+        "openai-compat": ["OPENAI_COMPAT_API_KEY"],
+        "anthropic-compat": ["ANTHROPIC_COMPAT_API_KEY"],
     }
     result = []
     for name, keys in env_keys.items():
@@ -1295,6 +1317,12 @@ async def _run_once(provider: str | None, model: str | None,
             prov = settings.get("provider.active", "?")
             settings.set(f"provider.{prov}.model", model)
             llm.reload_settings()
+
+        # Mark as TUI mode for one-shot runs too
+        try:
+            settings.set("ui.mode", "tui")
+        except Exception:
+            pass
 
         # Apply --resume
         if resume:

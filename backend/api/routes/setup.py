@@ -44,26 +44,31 @@ def _settings_key(provider_id: str) -> str:
 # endpoint also attempts to enrich from litellm's built-in model lists.
 # ---------------------------------------------------------------------------
 PROVIDER_CATALOG = [
-    {"id": "openai",           "name": "OpenAI (ChatGPT)",             "has_free_tier": False, "needs_api_key": True,  "default_model": "gpt-4o-mini",           "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1"],                         "api_key_hint": "starts with sk- or sk-proj- (51+ chars)"},
-    {"id": "anthropic",        "name": "Anthropic (Claude)",           "has_free_tier": False, "needs_api_key: "REDACTED", "claude-haiku-3-5"],              "api_key_hint": "starts with sk-ant- (108 chars)"},
-    {"id": "gemini",           "name": "Google Gemini",                "has_free_tier": True,  "needs_api_key": True,  "default_model": "gemini-2.0-flash",      "models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],    "api_key_hint": "starts with AIzaSy (39 chars)"},
-    {"id": "openrouter",       "name": "OpenRouter",                   "has_free_tier": True,  "needs_api_key": True,  "default_model": "meta-llama/llama-3.1-8b-instruct:free", "models": ["meta-llama/llama-3.1-8b-instruct:free"],            "api_key_hint": "starts with sk-or-v1- (52+ chars)"},
-    {"id": "groq",             "name": "Groq",                         "has_free_tier": True,  "needs_api_key: "REDACTED"], "api_key_hint": "starts with gsk_ (56 chars)"},
-    {"id": "deepseek",         "name": "DeepSeek",                     "has_free_tier": False, "needs_api_key": True,  "default_model": "deepseek-chat",         "models": ["deepseek-chat", "deepseek-reasoner"],                         "api_key_hint": "starts with sk- (32+ chars)"},
-    {"id": "mistral",          "name": "Mistral",                      "has_free_tier": False, "needs_api_key: "REDACTED"],             "api_key_hint": "starts with Ux... or u... (32 chars)"},
-    {"id": "together",         "name": "Together AI",                  "has_free_tier": False, "needs_api_key": True,  "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "models": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],      "api_key_hint": "starts with t1v... or 8x... (40+ chars)"},
-    {"id": "opencode",         "name": "OpenCode",                      "has_free_tier": False, "needs_api_key: "REDACTED", "models": [],                     "api_key_hint": "starts with sk- (32+ chars)"},
-    {"id": "opendev",          "name": "OpenDev",                       "has_free_tier": False, "needs_api_key": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "starts with sk- (32+ chars)"},
-    {"id": "ollama",           "name": "Ollama (Local)",               "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
-    {"id": "llamacpp",         "name": "llama.cpp (Local)",            "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
-    {"id": "koboldai",         "name": "KoboldAI (Local)",             "has_free_tier": True,  "needs_api_key": False, "default_model": "",                      "models": [],                                                             "api_key_hint": ""},
-    {"id": "azure-openai",     "name": "Azure OpenAI",                  "has_free_tier": False, "needs_api_key": True,  "default_model": "gpt-4o-mini",           "models": ["gpt-4o-mini", "gpt-4o"],                                      "api_key_hint": "paste your Azure API key or set AZURE_OPENAI_API_KEY env"},
-    {"id": "aws",              "name": "AWS Bedrock",                   "has_free_tier": False, "needs_api_key": True,  "default_model": "anthropic.claude-sonnet-4-20250514", "models": [],    "api_key_hint": "set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY env vars"},
-    {"id": "gcp",              "name": "GCP Vertex AI",                 "has_free_tier": False, "needs_api_key": True,  "default_model": "gemini-2.0-flash-001",  "models": [],                     "api_key_hint": "set GCP_SERVICE_ACCOUNT_JSON env var"},
-    {"id": "alibaba",          "name": "Alibaba Cloud (DashScope)",     "has_free_tier": True,  "needs_api_key": True,  "default_model": "qwen-turbo",            "models": ["qwen-turbo", "qwen-plus", "qwen-max"],                       "api_key_hint": "starts with sk- (32+ chars) or set ALIBABA_API_KEY env"},
-    {"id": "siliconflow",      "name": "SiliconFlow",                  "has_free_tier": True,  "needs_api_key": True,  "default_model": "deepseek-ai/DeepSeek-R1", "models": ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"],     "api_key_hint": "starts with sk- (32+ chars)"},
-    {"id": "huggingface",      "name": "Hugging Face Inference",       "has_free_tier": True,  "needs_api_key": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "starts with hf_ (36+ chars)"},
-    {"id": "zai",              "name": "ZAI (Turing/LLM-ZH)",          "has_free_tier": False, "needs_api_key": True,  "default_model": "google/gemma-2-27b-it", "models": ["google/gemma-2-27b-it", "Qwen/QwQ-32B-Preview"],             "api_key_hint": "starts with zsk- (32+ chars)"},
+    # ── Providers with constant / fixed base URLs (hidden in UI) ──
+    {"id": "openai",           "name": "OpenAI (ChatGPT)",             "has_free_tier": False, "needs_api_key": True,  "default_model": "gpt-4o-mini",           "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1"],                         "api_key_hint": "starts with sk- or sk-proj- (51+ chars)",               "base_url": "https://api.openai.com/v1",                        "base_url_constant": True},
+    {"id": "anthropic",        "name": "Anthropic (Claude)",           "has_free_tier": False, "needs_api_key: "REDACTED", "claude-haiku-3-5"],              "api_key_hint": "starts with sk-ant- (108 chars)",                       "base_url": "https://api.anthropic.com/v1",                     "base_url_constant": True},
+    {"id": "gemini",           "name": "Google Gemini",                "has_free_tier": True,  "needs_api_key": True,  "default_model": "gemini-2.0-flash",      "models": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],    "api_key_hint": "starts with AIzaSy (39 chars)",                       "base_url": "https://generativelanguage.googleapis.com/v1beta", "base_url_constant": True},
+    {"id": "openrouter",       "name": "OpenRouter",                   "has_free_tier": True,  "needs_api_key": True,  "default_model": "meta-llama/llama-3.1-8b-instruct:free", "models": ["meta-llama/llama-3.1-8b-instruct:free"],            "api_key_hint": "starts with sk-or-v1- (52+ chars)",                     "base_url": "https://openrouter.ai/api/v1",                     "base_url_constant": True},
+    {"id": "groq",             "name": "Groq",                         "has_free_tier": True,  "needs_api_key: "REDACTED"], "api_key_hint": "starts with gsk_ (56 chars)",              "base_url": "https://api.groq.com/openai/v1",                   "base_url_constant": True},
+    {"id": "deepseek",         "name": "DeepSeek",                     "has_free_tier": False, "needs_api_key": True,  "default_model": "deepseek-chat",         "models": ["deepseek-chat", "deepseek-reasoner"],                         "api_key_hint": "starts with sk- (32+ chars)",                           "base_url": "https://api.deepseek.com/v1",                      "base_url_constant": True},
+    {"id": "mistral",          "name": "Mistral",                      "has_free_tier": False, "needs_api_key: "REDACTED"],             "api_key_hint": "starts with Ux... or u... (32 chars)",                  "base_url": "https://api.mistral.ai/v1",                        "base_url_constant": True},
+    {"id": "together",         "name": "Together AI",                  "has_free_tier": False, "needs_api_key": True,  "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "models": ["meta-llama/Llama-3.3-70B-Instruct-Turbo"],      "api_key_hint": "starts with t1v... or 8x... (40+ chars)",              "base_url": "https://api.together.xyz/v1",                      "base_url_constant": True},
+    {"id": "siliconflow",      "name": "SiliconFlow",                  "has_free_tier": True,  "needs_api_key": True,  "default_model": "deepseek-ai/DeepSeek-R1", "models": ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"],     "api_key_hint": "starts with sk- (32+ chars)",                           "base_url": "https://api.siliconflow.cn/v1",                    "base_url_constant": True},
+    {"id": "huggingface",      "name": "Hugging Face Inference",       "has_free_tier": True,  "needs_api_key": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "starts with hf_ (36+ chars)",                           "base_url": "https://api-inference.huggingface.co/v1",          "base_url_constant": True},
+    {"id": "zai",              "name": "ZAI (Turing/LLM-ZH)",          "has_free_tier": False, "needs_api_key": True,  "default_model": "google/gemma-2-27b-it", "models": ["google/gemma-2-27b-it", "Qwen/QwQ-32B-Preview"],             "api_key_hint": "starts with zsk- (32+ chars)",                           "base_url": "https://api.z.ai/v1",                              "base_url_constant": True},
+
+    # ── Providers without constant base URLs (editable in UI) ──
+    {"id": "ollama",           "name": "Ollama (Local)",               "has_free_tier": True,  "needs_api_key": False, "needs_base_url": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "",                                        "base_url": "", "base_url_constant": False},
+    {"id": "llamacpp",         "name": "llama.cpp (Local)",            "has_free_tier": True,  "needs_api_key": False, "needs_base_url": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "",                                        "base_url": "", "base_url_constant": False},
+    {"id": "koboldai",         "name": "KoboldAI (Local)",             "has_free_tier": True,  "needs_api_key": False, "needs_base_url": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "",                                        "base_url": "", "base_url_constant": False},
+    {"id": "opencode",         "name": "OpenCode",                      "has_free_tier": False, "needs_api_key: "REDACTED", "models": [],                     "api_key_hint": "starts with sk- (32+ chars)",               "base_url": "", "base_url_constant": False},
+    {"id": "opendev",          "name": "OpenDev",                       "has_free_tier": False, "needs_api_key": True,  "needs_base_url": True,  "default_model": "",                      "models": [],                                                             "api_key_hint": "starts with sk- (32+ chars)",               "base_url": "", "base_url_constant": False},
+    {"id": "azure-openai",     "name": "Azure OpenAI",                  "has_free_tier": False, "needs_api_key": True,  "needs_base_url": True,  "default_model": "gpt-4o-mini",           "models": ["gpt-4o-mini", "gpt-4o"],                                      "api_key_hint": "paste your Azure API key or set AZURE_OPENAI_API_KEY env",   "base_url": "", "base_url_constant": False},
+    {"id": "aws",              "name": "AWS Bedrock",                   "has_free_tier": False, "needs_api_key": True,  "default_model": "anthropic.claude-sonnet-4-20250514", "models": [],    "api_key_hint": "set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY env vars",     "base_url": "", "base_url_constant": False},
+    {"id": "gcp",              "name": "GCP Vertex AI",                 "has_free_tier": False, "needs_api_key": True,  "default_model": "gemini-2.0-flash-001",  "models": [],                     "api_key_hint": "set GCP_SERVICE_ACCOUNT_JSON env var",                    "base_url": "", "base_url_constant": False},
+    {"id": "alibaba",          "name": "Alibaba Cloud (DashScope)",     "has_free_tier": True,  "needs_api_key": True,  "default_model": "qwen-turbo",            "models": ["qwen-turbo", "qwen-plus", "qwen-max"],                       "api_key_hint": "starts with sk- (32+ chars) or set ALIBABA_API_KEY env",   "base_url": "", "base_url_constant": False},
+    {"id": "openai-compat",    "name": "OpenAI-Compatible",             "has_free_tier": False, "needs_api_key": True,  "needs_base_url": True, "default_model": "",                      "models": [],                                                             "api_key_hint": "API key for your compatible endpoint",                   "base_url": "", "base_url_constant": False},
+    {"id": "anthropic-compat", "name": "Anthropic-Compatible",          "has_free_tier": False, "needs_api_key": True,  "needs_base_url": True, "default_model": "",                      "models": [],                                                             "api_key_hint": "API key for your compatible endpoint",                   "base_url": "", "base_url_constant": False},
 ]
 
 
@@ -71,6 +76,7 @@ class Step1Request(BaseModel):
     provider: str
     api_key: str = ""
     model: str = ""
+    base_url: str = ""
 
 class Step2Request(BaseModel):
     stt_engine: str = "browser"
@@ -133,6 +139,8 @@ async def list_providers():
             "gcp": ["GCP_SERVICE_ACCOUNT_JSON"],
             "opencode": ["OPENCODE_API_KEY"],
             "opendev": ["OPENDEV_API_KEY"],
+            "openai-compat": ["OPENAI_COMPAT_API_KEY"],
+            "anthropic-compat": ["ANTHROPIC_COMPAT_API_KEY"],
         }
 
         for p in PROVIDER_CATALOG:
@@ -208,6 +216,8 @@ async def list_providers():
             "gcp": ["GCP_SERVICE_ACCOUNT_JSON"],
             "opencode": ["OPENCODE_API_KEY"],
             "opendev": ["OPENDEV_API_KEY"],
+            "openai-compat": ["OPENAI_COMPAT_API_KEY"],
+            "anthropic-compat": ["ANTHROPIC_COMPAT_API_KEY"],
         }
         for p in providers:
             pid = p["id"]
@@ -242,6 +252,8 @@ async def setup_step1(req: Step1Request):
         s.set(f"provider.{provider_key}.api_key", req.api_key)
     if req.model:
         s.set(f"provider.{provider_key}.model", req.model)
+    if req.base_url:
+        s.set(f"provider.{provider_key}.base_url", req.base_url)
     
     # Test connection using health registry
     registry = get_registry()
@@ -266,8 +278,8 @@ async def setup_step1(req: Step1Request):
 @router.post("/step2")
 async def setup_step2(req: Step2Request):
     """Configure voice settings. Tests TTS if possible."""
-    # Validate STT and TTS engines
-    from backend.api.routes.settings import VALID_TTS_ENGINES as _VALID_TTS, VALID_STT_ENGINES as _VALID_STT
+    # Validate STT and TTS engines — setup wizard is WebUI, so use WEBUI set
+    from backend.api.routes.settings import VALID_TTS_ENGINES as _VALID_TTS, VALID_STT_ENGINES_WEBUI as _VALID_STT
     if req.tts_engine not in _VALID_TTS:
         return {"ok": False, "tts_detail": f"Unknown TTS engine: {req.tts_engine}"}
     if req.stt_engine not in _VALID_STT:
@@ -275,6 +287,7 @@ async def setup_step2(req: Step2Request):
     s = get_settings()
     
     s.set("voice.stt_engine", req.stt_engine)
+    s.set("voice.stt_engine_webui", req.stt_engine)
     s.set("voice.engine", req.tts_engine)
     s.set("voice.input_enabled", req.voice_input_enabled)
     s.set("voice.output_enabled", req.voice_output_enabled)

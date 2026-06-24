@@ -18,7 +18,7 @@ let _voiceToggleListenersAttached = false;
 export function isBrowserStt() {
     const el = document.getElementById('stt-engine');
     if (el) return el.value === 'browser';
-    return (_getNestedValue(getSettings(), 'voice.stt_engine') || 'browser') === 'browser';
+    return (_getNestedValue(getSettings(), 'voice.stt_engine_webui') || _getNestedValue(getSettings(), 'voice.stt_engine') || 'browser') === 'browser';
 }
 
 /**

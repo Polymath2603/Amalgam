@@ -552,7 +552,8 @@ class ChatSession:
             await self.send({"type": "mcp_config_updated", "error": str(e)})
 
     async def _voice_input_on(self):
-        stt_engine = settings().get("voice.stt_engine", "faster-whisper")
+        from backend.api.routes.settings import get_stt_engine_for_mode
+        stt_engine = get_stt_engine_for_mode()
         if stt_engine == "browser":
             await self.send({"type": "voice_state", "state": "recording"})
             return
@@ -601,7 +602,8 @@ class ChatSession:
         await self.send({"type": "voice_state", "state": "recording"})
 
     async def _voice_input_off(self):
-        stt_engine = settings().get("voice.stt_engine", "faster-whisper")
+        from backend.api.routes.settings import get_stt_engine_for_mode
+        stt_engine = get_stt_engine_for_mode()
         if stt_engine == "browser":
             await self.send({"type": "voice_state", "state": "idle"})
         else:

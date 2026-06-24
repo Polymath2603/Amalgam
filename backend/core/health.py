@@ -280,11 +280,8 @@ def register_builtin_checks(settings_obj=None, llm_obj=None, tts_obj=None):
 
     async def _check_stt():
         try:
-            engine = (
-                settings_obj.get("voice.stt_engine", "browser")
-                if settings_obj
-                else "browser"
-            )
+            from backend.api.routes.settings import get_stt_engine_for_mode
+            engine = get_stt_engine_for_mode(settings_obj)
             return True, f"{engine} (configured)"
         except Exception as e:
             return False, str(e)

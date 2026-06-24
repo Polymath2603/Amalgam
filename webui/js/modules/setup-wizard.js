@@ -129,6 +129,9 @@ function _selectSetupProvider(pid) {
     const apiKeyInput = document.getElementById('setup-api-key');
     const apiKeyDesc = document.getElementById('setup-api-key-desc');
     const modelSelect = document.getElementById('setup-model');
+    const baseUrlGroup = document.getElementById('setup-base-url-group');
+    const baseUrlInput = document.getElementById('setup-base-url');
+    const baseUrlDesc = document.getElementById('setup-base-url-desc');
 
     if (provider.needs_api_key) {
         apiKeyInput.style.display = '';
@@ -138,6 +141,27 @@ function _selectSetupProvider(pid) {
         apiKeyInput.style.display = 'none';
         apiKeyInput.required = false;
         apiKeyDesc.textContent = 'No API key needed for local providers.';
+    }
+
+    // Show/hide base_url based on whether it's constant
+    if (provider.base_url_constant) {
+        // Constant URL — show as disabled with pre-filled value
+        baseUrlGroup.style.display = '';
+        baseUrlInput.value = provider.base_url || '';
+        baseUrlInput.disabled = true;
+        baseUrlInput.readOnly = true;
+        baseUrlDesc.textContent = 'Fixed endpoint — provided automatically.';
+    } else if (provider.base_url !== undefined) {
+        // Editable URL — show as empty, editable input
+        baseUrlGroup.style.display = '';
+        baseUrlInput.value = provider.base_url || '';
+        baseUrlInput.disabled = false;
+        baseUrlInput.readOnly = false;
+        baseUrlInput.placeholder = 'https://api.example.com/v1';
+        baseUrlDesc.textContent = 'Override the default API endpoint URL.';
+    } else {
+        // No base_url info — hide the field
+        baseUrlGroup.style.display = 'none';
     }
 
     modelSelect.innerHTML = '';
@@ -180,6 +204,7 @@ function _advanceFromStep1() {
 async function testSetupConnection() {
     const provider = _selectedProvider;
     const apiKey = document.getElementById('setup-api-key').value.trim();
+    const baseUrl = document.getElementById('setup-base-url')?.value?.trim() || '';
     const testBtn = document.getElementById('setup-test-btn');
     const testResult = document.getElementById('setup-test-result');
 
@@ -195,11 +220,19 @@ async function testSetupConnection() {
     testResult.style.display = 'none';
 
     try {
+        // Save API key and base_url before testing
         await fetch(`${BASE_URL}/api/settings/set`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key: `provider.${provider}.api_key`, value: apiKey })
         });
+        if (baseUrl) {
+            await fetch(`${BASE_URL}/api/settings/set`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: `provider.${provider}.base_url`, value: baseUrl })
+            });
+        }
         const resp = await fetch(`${BASE_URL}/api/settings/test/${provider}`, { method: 'POST' });
         const data = await resp.json();
 
@@ -227,6 +260,8 @@ async function saveSetupWizard() {
     const apiKey = apiKeyInput?.value?.trim() || '';
     const modelSelect = document.getElementById('setup-model');
     const model = modelSelect?.value?.trim() || '';
+    const baseUrlInput = document.getElementById('setup-base-url');
+    const baseUrl = baseUrlInput?.value?.trim() || '';
     const errorEl = document.getElementById('setup-error');
 
     if (!provider) {
@@ -250,11 +285,22 @@ async function saveSetupWizard() {
         const resp = await fetch(`${BASE_URL}/api/setup/step1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider, api_key: apiKey, model }),
+            body: JSON.stringify({ provider, api_key: apiKey, model, base_url: baseUrl }),
         });
         const data = await resp.json();
         if (data.ok || !provObj?.needs_api_key) {
             if (_setupMode === 'advanced') {
+                // Ensure WebUI mode and WebUI STT engine are set
+                await fetch(`${BASE_URL}/api/settings/set`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'ui.mode', value: 'webui' })
+                });
+                await fetch(`${BASE_URL}/api/settings/set`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'voice.stt_engine_webui', value: document.getElementById('setup-stt')?.value || 'browser' })
+                });
                 await fetch(`${BASE_URL}/api/setup/step2`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -276,6 +322,11 @@ async function saveSetupWizard() {
                     })
                 });
             } else {
+                await fetch(`${BASE_URL}/api/settings/set`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: 'ui.mode', value: 'webui' })
+                });
                 await fetch(`${BASE_URL}/api/setup/step2`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
                 await fetch(`${BASE_URL}/api/setup/step3`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
             }

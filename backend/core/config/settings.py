@@ -159,6 +159,8 @@ DEFAULTS = {
     "voice": {
         "engine": "edge-tts",
         "stt_engine": "browser",
+        "stt_engine_cli": "faster-whisper",
+        "stt_engine_webui": "browser",
         "lipsync_enabled": True,
         "vad_mode": 2,
         "vad_frame_size": 960,
@@ -279,6 +281,7 @@ DEFAULTS = {
         ],
     },
     "ui": {
+        "mode": "webui",
         "theme": "dark",
         "font_size": 14,
         "voice_input": True,

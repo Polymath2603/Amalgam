@@ -198,9 +198,9 @@ export const SETTINGS_SCHEMA = {
             stt_engine: {
                 label: "Speech-to-Text Engine",
                 type: "select",
-                key: "voice.stt_engine",
+                key: "voice.stt_engine_webui",
                 options: ["browser", "faster-whisper", "openai-whisper", "groq-whisper", "whispercpp"],
-                description: "Engine for converting speech to text",
+                description: "Engine for converting speech to text (WebUI mode)",
                 onChange: "refreshCategory",
             },
             tts_engine: {

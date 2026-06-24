@@ -23,15 +23,40 @@ PROVIDER_KEY_MAP = {
 VALID_PROVIDERS = {"gemini", "ollama", "openrouter", "zai", "siliconflow", "groq",
                    "chatgpt", "claude", "llamacpp", "koboldai",
                    "deepseek", "mistral", "together", "azure-openai",
-                   "alibaba", "huggingface", "aws", "gcp", "opencode", "opendev"}
+                   "alibaba", "huggingface", "aws", "gcp", "opencode", "opendev",
+                   "openai-compat", "anthropic-compat"}
 
 VALID_TTS_ENGINES = {"edge-tts", "openvoice", "elevenlabs", "openai-tts", "speecht5",
                      "alltalk", "piper", "coqui-local", "kokoro", "azure",
                      "dashscope", "volcengine", "deepgram", "mlx", "rvc"}
 
 VALID_STT_ENGINES = {"browser", "faster-whisper", "openai-whisper", "groq-whisper", "whispercpp"}
+VALID_STT_ENGINES_CLI = {"faster-whisper", "openai-whisper", "groq-whisper", "whispercpp"}  # no "browser"
+VALID_STT_ENGINES_WEBUI = {"browser", "faster-whisper", "openai-whisper", "groq-whisper", "whispercpp"}
+
+VALID_UI_MODES = {"webui", "tui"}
 
 VALID_PROFILES = {"default", "token-friendly", "quality", "custom"}
+
+def get_stt_engine_for_mode(settings_obj: Any = None) -> str:
+    """Get the STT engine appropriate for the current UI mode.
+    
+    Reads ui.mode from settings and returns the corresponding
+    STT engine setting (stt_engine_webui or stt_engine_cli).
+    Falls back to voice.stt_engine for backward compatibility.
+    """
+    try:
+        if settings_obj is None:
+            from backend.api.deps import settings as _get_settings
+            settings_obj = _get_settings()
+        mode = settings_obj.get("ui.mode", "webui")
+        if mode == "tui":
+            return settings_obj.get("voice.stt_engine_cli", settings_obj.get("voice.stt_engine", "faster-whisper"))
+        else:
+            return settings_obj.get("voice.stt_engine_webui", settings_obj.get("voice.stt_engine", "browser"))
+    except Exception:
+        # Fallback for degraded mode
+        return "browser"
 
 def _validate_settings_update(body: dict) -> list[str]:
     """Validate settings update body. Returns list of error messages (empty = valid)."""
@@ -61,6 +86,18 @@ def _validate_settings_update(body: dict) -> list[str]:
         # Validate voice.stt_engine
         if key == "voice.stt_engine" and value not in VALID_STT_ENGINES:
             errors.append(f"Unknown STT engine: {value}")
+        
+        # Validate voice.stt_engine_cli (no "browser" allowed)
+        if key == "voice.stt_engine_cli" and value not in VALID_STT_ENGINES_CLI:
+            errors.append(f"Unknown CLI STT engine: {value}. Browser STT not available in CLI mode.")
+        
+        # Validate voice.stt_engine_webui
+        if key == "voice.stt_engine_webui" and value not in VALID_STT_ENGINES_WEBUI:
+            errors.append(f"Unknown WebUI STT engine: {value}")
+        
+        # Validate ui.mode
+        if key == "ui.mode" and value not in VALID_UI_MODES:
+            errors.append(f"Unknown UI mode: {value}. Valid: webui, tui")
         
         # Validate profile
         if key == "profile" and value not in VALID_PROFILES:

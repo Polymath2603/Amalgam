@@ -35,6 +35,7 @@ def _load_catalog():
             "huggingface", "llamacpp", "koboldai", "aws", "gcp",
             "azure-openai", "alibaba",
             "opencode", "opendev",
+            "openai-compat", "anthropic-compat",
         ]
         models = {
             "gemini": ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
@@ -55,6 +56,8 @@ def _load_catalog():
             "gcp": [],
             "opencode": [],
             "opendev": [],
+            "openai-compat": [],
+            "anthropic-compat": [],
         }
         name_map = {
             "gemini": "Google Gemini",
@@ -79,6 +82,8 @@ def _load_catalog():
             "alibaba": "Alibaba Cloud",
             "opencode": "OpenCode",
             "opendev": "OpenDev",
+            "openai-compat": "OpenAI-Compatible",
+            "anthropic-compat": "Anthropic-Compatible",
         }
         return ids, models, name_map
 
@@ -179,6 +184,8 @@ def _provider_env_key(name: str) -> str:
         "openrouter": "OPENROUTER_API_KEY",
         "azure-openai": "AZURE_OPENAI_API_KEY",
         "alibaba": "ALIBABA_API_KEY",
+        "openai-compat": "OPENAI_COMPAT_API_KEY",
+        "anthropic-compat": "ANTHROPIC_COMPAT_API_KEY",
     }
     return mapping.get(name, f"{name.upper()}_API_KEY")
 

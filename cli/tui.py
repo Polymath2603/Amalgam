@@ -127,14 +127,14 @@ def _init_command_registry():
         ("clear",    "Clear the chat display",             "Clear all messages from view", None),
         ("new",      "Start a new session",                "Clear chat and start a fresh session", None),
         ("help",     "Show this help",                     "Display command reference", None),
-        ("think",    "Toggle thinking display",            "Show or hide thinking traces", None),
+        ("think",    "Toggle/on/off thinking display",    "Show or hide thinking traces", None),
         ("provider", "Manage providers (add|set|rm)", "Add, update, or remove a provider's API key", ["provider"]),
         ("model",    "Switch model",                       "Change the active model for the current provider", ["model"]),
         ("rename",   "Rename the current session",         "Give the session a new title", None),
         ("resume",   "Show last 5 turns of current session","Display recent conversation history", None),
         ("compact",  "Force memory compaction",            "Compress session context", None),
         ("health",   "Show service health",                "Display system health status", None),
-        ("companion","Toggle companion mode",              "Switch companion personality", None),
+        ("companion","Toggle/on/off companion mode",      "Enable or disable companion personality", None),
         ("settings", "Show/set a setting",                 "View or change a configuration key", None),
         ("memory",   "Show memory usage",                  "Display memory stats (sessions, messages)", None),
         ("stats",    "Show analytics",                     "Tool-usage and cost analytics", None),
@@ -1243,7 +1243,7 @@ class AmalgamTUI(App):
                 common_keys = [
                     ("provider.active", "Active provider"),
                     ("voice.engine", "TTS engine"),
-                    ("voice.stt_engine", "STT engine"),
+                    ("voice.stt_engine_cli", "STT engine (CLI)"),
                     ("voice.input_enabled", "Voice input toggle"),
                     ("voice.output_enabled", "Voice output toggle"),
                     ("ui.theme", "UI theme"),
@@ -1339,7 +1339,18 @@ class AmalgamTUI(App):
             self._show_help()
 
         elif cmd == "/think":
-            self._show_thinking = not self._show_thinking
+            parts = text.split(maxsplit=1)
+            arg = parts[1].lower() if len(parts) > 1 else ""
+            if arg == "on":
+                new_state = True
+            elif arg == "off":
+                new_state = False
+            elif arg == "":
+                new_state = not self._show_thinking
+            else:
+                self._log_system("Usage: /think [on|off]")
+                return
+            self._show_thinking = new_state
             self._log_system(f"Thinking: {'ON' if self._show_thinking else 'OFF'}")
 
         elif cmd == "/provider":
@@ -1422,7 +1433,9 @@ class AmalgamTUI(App):
             self._show_health()
 
         elif cmd == "/companion":
-            self._toggle_companion()
+            parts = text.split(maxsplit=1)
+            arg = parts[1].lower() if len(parts) > 1 else ""
+            self._toggle_companion(arg)
 
         elif cmd == "/settings":
             self._show_or_set_settings(text)
@@ -1567,19 +1580,27 @@ class AmalgamTUI(App):
         except Exception as e:
             self._log_error(f"Health check failed: {e}")
 
-    def _toggle_companion(self) -> None:
-        """Toggle companion mode (voice + avatar)."""
+    def _toggle_companion(self, arg: str = "") -> None:
+        """Toggle, enable, or disable companion mode (voice + avatar).
+
+        Arg: "on", "off", or "" to toggle.
+        """
         if not self._settings:
             self._log_error("Settings not available")
             return
         try:
-            voice_on = self._settings.get("voice.input_enabled", False)
-            self._settings.set("voice.input_enabled", not voice_on)
-            self._settings.set("voice.output_enabled", not voice_on)
-            if voice_on:
-                self._log_system("Companion mode OFF")
+            if arg == "on":
+                new_state = True
+            elif arg == "off":
+                new_state = False
+            elif arg == "":
+                new_state = not self._settings.get("voice.input_enabled", False)
             else:
-                self._log_system("Companion mode ON")
+                self._log_system("Usage: /companion [on|off]")
+                return
+            self._settings.set("voice.input_enabled", new_state)
+            self._settings.set("voice.output_enabled", new_state)
+            self._log_system(f"Companion mode {'ON' if new_state else 'OFF'}")
         except Exception as e:
             self._log_error(f"Companion toggle failed: {e}")
 
@@ -1604,7 +1625,7 @@ class AmalgamTUI(App):
                     self._log_system(f"{key} = {v}")
             else:
                 # Show key settings
-                keys = ["provider.active", "ui.theme", "voice.engine", "profile"]
+                keys = ["provider.active", "ui.theme", "ui.mode", "voice.engine", "voice.stt_engine_cli", "profile"]
                 tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
                 tbl.add_column("", style=_CYAN)
                 tbl.add_column("", style=_TEXT)

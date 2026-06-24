@@ -65,7 +65,7 @@ function _shouldShowField(fieldId, field) {
         currentVal = domEl ? domEl.value : (_getNestedValue(settings, 'provider.active') || 'gemini');
     } else if (sf.field === 'stt_engine') {
         const domEl = document.getElementById('field-stt_engine');
-        currentVal = domEl ? domEl.value : (_getNestedValue(settings, 'voice.stt_engine') || 'browser');
+        currentVal = domEl ? domEl.value : (_getNestedValue(settings, 'voice.stt_engine_webui') || _getNestedValue(settings, 'voice.stt_engine') || 'browser');
     } else if (sf.field === 'tts_engine') {
         const domEl = document.getElementById('field-tts_engine');
         currentVal = domEl ? domEl.value : (_getNestedValue(settings, 'voice.engine') || 'edge-tts');

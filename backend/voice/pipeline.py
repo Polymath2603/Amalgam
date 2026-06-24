@@ -316,8 +316,14 @@ class VoicePipeline:
         old_settings = self._settings
         if settings:
             self._settings = settings
-        # STT engine
-        stt_engine = settings.get("voice.stt_engine") if settings else None
+        # STT engine — use mode-appropriate setting
+        stt_engine = None
+        if settings:
+            try:
+                from backend.api.routes.settings import get_stt_engine_for_mode
+                stt_engine = get_stt_engine_for_mode(settings)
+            except Exception:
+                stt_engine = settings.get("voice.stt_engine") if settings else None
         if stt_engine and self._stt.engine != stt_engine:
             logger.info("VoicePipeline: Switching STT engine to '%s'", stt_engine)
             self._stt = STTRouter(engine=stt_engine)
