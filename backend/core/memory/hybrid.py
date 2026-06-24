@@ -71,11 +71,14 @@ class HybridRetrieval:
         # Dense retrieval via ChromaDB
         if self._chroma is not None:
             try:
-                dense = self._chroma.query(
-                    query_embeddings=[query_emb],
-                    n_results=top_k * 2,
-                    where={"session_id": session_id},
-                )
+                # ChromaDB's Rust backend is NOT thread-safe
+                from backend.core.memory.manager import Memory
+                with Memory._chroma_lock:
+                    dense = self._chroma.query(
+                        query_embeddings=[query_emb],
+                        n_results=top_k * 2,
+                        where={"session_id": session_id},
+                    )
                 if dense and dense.get("metadatas") and dense["metadatas"][0]:
                     for rank, meta in enumerate(dense["metadatas"][0]):
                         dedup_key = str(hash(meta.get("content", "")))

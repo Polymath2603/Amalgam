@@ -31,8 +31,11 @@ import json
 import signal
 import time
 
+from pathlib import Path
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import FuzzyWordCompleter
+from prompt_toolkit.history import FileHistory
 from prompt_toolkit.shortcuts import clear
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
@@ -41,7 +44,8 @@ if "HF_TOKEN" not in os.environ:
 
 log = logging.getLogger(__name__)
 VERSION = "0.2.0"  # bumped for the refactored release
-_HISTFILE = os.path.join(os.path.expanduser("~"), ".amalgam", "history")
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+_HISTFILE = str(_DATA_DIR / ".repl_history")
 _CRASH_FILE = os.path.join(os.path.expanduser("~"), ".amalgam", "crash_state.json")
 _SNAPSHOT_FILE = os.path.join(os.path.expanduser("~"), ".amalgam", "last_session.json")
 _CLI_ARGS = None  # populated by main() before entering interactive mode
@@ -242,6 +246,8 @@ def _save_history():
     """Write readline history to file."""
     import readline
     try:
+        if not os.path.exists(os.path.dirname(_HISTFILE)):
+            os.makedirs(os.path.dirname(_HISTFILE), exist_ok=True)
         readline.write_history_file(_HISTFILE)
     except Exception:
         pass
@@ -495,7 +501,7 @@ async def run_cli_direct():
         # the buffer on Enter (wiping the command prefix).
         return FuzzyWordCompleter(_COMMANDS)
 
-    prompt_session = PromptSession(history=None, completer=_build_completer())
+    prompt_session = PromptSession(history=FileHistory(_HISTFILE), completer=_build_completer())
 
     # ── Save snapshot on start ────────────────────────────────────────
     _save_snapshot(sid, active, model)
