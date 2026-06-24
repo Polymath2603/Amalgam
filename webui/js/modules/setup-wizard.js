@@ -10,6 +10,47 @@ let _setupProviders = [];
 let _selectedProvider = null;
 let _setupCurrentStep = 1;
 
+// ─── Dynamic options cache ────────────────────────────────────────────
+
+async function _populateSelect(selectId, url, valueAttr, labelAttr) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const items = Array.isArray(data) ? data : (data.options || data.items || []);
+        select.innerHTML = '';
+        // Support both [{value, label}] and [string] array shapes
+        const hasCustom = valueAttr || labelAttr;
+        items.forEach(item => {
+            const opt = document.createElement('option');
+            if (hasCustom) {
+                opt.value = item[valueAttr] || item;
+                opt.textContent = item[labelAttr] || item;
+            } else if (typeof item === 'string') {
+                opt.value = item;
+                opt.textContent = item;
+            } else {
+                opt.value = item.value || item.id || '';
+                opt.textContent = item.label || item.name || opt.value;
+            }
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.warn(`Failed to populate ${selectId}:`, e);
+    }
+}
+
+export async function populateSetupOptions() {
+    await Promise.all([
+        _populateSelect('setup-stt', `${BASE_URL}/api/settings/options/stt_engines`),
+        _populateSelect('setup-tts', `${BASE_URL}/api/settings/options/tts_engines`),
+        _populateSelect('setup-character', `${BASE_URL}/api/characters`, 'id', 'name'),
+        _populateSelect('setup-permission', `${BASE_URL}/api/settings/options/permission_levels`),
+    ]);
+}
+
 export async function showSetupWizard() {
     const wizard = document.getElementById('setup-wizard-overlay');
     if (wizard) {
@@ -65,6 +106,9 @@ export function _initSetupWizard() {
     document.getElementById('setup-continue-btn')?.addEventListener('click', () => _advanceFromStep1());
     document.getElementById('setup-voice-continue-btn')?.addEventListener('click', () => _showSetupStep('step3'));
     document.getElementById('setup-save-btn')?.addEventListener('click', saveSetupWizard);
+
+    // Populate dynamic selects from backend APIs
+    populateSetupOptions();
 }
 
 function _selectSetupMode(mode) {

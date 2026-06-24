@@ -12,7 +12,7 @@ import { getWs, getSettings } from './state.js';
 let _idleTimer = null;
 let _isIdle = false;
 let _companionEnabled = false;
-let _idleTimeoutMs = 5 * 60 * 1000; // 5 min default
+let _idleTimeoutMs = 0; // populated from settings in initCompanion()
 
 const IDLE_EVENTS = ['mousedown', 'keydown', 'touchstart', 'scroll', 'mousemove'];
 

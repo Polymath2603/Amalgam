@@ -1,8 +1,7 @@
 // Metrics dashboard — fetches and renders per-turn + tool analytics
+import { BASE_URL } from './modules/config.js';
 import { escHtml } from './modules/utils.js';
-
-const _IS_TAURI = window.location.protocol === 'tauri:' || window.location.protocol === 'asset:';
-const _BASE_URL = _IS_TAURI ? 'http://localhost:8000' : '';
+import { t as i18nT } from './i18n.js';
 
 export function loadMetrics() {
   const el = document.getElementById('metrics-dashboard');
@@ -11,9 +10,9 @@ export function loadMetrics() {
   el.setAttribute('aria-busy', 'true');
 
   Promise.all([
-    fetch(_BASE_URL + '/api/metrics/summary').then(r => r.json()),
-    fetch(_BASE_URL + '/api/metrics/turns?limit=30').then(r => r.json()),
-    fetch(_BASE_URL + '/api/metrics/tool-history?limit=20').then(r => r.json()),
+    fetch(BASE_URL + '/api/metrics/summary').then(r => r.json()),
+    fetch(BASE_URL + '/api/metrics/turns?limit=30').then(r => r.json()),
+    fetch(BASE_URL + '/api/metrics/tool-history?limit=20').then(r => r.json()),
   ])
     .then(([summary, turns, tools]) => {
       el.removeAttribute('aria-busy');
@@ -26,10 +25,9 @@ export function loadMetrics() {
 }
 
 function renderMetrics(el, summary, turns, tools) {
+  // Use i18n if available, fall back to simple keys
   const t = (key) => {
-    const k = `metrics.${key}`;
-    const labelEl = document.querySelector(`[data-i18n="${k}"]`);
-    if (labelEl) return labelEl.textContent;
+    try { return i18nT(`metrics.${key}`); } catch (_) {}
     const fallback = {
       turns: 'Turns', tokens: 'Tokens', cost: 'Cost',
       latency: 'Avg Latency', tool_calls: 'Tool Calls',

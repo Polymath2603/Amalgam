@@ -7,9 +7,12 @@ Inline dropdown for commands/providers/models (jcode-style), not a modal popup.
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json as _json
 import logging
+import os
 import signal
+import time
 from typing import Any, AsyncIterator
 
 from rich.align import Align
@@ -24,6 +27,7 @@ from rich import box
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
+from textual.events import Key as KeyEvent
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Input, RichLog, Label, Static
@@ -63,14 +67,14 @@ _THEMES: dict[str, dict[str, str]] = {
         "red": "#f7768e", "yellow": "#e0af68", "cyan": "#7dcfff",
         "magenta": "#bb9af7", "orange": "#ff9e64", "pink": "#ff96c8",
     },
-    "midnight": {
-        "bg": "#0f0f1a", "surface": "#1a1a2e", "surface2": "#22223a",
-        "border": "#2a2a4a", "text": "#e0e0ff", "dim": "#6666aa",
-        "muted": "#555588", "accent": "#6c9fff", "green": "#7ecc8f",
-        "red": "#ff6b8a", "yellow": "#f0c674", "cyan": "#7dd4cf",
-        "magenta": "#c59bff", "orange": "#ffa870", "pink": "#ff90b8",
-    },
     "light": {
+        "bg": "#fafafa", "surface": "#f0f0f0", "surface2": "#e8e8e8",
+        "border": "#cccccc", "text": "#1a1a2e", "dim": "#888888",
+        "muted": "#aaaaaa", "accent": "#3366cc", "green": "#2e8b57",
+        "red": "#cc3344", "yellow": "#b8860b", "cyan": "#008b8b",
+        "magenta": "#8844aa", "orange": "#cc6600", "pink": "#cc4488",
+    },
+    "midnight": {
         "bg": "#fafafa", "surface": "#f0f0f0", "surface2": "#e8e8e8",
         "border": "#cccccc", "text": "#1a1a2e", "dim": "#888888",
         "muted": "#aaaaaa", "accent": "#3366cc", "green": "#2e8b57",
@@ -122,31 +126,43 @@ def _init_command_registry():
         return
 
     core: list[tuple[str, str, str, list[str] | None]] = [
-        ("exit",     "Quit the application",               "Exit Amalgam", None),
-        ("quit",     "Quit the application",               "Exit Amalgam", None),
+        ("character","Load a character",                   "Switch active character/persona", None),
         ("clear",    "Clear the chat display",             "Clear all messages from view", None),
-        ("new",      "Start a new session",                "Clear chat and start a fresh session", None),
+        ("compact",  "Force memory compaction",            "Compress session context", None),
+        ("companion","Toggle/on/off companion mode",      "Enable or disable companion personality", None),
+        ("exit",     "Quit the application",               "Exit Amalgam", None),
+        ("health",   "Show service health",                "Display system health status", None),
         ("help",     "Show this help",                     "Display command reference", None),
-        ("think",    "Toggle/on/off thinking display",    "Show or hide thinking traces", None),
-        ("provider", "Manage providers (add|set|rm)", "Add, update, or remove a provider's API key", ["provider"]),
+        ("memory",   "Show memory usage",                  "Display memory stats (sessions, messages)", None),
         ("model",    "Switch model",                       "Change the active model for the current provider", ["model"]),
+        ("new",      "Start a new session",                "Clear chat and start a fresh session", None),
+        ("permission","Set permission level",              "Set permission level (readonly|confirm|full)", None),
+        ("profile",  "Switch settings profile",            "Change profile (token-friendly, default, quality, custom)", None),
+        ("provider", "Manage providers (add|set|rm)", "Add, update, or remove a provider's API key", ["provider"]),
+        ("quit",     "Quit the application",               "Exit Amalgam", None),
         ("rename",   "Rename the current session",         "Give the session a new title", None),
         ("resume",   "Show last 5 turns of current session","Display recent conversation history", None),
-        ("compact",  "Force memory compaction",            "Compress session context", None),
-        ("health",   "Show service health",                "Display system health status", None),
-        ("companion","Toggle/on/off companion mode",      "Enable or disable companion personality", None),
         ("settings", "Show/set a setting",                 "View or change a configuration key", None),
-        ("memory",   "Show memory usage",                  "Display memory stats (sessions, messages)", None),
         ("stats",    "Show analytics",                     "Tool-usage and cost analytics", None),
         ("theme",    "Switch UI theme",                    "Change color theme (dark, midnight, light, nord)", None),
-        ("character","Load a character",                   "Switch active character/persona", None),
-        ("profile",  "Switch settings profile",            "Change profile (token-friendly, default, quality, custom)", None),
-        ("permission","Set permission level",              "Set permission level (readonly|confirm|full)", None),
+        ("think",    "Toggle/on/off thinking display",    "Show or hide thinking traces", None),
     ]
 
     for name, desc, help_text, arg_type in core:
         _COMMAND_DEFS[name] = (desc, help_text, arg_type)
         _COMMAND_DEFS["/" + name] = (desc, help_text, arg_type)
+
+    # Try to merge additional commands from backend
+    try:
+        from backend.core.deps import get_shared
+        shared = get_shared()
+        backend_commands = shared.get("commands", {})
+        if isinstance(backend_commands, dict):
+            for name, (desc, help_text, arg_type) in backend_commands.items():
+                _COMMAND_DEFS[name] = (desc, help_text, arg_type)
+                _COMMAND_DEFS["/" + name] = (desc, help_text, arg_type)
+    except Exception:
+        pass
 
 
 def get_commands() -> dict[str, tuple[str, str, list[str] | None]]:
@@ -160,11 +176,6 @@ def get_slash_commands() -> list[str]:
 
 def get_detected_providers(settings: Any) -> list[str]:
     """Get list of configured provider names that have API keys configured."""
-    _all_known = ["gemini", "openai", "anthropic", "groq", "ollama", "openrouter",
-                  "deepseek", "siliconflow", "zai", "mistral", "together",
-                  "huggingface", "llamacpp", "koboldai", "aws", "gcp",
-                  "opencode", "opendev"]
-
     try:
         from cli.provider import detect_providers
         providers = detect_providers(settings)
@@ -173,6 +184,17 @@ def get_detected_providers(settings: Any) -> list[str]:
             return sorted(detected)
     except Exception as e:
         log.debug("detect_providers() failed: %s", e)
+
+    # Fallback: fetch known providers from backend shared state
+    try:
+        from backend.core.deps import get_shared
+        _all_known = list(get_shared()["known_providers"])
+    except Exception:
+        # Ultimate fallback — hardcoded list
+        _all_known = ["gemini", "openai", "anthropic", "groq", "ollama", "openrouter",
+                      "deepseek", "siliconflow", "zai", "mistral", "together",
+                      "huggingface", "llamacpp", "koboldai", "aws", "gcp",
+                      "opencode", "opendev"]
 
     # Fallback: check provider configs directly for api_key
     try:
@@ -199,6 +221,9 @@ def get_models_for_provider(settings: Any, provider: str) -> list[str]:
     Proxy providers (opencode, opendev) that route through an MCP gateway
     can use *any* model, so this returns the union of all known models
     instead of an empty list.
+
+    Sub-agent providers (subagent, sub_agent) route through an agent
+    orchestrator and can also use any upstream model.
     """
     if not provider or not isinstance(provider, str):
         return []
@@ -212,8 +237,8 @@ def get_models_for_provider(settings: Any, provider: str) -> list[str]:
     except ImportError:
         return []
 
-    # Proxy providers can route to any upstream model → return everything
-    if p in ("opencode", "opendev"):
+    # Proxy/sub-agent providers can route to any upstream model
+    if p in ("opencode", "opendev", "subagent", "sub_agent", "agent"):
         all_models: list[str] = []
         for mlist in PROVIDER_MODELS.values():
             all_models.extend(mlist)
@@ -229,6 +254,7 @@ def fuzzy_filter(query: str, items: list[str]) -> list[str]:
     """Simple prefix + substring fuzzy filter.
 
     Strips leading / from items when matching so e.g. /health matches 'h'.
+    Falls back to difflib.get_close_matches when no prefix/substring match.
     """
     q = query.lower()
     if not q:
@@ -241,7 +267,11 @@ def fuzzy_filter(query: str, items: list[str]) -> list[str]:
 
     prefix = [i for i in items if match_key(i).startswith(q)]
     substr = [i for i in items if i not in prefix and q in match_key(i)]
-    return prefix + substr
+    result = prefix + substr
+    if not result:
+        close = difflib.get_close_matches(q, [match_key(i) for i in items], n=5, cutoff=0.4)
+        result = [i for i in items if match_key(i) in close]
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -439,6 +469,11 @@ class AmalgamHeader(Widget):
     msg_count  = reactive(0)
     char_count = reactive(0)
     uptime     = reactive("")
+    show_thinking = reactive(True)
+    companion = reactive(False)
+    companion_connected = reactive(False)
+    token_count = reactive(0)
+    health_ok = reactive(True)
 
     def compose(self) -> ComposeResult:
         yield Static("", id="header-text", markup=True)
@@ -450,26 +485,40 @@ class AmalgamHeader(Widget):
     def _render_content(self) -> str:
         lines: list[str] = []
 
-        # Top line: session ID + status
+        # Top line: session ID + status + indicators
         sid = self._short_id()
         status_badge = f" [{_YELLOW}]●{_STATUS_MAP.get(self.status, self.status)}[/{_YELLOW}]" if self.status else ""
-        lines.append(f"[{_DIM}]{sid}{status_badge}[/]")
 
-        # Provider/model line
+        # Thinking indicator
+        think_indicator = f" [{_GREEN}]🧠 T[/]" if self.show_thinking else f" [{_DIM}]🧠 _[/]"
+
+        # Companion mode indicator
+        if self.companion:
+            comp_color = _GREEN if self.companion_connected else _YELLOW
+            comp_indicator = f" [{comp_color}]🎙 Companion[/]"
+        else:
+            comp_indicator = ""
+
+        lines.append(f"[{_DIM}]{sid}{status_badge}{think_indicator}{comp_indicator}[/]")
+
+        # Provider/model line with health dot
         if self.provider and self.model:
+            health_dot = f"[{_GREEN}]●[/]" if self.health_ok else f"[{_RED}]●[/]"
             lines.append(
-                f"[{_CYAN}]{self.provider}[/] · "
+                f"{health_dot} [{_CYAN}]{self.provider}[/] · "
                 f"[{_PINK} bold]{self.model}[/]"
             )
         elif self.model:
             lines.append(f"[{_PINK} bold]{self.model}[/]")
 
-        # Stats line: messages, chars, uptime
+        # Stats line: messages, chars, tokens, uptime
         stats_parts = []
         if self.msg_count:
             stats_parts.append(f"[{_GREEN}]{self.msg_count} msgs[/]")
         if self.char_count:
             stats_parts.append(f"[{_CYAN}]{self.char_count:,} chars[/]")
+        if self.token_count:
+            stats_parts.append(f"[{_MAGENTA}]{self.token_count:,} tokens[/]")
         if self.uptime:
             stats_parts.append(f"[{_DIM}]{self.uptime}[/]")
         if stats_parts:
@@ -493,6 +542,11 @@ class AmalgamHeader(Widget):
     def watch_msg_count(self, v: int) -> None: self._refresh()
     def watch_char_count(self, v: int) -> None: self._refresh()
     def watch_uptime(self, v: str) -> None: self._refresh()
+    def watch_show_thinking(self, v: bool) -> None: self._refresh()
+    def watch_companion(self, v: bool) -> None: self._refresh()
+    def watch_companion_connected(self, v: bool) -> None: self._refresh()
+    def watch_token_count(self, v: int) -> None: self._refresh()
+    def watch_health_ok(self, v: bool) -> None: self._refresh()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -675,6 +729,14 @@ class AmalgamTUI(App):
         Binding("escape", "cancel_or_hide_dropdown", "Cancel", priority=True),
         Binding("up", "dropdown_up", "Up", priority=True),
         Binding("down", "dropdown_down", "Down", priority=True),
+        # Slash-command hotkeys (Alt+letter)
+        Binding("alt+t", "toggle_thinking", "Toggle thinking", priority=True),
+        Binding("alt+c", "toggle_companion", "Toggle companion", priority=True),
+        Binding("alt+h", "show_health", "Health", priority=True),
+        Binding("alt+m", "show_memory", "Memory", priority=True),
+        Binding("alt+s", "show_stats", "Stats", priority=True),
+        Binding("alt+r", "resume", "Resume", priority=True),
+        Binding("alt+shift+c", "compact", "Compact", priority=True),
     ]
 
     def __init__(
@@ -690,7 +752,7 @@ class AmalgamTUI(App):
         self._llm = llm
         self._memory = memory
         self._agent = agent
-        self._show_thinking = True
+        self._show_thinking = bool(self._settings.get("ui.show_thinking", True)) if self._settings else True
         self._last_message = ""
         self._backend_loading = settings is None
         self._backend_failed = False
@@ -703,7 +765,21 @@ class AmalgamTUI(App):
         self._last_filter_prefix: str = ""
         self._msg_count = 0
         self._char_count = 0
-        self._start_time = __import__("time").time()
+        self._token_count = 0
+        self._start_time = time.time()
+        self._companion = False
+        self._companion_connected = False
+        self._health_ok = True
+        self._health_results: dict[str, dict] = {}
+        self._last_status_text = "Ctrl+Q quit · Ctrl+N new · /help"
+        self._typing_timer: Any = None
+        self._typing_frame = 0
+        self._input_history: list[str] = []
+        self._history_index: int = -1
+        self._search_mode = False
+        self._search_query = ""
+        self._search_results: list[str] = []
+        self._search_result_index = -1
 
     def compose(self) -> ComposeResult:
         yield AmalgamHeader()
@@ -740,6 +816,10 @@ class AmalgamTUI(App):
             self._update_header()
             self._log_system(f"Welcome — {self._short_id()}")
             self.query_one("#chat-input", Input).focus()
+
+        # Periodic timers
+        self.set_interval(30, self._refresh_health)
+        self.set_interval(5, self._refresh_uptime)
 
     def _apply_css_theme(self) -> None:
         """Override hardcoded CSS colors with the active palette at runtime."""
@@ -801,7 +881,8 @@ class AmalgamTUI(App):
         input_w.disabled = False
         input_w.placeholder = "Type a message…"
         input_w.focus()
-        self._update_status("Ctrl+Q quit · Ctrl+N new · /help")
+        conn = self._prov() or "connected"
+        self._update_status(f"{conn} · Ctrl+Q quit · Ctrl+N new · /help")
 
     def show_error(self, msg: str) -> None:
         self._backend_loading = False
@@ -861,7 +942,80 @@ class AmalgamTUI(App):
             h.session_id = self._sid()
             h.provider = self._prov()
             h.model = self._model()
-            h.status = "dev" if self._backend_loading else ""
+            # Live stats
+            h.msg_count = self._msg_count
+            h.char_count = self._char_count
+            h.token_count = self._token_count
+            elapsed = time.time() - self._start_time
+            h.uptime = self._format_uptime(elapsed)
+            # Thinking indicator
+            h.show_thinking = self._show_thinking
+            # Companion
+            h.companion = self._companion
+            h.companion_connected = self._companion_connected
+            # Health
+            h.health_ok = self._health_ok
+            # Real-time status badge
+            if self._backend_loading:
+                h.status = "dev"
+            elif self._backend_failed:
+                h.status = ""
+            elif self._streaming:
+                h.status = "streaming"
+            else:
+                h.status = "ready"
+        except Exception:
+            pass
+
+    @staticmethod
+    def _format_uptime(seconds: float) -> str:
+        hours, remainder = divmod(int(seconds), 3600)
+        minutes, secs = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        elif minutes > 0:
+            return f"{minutes}m {secs}s"
+        else:
+            return f"{secs}s"
+
+    def _refresh_health(self) -> None:
+        """Periodic health check — updates header health dot and stores results."""
+        try:
+            from backend.core.deps import get_shared
+            registry = get_shared().get("health_registry")
+            if registry is None:
+                return
+            # Use a fire-and-forget worker to avoid blocking the UI
+            self.run_worker(self._do_background_health(), exclusive=False)
+        except Exception:
+            pass
+
+    async def _do_background_health(self) -> None:
+        """Background health check that updates cached state without logging."""
+        try:
+            from backend.core.deps import get_shared
+            registry = get_shared().get("health_registry")
+            if registry is None:
+                return
+            results = await registry.check_all()
+            self._health_results = results
+            # Compute overall health: all known services ok?
+            all_ok = all(
+                s.get("status") == "ok"
+                for s in results.values()
+            ) if results else True
+            self._health_ok = all_ok
+            self._update_header()
+            self._update_status(self._last_status_text)
+        except Exception:
+            pass
+
+    def _refresh_uptime(self) -> None:
+        """Refresh the uptime display in the header."""
+        try:
+            h = self.query_one(AmalgamHeader)
+            elapsed = time.time() - self._start_time
+            h.uptime = self._format_uptime(elapsed)
         except Exception:
             pass
 
@@ -869,9 +1023,24 @@ class AmalgamTUI(App):
 
     def _update_status(self, text: str) -> None:
         try:
+            self._last_status_text = text
+            # Build status suffix with health indicator and companion/connection info
+            suffix_parts = []
+            # Health indicator
+            if hasattr(self, '_health_ok'):
+                health_dot = f"[{_GREEN}]●[/]" if self._health_ok else f"[{_RED}]●[/]"
+                suffix_parts.append(f"{health_dot}")
+            # Companion/connection status
+            if self._companion:
+                conn_color = _GREEN if self._companion_connected else _YELLOW
+                conn_label = "ON" if self._companion_connected else "?"
+                suffix_parts.append(f"[{conn_color}]Companion {conn_label}[/]")
+            status_text = text
+            if suffix_parts:
+                status_text += "  " + "  ".join(suffix_parts)
             sb = self.query_one("#status-bar", Container)
             sb.remove_children()
-            sb.mount(Label(text))
+            sb.mount(Label(status_text))
         except Exception:
             log.warning("Failed to update status bar", exc_info=True)
 
@@ -1008,6 +1177,10 @@ class AmalgamTUI(App):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
 
+        # Exit reverse-search mode
+        self._search_mode = False
+        self._search_query = ""
+
         # If dropdown is visible, autocomplete instead of submit
         if self._is_dropdown_visible():
             self._select_dropdown_item()
@@ -1045,6 +1218,11 @@ class AmalgamTUI(App):
         else:
             self._last_message = text
 
+        # Record in input history for reverse search
+        if text:
+            self._input_history.append(text)
+            self._history_index = len(self._input_history)
+
         self._log_user(text)
         self._clear_stream_area()
         self._send_message(text)
@@ -1059,6 +1237,11 @@ class AmalgamTUI(App):
         - Type letters → filter the current dropdown
         - Backspace past the space → back to command dropdown
         """
+        # Exit reverse-search mode if user types something new
+        if self._search_mode:
+            self._search_mode = False
+            self._search_query = ""
+
         if self._skip_change:
             self._skip_change = False
             return
@@ -1121,8 +1304,8 @@ class AmalgamTUI(App):
                     # Show subcommands
                     items = [
                         ("add", "Add API key"),
-                        ("set", "Update API key"),
                         ("rm", "Remove API key"),
+                        ("set", "Update API key"),
                     ]
                     self._show_dropdown("provider", items, after)
 
@@ -1149,7 +1332,18 @@ class AmalgamTUI(App):
                 if not items:
                     from backend.core.deps import get_shared
                     models_map = get_shared()["provider_models"]
-                    _rev_map = {"chatgpt": "openai", "claude": "anthropic"}
+                    _rev_map = {}
+                    try:
+                        backend_providers = get_shared()["known_providers"]
+                        for p in backend_providers:
+                            canonical = p.lower().replace(" ", "_")
+                            _rev_map[canonical] = canonical
+                        if "chatgpt" not in _rev_map and "openai" in _rev_map:
+                            _rev_map["chatgpt"] = "openai"
+                        if "claude" not in _rev_map and "anthropic" in _rev_map:
+                            _rev_map["claude"] = "anthropic"
+                    except Exception:
+                        _rev_map = {"chatgpt": "openai", "claude": "anthropic"}
                     model_key = _rev_map.get(active_provider, active_provider)
                     models = get_models_for_provider(self._settings, model_key) or models_map.get(model_key, [])
                     items = [(m, "") for m in models]
@@ -1170,12 +1364,7 @@ class AmalgamTUI(App):
                 self._show_dropdown("model", items, after_first.strip())
 
             elif cmd_part == "/theme":
-                themes = [
-                    ("dark", "Dark theme"),
-                    ("midnight", "Midnight theme"),
-                    ("light", "Light theme"),
-                    ("nord", "Nord theme"),
-                ]
+                themes = [(t, f"{t.capitalize()} theme") for t in sorted(_THEMES.keys())]
                 after = after_first.strip()
                 # Hide if exact theme typed
                 if after:
@@ -1186,12 +1375,7 @@ class AmalgamTUI(App):
                 self._show_dropdown("theme", themes, after)
 
             elif cmd_part == "/profile":
-                profiles = [
-                    ("default", "Default profile"),
-                    ("token-friendly", "Token-efficient profile"),
-                    ("quality", "Quality-focused profile"),
-                    ("custom", "Custom profile"),
-                ]
+                profiles = self._get_profile_items()
                 after = after_first.strip()
                 if after:
                     exact = [v for v, _ in profiles if v == after.strip().lower()]
@@ -1201,11 +1385,7 @@ class AmalgamTUI(App):
                 self._show_dropdown("profile", profiles, after)
 
             elif cmd_part == "/permission":
-                levels = [
-                    ("readonly", "Read-only mode"),
-                    ("confirm", "Ask before executing"),
-                    ("full", "Full access"),
-                ]
+                levels = self._get_permission_levels()
                 after = after_first.strip()
                 if after:
                     exact = [v for v, _ in levels if v == after.strip().lower()]
@@ -1239,25 +1419,33 @@ class AmalgamTUI(App):
                 self._show_dropdown("character", char_items, after)
 
             elif cmd_part == "/settings":
-                # Show common setting keys
-                common_keys = [
-                    ("provider.active", "Active provider"),
-                    ("voice.engine", "TTS engine"),
-                    ("voice.stt_engine_cli", "STT engine (CLI)"),
-                    ("voice.input_enabled", "Voice input toggle"),
-                    ("voice.output_enabled", "Voice output toggle"),
-                    ("ui.theme", "UI theme"),
-                    ("ui.font_size", "Font size"),
-                    ("ui.language", "Language"),
-                    ("ui.accent_color", "Accent color"),
-                    ("profile", "Settings profile"),
-                    ("character.active", "Active character"),
-                    ("agent.type", "Agent type"),
-                    ("llm.temperature", "Temperature"),
-                    ("vault.path", "Vault path"),
-                    ("wake_word.engine", "Wake word engine"),
-                    ("mcp.servers", "MCP servers"),
-                ]
+                # Fetch setting keys from backend, fall back to hardcoded list
+                try:
+                    from backend.core.deps import get_shared
+                    backend_keys = get_shared().get("setting_keys", {})
+                    if isinstance(backend_keys, dict):
+                        common_keys = list(backend_keys.items())
+                    else:
+                        raise ValueError("unexpected type")
+                except Exception:
+                    common_keys = [
+                        ("agent.type", "Agent type"),
+                        ("character.active", "Active character"),
+                        ("llm.temperature", "Temperature"),
+                        ("mcp.servers", "MCP servers"),
+                        ("profile", "Settings profile"),
+                        ("provider.active", "Active provider"),
+                        ("ui.accent_color", "Accent color"),
+                        ("ui.font_size", "Font size"),
+                        ("ui.language", "Language"),
+                        ("ui.theme", "UI theme"),
+                        ("vault.path", "Vault path"),
+                        ("voice.engine", "TTS engine"),
+                        ("voice.input_enabled", "Voice input toggle"),
+                        ("voice.output_enabled", "Voice output toggle"),
+                        ("voice.stt_engine_cli", "STT engine (CLI)"),
+                        ("wake_word.engine", "Wake word engine"),
+                    ]
                 after = after_first.strip()
                 if after:
                     # Filter by prefix
@@ -1292,6 +1480,145 @@ class AmalgamTUI(App):
                 self._rebuild_dropdown_filter(prefix)
             else:
                 self._show_dropdown(mode, items, prefix)
+
+    # ── Input widget key interception ──────────────────────────────────
+
+    def on_input_key(self, event: Input.Key) -> None:
+        """Intercept input-level keys before they reach default handling.
+
+        Handles Tab, Ctrl+R (reverse history search), and readline-style
+        editing keystrokes (Ctrl+K, Ctrl+U, Ctrl+W, Ctrl+A, Ctrl+E).
+        """
+        inp = self.query_one("#chat-input", Input)
+
+        # Tab → autocomplete
+        if event.key == "tab":
+            event.stop()
+            self._do_autocomplete()
+            return
+
+        # Ctrl+R → reverse history search
+        if event.key == "ctrl+r":
+            event.stop()
+            self._do_reverse_history_search()
+            return
+
+        # Ctrl+K → delete from cursor to end of line
+        if event.key == "ctrl+k":
+            event.stop()
+            cursor = inp.cursor_position
+            val = inp.value
+            inp.value = val[:cursor]
+            return
+
+        # Ctrl+U → delete entire input
+        if event.key == "ctrl+u":
+            event.stop()
+            inp.value = ""
+            return
+
+        # Ctrl+W → delete word backward
+        if event.key == "ctrl+w":
+            event.stop()
+            cursor = inp.cursor_position
+            val = inp.value
+            idx = cursor - 1
+            while idx >= 0 and val[idx] in (" ", "/"):
+                idx -= 1
+            while idx >= 0 and val[idx] not in (" ", "/"):
+                idx -= 1
+            inp.value = val[:idx + 1] + val[cursor:]
+            inp.cursor_position = idx + 1
+            return
+
+        # Ctrl+A → move cursor to start of input
+        if event.key == "ctrl+a":
+            event.stop()
+            inp.cursor_position = 0
+            return
+
+        # Ctrl+E → move cursor to end of input
+        if event.key == "ctrl+e":
+            event.stop()
+            inp.cursor_position = len(inp.value)
+            return
+
+    # ── Input helpers ──────────────────────────────────────────────────
+
+    def _do_autocomplete(self) -> None:
+        """Autocomplete the current /command or accept dropdown selection."""
+        inp = self.query_one("#chat-input", Input)
+        val = inp.value
+
+        if not val:
+            # Nothing typed → show all commands
+            _init_command_registry()
+            cmds = get_slash_commands()
+            items = [(c, _COMMAND_DEFS.get(c, ("", "", None))[0]) for c in cmds]
+            self._show_dropdown("command", items, "")
+            return
+
+        if self._is_dropdown_visible():
+            # Accept highlighted selection
+            self._select_dropdown_item()
+            return
+
+        # Try to complete the current command
+        if not val.startswith("/"):
+            return  # Not a command — no autocomplete for plain chat
+
+        _init_command_registry()
+        candidates = [c for c in get_slash_commands() if c.startswith(val)]
+        if len(candidates) == 1:
+            inp.value = candidates[0] + " "
+            inp.cursor_position = len(inp.value)
+        elif len(candidates) > 1:
+            items = [(c, _COMMAND_DEFS.get(c, ("", "", None))[0]) for c in candidates]
+            self._show_dropdown("command", items, val)
+
+    def _do_reverse_history_search(self) -> None:
+        """Enter reverse history search mode (Ctrl+R cycling)."""
+        if not self._input_history:
+            self._update_status("(history empty)")
+            return
+
+        if not self._search_mode:
+            # Enter search mode
+            self._search_mode = True
+            self._search_query = ""
+            self._search_results = list(reversed(self._input_history))
+            self._search_result_index = 0
+            self._update_status(f"(reverse-i-search)`': {self._search_results[0]}")
+            inp = self.query_one("#chat-input", Input)
+            inp.value = self._search_results[0]
+            inp.cursor_position = len(inp.value)
+        else:
+            # Cycle to next match (Ctrl+R pressed again)
+            self._search_result_index += 1
+            if self._search_result_index >= len(self._search_results):
+                self._search_result_index = 0
+            match = self._search_results[self._search_result_index]
+            inp = self.query_one("#chat-input", Input)
+            inp.value = match
+            inp.cursor_position = len(inp.value)
+            q = self._search_query or ""
+            self._update_status(f"(reverse-i-search)`{q}': {match}")
+
+    def _navigate_history(self, direction: int) -> None:
+        """Navigate input history (-1 for previous, +1 for next)."""
+        if not self._input_history:
+            return
+        inp = self.query_one("#chat-input", Input)
+        new_index = self._history_index + direction
+        if direction < 0 and new_index < 0:
+            return  # Already at oldest
+        if direction > 0 and new_index >= len(self._input_history):
+            new_index = len(self._input_history)
+            inp.value = ""
+        else:
+            inp.value = self._input_history[new_index]
+        self._history_index = new_index
+        inp.cursor_position = len(inp.value)
 
     # ── Keyboard actions ───────────────────────────────────────────────
 
@@ -1352,6 +1679,7 @@ class AmalgamTUI(App):
                 return
             self._show_thinking = new_state
             self._log_system(f"Thinking: {'ON' if self._show_thinking else 'OFF'}")
+            self._update_header()
 
         elif cmd == "/provider":
             # Use partition to preserve multi-word provider names
@@ -1474,10 +1802,24 @@ class AmalgamTUI(App):
             hint = f" — try {fuzzy[0]}?" if fuzzy else ""
             self._log_error(f"Unknown provider: {name}{hint}")
             return
-        _name_map = {
-            "openai": "chatgpt",
-            "anthropic": "claude",
-        }
+        # Build provider-to-config-key map from backend data, fallback
+        try:
+            from backend.core.deps import get_shared
+            _shared_providers = get_shared()["known_providers"]
+            _name_map = {}
+            for p in _shared_providers:
+                canonical = p.lower().replace(" ", "_")
+                _name_map[canonical] = canonical
+            # Override with known display-name aliases if backend provides none
+            if "chatgpt" not in _name_map and "openai" in _name_map:
+                _name_map["chatgpt"] = "openai"
+            if "claude" not in _name_map and "anthropic" in _name_map:
+                _name_map["claude"] = "anthropic"
+        except Exception:
+            _name_map = {
+                "openai": "chatgpt",
+                "anthropic": "claude",
+            }
         config_key = _name_map.get(name, name)
         if self._settings:
             try:
@@ -1600,7 +1942,11 @@ class AmalgamTUI(App):
                 return
             self._settings.set("voice.input_enabled", new_state)
             self._settings.set("voice.output_enabled", new_state)
+            self._companion = new_state
+            self._companion_connected = new_state  # assume connected when enabled
             self._log_system(f"Companion mode {'ON' if new_state else 'OFF'}")
+            self._update_header()
+            self._update_status(f"{self._prov() or 'connected'} · Ctrl+Q quit · Ctrl+N new · /help")
         except Exception as e:
             self._log_error(f"Companion toggle failed: {e}")
 
@@ -1624,8 +1970,16 @@ class AmalgamTUI(App):
                     v = self._settings.get(key, "not set")
                     self._log_system(f"{key} = {v}")
             else:
-                # Show key settings
-                keys = ["provider.active", "ui.theme", "ui.mode", "voice.engine", "voice.stt_engine_cli", "profile"]
+                # Show key settings — fetch from backend or use fallback list
+                try:
+                    from backend.core.deps import get_shared
+                    backend_keys = get_shared().get("setting_keys", {})
+                    if isinstance(backend_keys, dict):
+                        keys = list(backend_keys.keys())[:10]
+                    else:
+                        raise ValueError
+                except Exception:
+                    keys = ["profile", "provider.active", "ui.mode", "ui.theme", "voice.engine", "voice.stt_engine_cli"]
                 tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
                 tbl.add_column("", style=_CYAN)
                 tbl.add_column("", style=_TEXT)
@@ -1677,9 +2031,41 @@ class AmalgamTUI(App):
         except Exception as e:
             self._log_error(f"Stats unavailable: {e}")
 
+    def _get_profile_items(self) -> list[tuple[str, str]]:
+        """Fetch available profiles from backend, fall back to hardcoded list."""
+        try:
+            from backend.core.deps import get_shared
+            profiles = get_shared().get("profiles", {})
+            if isinstance(profiles, dict) and profiles:
+                return list(profiles.items())
+        except Exception:
+            pass
+        return [
+            ("custom", "Custom profile"),
+            ("default", "Default profile"),
+            ("quality", "Quality-focused profile"),
+            ("token-friendly", "Token-efficient profile"),
+        ]
+
+    def _get_permission_levels(self) -> list[tuple[str, str]]:
+        """Fetch valid permission levels from backend, fall back to hardcoded list."""
+        try:
+            from backend.core.deps import get_shared
+            shared = get_shared()
+            levels = shared.get("permission_levels", {})
+            if isinstance(levels, dict) and levels:
+                return list(levels.items())
+        except Exception:
+            pass
+        return [
+            ("confirm", "Ask before executing"),
+            ("full", "Full access"),
+            ("readonly", "Read-only mode"),
+        ]
+
     def _switch_theme(self, text: str) -> None:
         """Switch UI theme and apply it live."""
-        _valid = {"dark", "midnight", "light", "nord"}
+        _valid = set(_THEMES.keys())
         if not self._settings:
             self._log_error("Settings not available")
             return
@@ -1729,7 +2115,7 @@ class AmalgamTUI(App):
 
     def _switch_profile(self, text: str) -> None:
         """Switch settings profile."""
-        _valid = {"token-friendly", "default", "quality", "custom"}
+        _valid = set(dict(self._get_profile_items()).keys())
         if not self._settings:
             self._log_error("Settings not available")
             return
@@ -1756,7 +2142,7 @@ class AmalgamTUI(App):
 
     def _set_permission(self, text: str) -> None:
         """Set permission level."""
-        _valid = {"readonly", "confirm", "full"}
+        _valid = dict(self._get_permission_levels())
         parts = text.split(maxsplit=1)
         if len(parts) < 2 or parts[1].strip().lower() not in _valid:
             self._log_system(f"Usage: /permission [{'|'.join(sorted(_valid))}]")
@@ -1785,6 +2171,13 @@ class AmalgamTUI(App):
         self._streaming = True
         self._stream_task = asyncio.current_task()
         self._update_status("Streaming… (Esc to cancel)")
+        self._start_typing_indicator()
+        self._update_header()
+
+        # Count user message
+        self._msg_count += 1
+        self._char_count += len(text)
+        self._token_count += max(1, len(text.split()) * 4 // 3)  # rough estimate
 
         full_response = ""
         try:
@@ -1799,6 +2192,10 @@ class AmalgamTUI(App):
             # Persist the full response to chat log
             if full_response.strip():
                 self._log_assistant(full_response.strip())
+                self._msg_count += 1
+                self._char_count += len(full_response)
+                self._token_count += max(1, len(full_response.split()) * 4 // 3)  # rough estimate
+                self._update_header()
         except asyncio.CancelledError:
             self._log_system("Canceled")
         except Exception as e:
@@ -1807,8 +2204,42 @@ class AmalgamTUI(App):
             self._streaming = False
             self._stream_task = None
             self._clear_stream_area()
-            self._update_status("Ctrl+Q quit · Ctrl+N new · /help")
+            self._stop_typing_indicator()
+            conn = self._prov() or "?"
+            self._update_status(f"{conn} · Ctrl+Q quit · Ctrl+N new · /help")
+            self._update_header()
             self._log_system("─" * 30)
+
+    def _start_typing_indicator(self) -> None:
+        """Start a periodic timer to show an animated typing indicator in the status bar."""
+        self._typing_frame = 0
+        if self._typing_timer is None:
+            self._typing_timer = self.set_interval(0.2, self._advance_typing)
+
+    def _stop_typing_indicator(self) -> None:
+        """Stop the typing indicator animation."""
+        if self._typing_timer is not None:
+            self._typing_timer.stop()
+            self._typing_timer = None
+
+    def _advance_typing(self) -> None:
+        """Advance the typing indicator frame."""
+        if not self._streaming:
+            self._stop_typing_indicator()
+            return
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self._typing_frame = (self._typing_frame + 1) % len(frames)
+        frame = frames[self._typing_frame]
+        try:
+            sb = self.query_one("#status-bar", Container)
+            sb.remove_children()
+            status_text = f"[{_GREEN}]{frame} Assistant thinking…[/]"
+            if hasattr(self, '_health_ok'):
+                health_dot = f"[{_GREEN}]●[/]" if self._health_ok else f"[{_RED}]●[/]"
+                status_text += f"  {health_dot}"
+            sb.mount(Label(status_text))
+        except Exception:
+            pass
 
     def _handle_tag(self, tag: str, val: str) -> None:
         if tag == "__thinking__":
@@ -1841,3 +2272,26 @@ class AmalgamTUI(App):
     def action_cancel(self) -> None:
         if self._streaming:
             self._cancel_stream()
+
+    # ── Alt-slash-command action handlers ─────────────────────────────
+
+    def action_toggle_thinking(self) -> None:
+        self._handle_command("/think")
+
+    def action_toggle_companion(self) -> None:
+        self._handle_command("/companion")
+
+    def action_show_health(self) -> None:
+        self._handle_command("/health")
+
+    def action_show_memory(self) -> None:
+        self._handle_command("/memory")
+
+    def action_show_stats(self) -> None:
+        self._handle_command("/stats")
+
+    def action_resume(self) -> None:
+        self._handle_command("/resume")
+
+    def action_compact(self) -> None:
+        self._handle_command("/compact")

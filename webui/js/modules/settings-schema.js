@@ -1,30 +1,114 @@
 /**
  * settings-schema.js — Data-driven settings form definitions
- * Zero dependencies.
+ * Zero dependencies except fetch().
+ *
+ * All provider data and dropdown options are fetched dynamically from
+ * backend APIs, not hardcoded. Static fallbacks exist only for when
+ * the API is unreachable.
  */
 
-export const PROVIDER_DISPLAY_NAMES = {
-    'gemini': 'Google Gemini',
-    'openai': 'OpenAI (ChatGPT)',
-    'anthropic': 'Anthropic (Claude)',
-    'groq': 'Groq',
-    'ollama': 'Ollama (Local)',
-    'openrouter': 'OpenRouter',
-    'deepseek': 'DeepSeek',
-    'mistral': 'Mistral',
-    'together': 'Together AI',
-    'siliconflow': 'SiliconFlow',
-    'zai': 'ZAI (Turing/LLM-ZH)',
-    'huggingface': 'Hugging Face Inference',
-    'llamacpp': 'llama.cpp (Local)',
-    'koboldai': 'KoboldAI (Local)',
-    'azure-openai': 'Azure OpenAI',
-    'alibaba': 'Alibaba Cloud (DashScope)',
-    'aws': 'AWS Bedrock',
-    'gcp': 'GCP Vertex AI',
-    'opencode': 'OpenCode',
-    'opendev': 'OpenDev',
-};
+// ── Dynamic provider data (populated from /api/providers) ────────────
+
+export const PROVIDER_DISPLAY_NAMES = {};
+export const PROVIDER_MODELS = {};
+
+// ── Dynamic option caches (populated from various /api/ endpoints) ──
+
+export const _optionsCache = {};
+
+/**
+ * Fetch a single dynamic option type from a backend endpoint.
+ * Results are cached in _optionsCache[key].
+ * Falls back to an empty array or a provided fallback on failure.
+ */
+export async function fetchOptions(key, url, fallback) {
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        // Support both { options: [...] } and [...] response shapes
+        const list = Array.isArray(data) ? data : (data.options || data[key] || []);
+        _optionsCache[key] = list;
+        return list;
+    } catch (e) {
+        console.warn(`fetchOptions(${key}): ${e.message}, using fallback`);
+        _optionsCache[key] = fallback || [];
+        return _optionsCache[key];
+    }
+}
+
+let _dynamicInitPromise = null;
+
+/**
+ * Populate all option caches from the backend.
+ * Called before settings rendering so that dynamic selects show live data.
+ */
+export async function initDynamicOptions() {
+    if (_dynamicInitPromise) return _dynamicInitPromise;
+    _dynamicInitPromise = Promise.all([
+        fetchOptions('stt_engines', '/api/settings/options/stt_engines', ['browser', 'faster-whisper', 'openai-whisper', 'groq-whisper', 'whispercpp']),
+        fetchOptions('tts_engines', '/api/settings/options/tts_engines', ['edge-tts', 'openvoice', 'elevenlabs', 'openai-tts', 'speecht5', 'alltalk', 'piper', 'coqui-local', 'kokoro']),
+        fetchOptions('openai_tts_voices', '/api/settings/options/openai_tts_voices', ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']),
+        fetchOptions('themes', '/api/settings/options/themes', ['dark', 'midnight', 'light', 'nord']),
+        fetchOptions('languages', '/api/settings/options/languages', ['en', 'zh']),
+        fetchOptions('profiles', '/api/settings/options/profiles', ['default', 'token-friendly', 'quality', 'custom']),
+        fetchOptions('translation_languages', '/api/settings/options/translation_languages', ['auto', 'en', 'zh', 'ja', 'ko', 'fr', 'de', 'es', 'pt', 'ru', 'ar', 'th', 'vi']),
+        fetchOptions('vad_modes', '/api/settings/options/vad_modes', ['0', '1', '2', '3']),
+        fetchOptions('log_levels', '/api/settings/options/log_levels', ['DEBUG', 'INFO', 'WARNING', 'ERROR']),
+    ]);
+    return _dynamicInitPromise;
+}
+
+/**
+ * Invalidate a specific cache entry so it is re-fetched on next access.
+ */
+export function invalidateOptionsCache(key) {
+    delete _optionsCache[key];
+}
+
+/**
+ * Invalidate all option caches so they are re-fetched.
+ */
+export function invalidateAllOptionsCache() {
+    Object.keys(_optionsCache).forEach(k => delete _optionsCache[k]);
+    _dynamicInitPromise = null;
+}
+
+// ── Provider data from /api/providers (single source of truth) ────────
+
+let _providerDataInitPromise = null;
+
+/**
+ * Fetch provider data from the backend and populate PROVIDER_DISPLAY_NAMES
+ * and PROVIDER_MODELS.  Called automatically at module load time.
+ * No hardcoded fallback values — the live API data IS the source of truth.
+ */
+export async function initProviderData() {
+    if (_providerDataInitPromise) return _providerDataInitPromise;
+    _providerDataInitPromise = (async () => {
+        try {
+            const resp = await fetch('/api/providers');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const providers = data.providers || [];
+            // Clear and repopulate from API
+            Object.keys(PROVIDER_DISPLAY_NAMES).forEach(k => delete PROVIDER_DISPLAY_NAMES[k]);
+            Object.keys(PROVIDER_MODELS).forEach(k => delete PROVIDER_MODELS[k]);
+            for (const p of providers) {
+                PROVIDER_DISPLAY_NAMES[p.id] = p.name;
+                if (Array.isArray(p.models)) {
+                    PROVIDER_MODELS[p.id] = p.models;
+                }
+            }
+        } catch (e) {
+            console.warn('initProviderData: failed to fetch /api/providers:', e);
+        }
+    })();
+    return _providerDataInitPromise;
+}
+
+// Start fetching at module load time so data is ready before first render.
+initProviderData();
 
 export const SETTINGS_SCHEMA = {
     "Character": {
@@ -179,16 +263,18 @@ export const SETTINGS_SCHEMA = {
                 type: "select",
                 key: "provider.aws.model",
                 show_if: { field: "active_provider", equals: "aws" },
-                options: ["anthropic.claude-sonnet-4-20250514", "anthropic.claude-3-5-sonnet-20241022", "meta.llama3-70b-instruct-v1:0"],
-                description: "Bedrock model ID",
+                dynamic_options: true,
+                dynamic_options_provider: "aws",
+                description: "Bedrock model ID (fetched from backend)",
             },
             gcp_model: {
                 label: "Model",
                 type: "select",
                 key: "provider.gcp.model",
                 show_if: { field: "active_provider", equals: "gcp" },
-                options: ["gemini-2.0-flash-001", "gemini-2.5-flash-001", "gemini-2.5-pro-001"],
-                description: "Vertex AI model name",
+                dynamic_options: true,
+                dynamic_options_provider: "gcp",
+                description: "Vertex AI model name (fetched from backend)",
             },
         }
     },
@@ -199,7 +285,7 @@ export const SETTINGS_SCHEMA = {
                 label: "Speech-to-Text Engine",
                 type: "select",
                 key: "voice.stt_engine_webui",
-                options: ["browser", "faster-whisper", "openai-whisper", "groq-whisper", "whispercpp"],
+                dynamic_fetch: "stt_engines",
                 description: "Engine for converting speech to text (WebUI mode)",
                 onChange: "refreshCategory",
             },
@@ -207,7 +293,7 @@ export const SETTINGS_SCHEMA = {
                 label: "Text-to-Speech Engine",
                 type: "select",
                 key: "voice.engine",
-                options: ["edge-tts", "openvoice", "elevenlabs", "openai-tts", "speecht5", "alltalk", "piper", "coqui-local", "kokoro"],
+                dynamic_fetch: "tts_engines",
                 description: "Engine for converting text to speech",
                 onChange: "refreshCategory",
             },
@@ -300,7 +386,7 @@ export const SETTINGS_SCHEMA = {
                 label: "OpenAI TTS Voice",
                 type: "select",
                 key: "voice.openai_tts.voice",
-                options: ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+                dynamic_fetch: "openai_tts_voices",
                 show_if: { field: "tts_engine", equals: "openai-tts" },
             },
             at_url: {
@@ -385,14 +471,14 @@ export const SETTINGS_SCHEMA = {
                 label: "Source Language",
                 type: "select",
                 key: "translation.source_lang",
-                options: ["auto", "en", "zh", "ja", "ko", "fr", "de", "es", "pt", "ru", "ar", "th", "vi"],
+                dynamic_fetch: "translation_languages",
                 description: "Language of the original text (auto = detect)",
             },
             translation_target_lang: {
                 label: "Target Language",
                 type: "select",
                 key: "translation.target_lang",
-                options: ["en", "zh", "ja", "ko", "fr", "de", "es", "pt", "ru", "ar", "th", "vi"],
+                dynamic_fetch: "translation_languages",
                 description: "Language to translate responses into",
             },
             translation_base_url: {
@@ -434,7 +520,7 @@ export const SETTINGS_SCHEMA = {
                 label: "Theme",
                 type: "select",
                 key: "ui.theme",
-                options: ["dark", "midnight", "light", "nord"],
+                dynamic_fetch: "themes",
                 description: "Color theme for the interface",
             },
             accent_color: {
@@ -454,7 +540,7 @@ export const SETTINGS_SCHEMA = {
                 label: "Language",
                 type: "select",
                 key: "ui.language",
-                options: ["en", "zh"],
+                dynamic_fetch: "languages",
                 description: "Interface language",
             },
         }
@@ -483,7 +569,7 @@ export const SETTINGS_SCHEMA = {
                 label: "Settings Profile",
                 type: "select",
                 key: "profile",
-                options: ["default", "token-friendly", "quality", "custom"],
+                dynamic_fetch: "profiles",
                 description: "Profile for presets: token-friendly (lower token usage), quality (higher quality), custom (your tweaks)",
             },
             temperature: {
@@ -503,78 +589,20 @@ export const SETTINGS_SCHEMA = {
                 label: "VAD Mode",
                 type: "select",
                 key: "voice.vad_mode",
-                options: ["0", "1", "2", "3"],
+                dynamic_fetch: "vad_modes",
                 description: "Voice Activity Detection aggressiveness",
             },
             log_level: {
                 label: "Log Level",
                 type: "select",
                 key: "log.level",
-                options: ["DEBUG", "INFO", "WARNING", "ERROR"],
+                dynamic_fetch: "log_levels",
                 description: "Verbosity of application logs",
             },
         }
     },
 };
 
-export const PROVIDER_MODELS = {
-    'gemini': ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-    'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1'],
-    'anthropic': ['claude-sonnet-4-20250514', 'claude-haiku-3-5'],
-    'groq': ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'deepseek-r1-distill-llama-70b'],
-    'ollama': [],
-    'openrouter': ['meta-llama/llama-3.1-8b-instruct:free'],
-    'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
-    'siliconflow': ['deepseek-ai/DeepSeek-R1', 'deepseek-ai/DeepSeek-V3'],
-    'zai': ['google/gemma-2-27b-it', 'Qwen/QwQ-32B-Preview'],
-    'mistral': ['mistral-small-latest', 'mistral-large-latest'],
-    'together': ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
-    'chatgpt': ['gpt-4o-mini', 'gpt-4o'],
-    'claude': ['claude-sonnet-4-20250514', 'claude-haiku-3-5'],
-    'huggingface': [],
-    'llamacpp': [],
-    'koboldai': [],
-    'aws': ['anthropic.claude-sonnet-4-20250514', 'anthropic.claude-3-5-sonnet-20241022', 'meta.llama3-70b-instruct-v1:0'],
-    'gcp': ['gemini-2.0-flash-001', 'gemini-2.5-flash-001', 'gemini-2.5-pro-001'],
-    'azure-openai': [],
-    'alibaba': [],
-    'opencode': [],
-    'opendev': [],
-};
-
 // ── Provider data from /api/providers (single source of truth) ────────
-
-let _initPromise = null;
-
-/**
- * Fetch provider data from the backend and update PROVIDER_DISPLAY_NAMES
- * and PROVIDER_MODELS in-place.  This is called automatically at module
- * load time.  Hardcoded fallback values are preserved and used when the
- * API is unreachable.
- *
- * Calling this function multiple times is safe — only the first call
- * triggers a network request; subsequent calls return the cached promise.
- */
-export async function initProviderData() {
-    if (_initPromise) return _initPromise;
-    _initPromise = (async () => {
-        try {
-            const resp = await fetch('/api/providers');
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
-            const providers = data.providers || [];
-            for (const p of providers) {
-                PROVIDER_DISPLAY_NAMES[p.id] = p.name;
-                if (Array.isArray(p.models)) {
-                    PROVIDER_MODELS[p.id] = p.models;
-                }
-            }
-        } catch (e) {
-            console.warn('initProviderData: failed to fetch, using fallbacks:', e);
-        }
-    })();
-    return _initPromise;
-}
-
-// Start fetching at module load time so data is ready before first render.
-initProviderData();
+// Legacy re-exports for backward compatibility
+export { _optionsCache as optionsCache };

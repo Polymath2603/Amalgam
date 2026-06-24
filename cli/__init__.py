@@ -62,10 +62,11 @@ import cli.server as daemon
 import cli.auth as auth_mod
 
 _COMMANDS = [
-    "/exit", "/clear", "/new", "/session", "/sessions", "/status",
-    "/compact", "/provider", "/model", "/companion", "/help",
-    "/rename", "/health", "/resume", "/retry", "/think",
-    "/crash",
+    "/character", "/clear", "/compact", "/companion", "/crash", "/exit",
+    "/health", "/help", "/memory", "/model", "/new", "/permission",
+    "/profile", "/provider", "/quit", "/rename", "/resume", "/retry",
+    "/session", "/sessions", "/settings", "/stats", "/status", "/theme",
+    "/think",
 ]
 
 
@@ -546,22 +547,22 @@ async def run_cli_direct():
                 tbl.add_column("Command", style="cyan")
                 tbl.add_column("Description")
                 for row in [
-                    ("/exit", "Quit the CLI"),
                     ("/clear", "Clear terminal and reprint banner"),
-                    ("/new", "Start a new session and clear screen"),
-                    ("/session", "Show current session ID"),
-                    ("/sessions", "List or switch sessions (prefix match)"),
-                    ("/status", "Show provider, model, session info"),
-                    ("/health", "Show live service health report"),
                     ("/compact", "Force memory compaction"),
-                    ("/provider <name>", "Switch AI provider"),
+                    ("/companion [on|off]", "Toggle, enable, or disable companion mode (voice + avatar)"),
+                    ("/crash", "Simulate a crash (for testing recovery)"),
+                    ("/exit", "Quit the CLI"),
+                    ("/health", "Show live service health report"),
                     ("/model <name>", "Switch model for current provider"),
+                    ("/new", "Start a new session and clear screen"),
+                    ("/provider <name>", "Switch AI provider"),
                     ("/rename <title>", "Rename the current session"),
                     ("/resume", "Show last 5 turns"),
                     ("/retry", "Retry your last message"),
-                    ("/companion [on|off]", "Toggle, enable, or disable companion mode (voice + avatar)"),
+                    ("/session", "Show current session ID"),
+                    ("/sessions", "List or switch sessions (prefix match)"),
+                    ("/status", "Show provider, model, session info"),
                     ("/think [on|off]", "Toggle, enable, or disable thinking display"),
-                    ("/crash", "Simulate a crash (for testing recovery)"),
                 ]:
                     tbl.add_row(*row)
                 con.print(tbl)
@@ -649,6 +650,11 @@ async def run_cli_direct():
                     matches = [s for s in all_sessions if s.get("id", "").startswith(prefix)]
                     if len(matches) == 0:
                         con.print(f"[red]No session found with ID prefix:[/red] {prefix}")
+                        all_ids = [s.get("id", "") for s in all_sessions if s.get("id")]
+                        sid_suggestions = difflib.get_close_matches(prefix, all_ids, n=3, cutoff=0.4)
+                        if sid_suggestions:
+                            display = [s[:20] + "…" if len(s) > 20 else s for s in sid_suggestions]
+                            con.print(f"[dim]Did you mean: {', '.join(display)}[/dim]")
                     elif len(matches) > 1:
                         ids = ", ".join(s.get("id", "")[:16] + "\u2026" for s in matches)
                         con.print(f"[red]Ambiguous prefix '{prefix}' matches:[/red] {ids}")
@@ -774,12 +780,18 @@ async def run_cli_direct():
                         else:
                             con.print(f"[yellow]No API key found for {name}[/yellow]")
                     else:
+                        suggestions = difflib.get_close_matches(subcmd, ["set", "add", "rm"], n=1, cutoff=0.4)
+                        if suggestions:
+                            con.print(f"[dim]Did you mean: [italic]{suggestions[0]}[/italic]?[/dim]")
                         con.print(f"[red]Unknown subcommand: {subcmd}. Use: set, add, rm[/red]")
                 elif len(parts) > 1:
                     new_provider = parts[1]
                     if new_provider not in KNOWN_PROVIDERS:
                         con.print(f"[red]Unknown provider:[/red] {new_provider}")
                         con.print(f"[dim]Known providers: {', '.join(KNOWN_PROVIDERS)}[/dim]")
+                        prov_suggestions = difflib.get_close_matches(new_provider, KNOWN_PROVIDERS, n=1, cutoff=0.4)
+                        if prov_suggestions:
+                            con.print(f"[dim]Did you mean: [italic]{prov_suggestions[0]}[/italic]?[/dim]")
                         con.print("[yellow]Setting anyway (providers are not gatekept)...[/yellow]")
                     settings.set("provider.active", new_provider)
                     llm.reload_settings()
@@ -804,6 +816,9 @@ async def run_cli_direct():
                         else:
                             con.print(f"[yellow]Warning:[/yellow] '{new_model}' not in known list for {provider}")
                             con.print(f"[dim]Known: {', '.join(known_models)}[/dim]")
+                            model_suggestions = difflib.get_close_matches(new_model, known_models, n=1, cutoff=0.4)
+                            if model_suggestions:
+                                con.print(f"[dim]Did you mean: [italic]{model_suggestions[0]}[/italic]?[/dim]")
                     else:
                         con.print(f"[dim]No known models list for {provider}; accepting {new_model}[/dim]")
                     settings.set(f"provider.{provider}.model", new_model)
@@ -827,7 +842,9 @@ async def run_cli_direct():
                     _last_message[0],
                 )
                 con.print("[red]Crash state saved. Exiting...[/red]")
-                break
+                # Use os._exit to skip the finally block that clears crash state
+                _save_history()
+                os._exit(0)
 
             # ── Retry last message ───────────────────────────────────
             if text == "/retry":
@@ -1215,19 +1232,19 @@ def _detect_providers_from_env() -> list[str]:
     """Detect which provider API keys are set in the environment."""
     import os
     env_keys = {
-        "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        "openai": ["OPENAI_API_KEY"],
         "anthropic": ["ANTHROPIC_API_KEY"],
-        "groq": ["GROQ_API_KEY"],
+        "anthropic-compat": ["ANTHROPIC_COMPAT_API_KEY"],
         "deepseek": ["DEEPSEEK_API_KEY"],
+        "gemini": ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        "groq": ["GROQ_API_KEY"],
+        "huggingface": ["HUGGINGFACE_API_KEY"],
         "mistral": ["MISTRAL_API_KEY"],
+        "openai": ["OPENAI_API_KEY"],
+        "openai-compat": ["OPENAI_COMPAT_API_KEY"],
+        "openrouter": ["OPENROUTER_API_KEY"],
+        "siliconflow": ["SILICONFLOW_API_KEY"],
         "together": ["TOGETHER_API_KEY"],
         "zai": ["ZAI_API_KEY"],
-        "siliconflow": ["SILICONFLOW_API_KEY"],
-        "huggingface": ["HUGGINGFACE_API_KEY"],
-        "openrouter": ["OPENROUTER_API_KEY"],
-        "openai-compat": ["OPENAI_COMPAT_API_KEY"],
-        "anthropic-compat": ["ANTHROPIC_COMPAT_API_KEY"],
     }
     result = []
     for name, keys in env_keys.items():
@@ -1525,7 +1542,7 @@ def main():
         "action",
         nargs="?",
         default=None,
-        choices=["serve", "stop", "status", "login", "login-status", "auth", "run", "cli"],
+        choices=["auth", "cli", "login", "login-status", "run", "serve", "status", "stop"],
         help="Subcommand: serve|stop|status|login|login-status|auth|run|cli",
     )
     parser.add_argument("login_provider", nargs="?", default=None,

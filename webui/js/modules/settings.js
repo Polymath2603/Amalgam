@@ -4,7 +4,7 @@
 import { BASE_URL } from './config.js';
 import { escHtml, _getNestedValue, showToast, applyTheme, applyAccentColor } from './utils.js';
 import { api } from './api-client.js';
-import { PROVIDER_DISPLAY_NAMES, PROVIDER_MODELS, SETTINGS_SCHEMA, initProviderData } from './settings-schema.js';
+import { PROVIDER_DISPLAY_NAMES, PROVIDER_MODELS, SETTINGS_SCHEMA, initProviderData, initDynamicOptions, _optionsCache } from './settings-schema.js';
 import { getSettings, setSettingsCache } from './state.js';
 import { t } from '../i18n.js';
 
@@ -41,6 +41,19 @@ function _getFieldValue(fieldId, field) {
 }
 
 function _getFieldOptions(fieldId, field) {
+    // dynamic_fetch: options fetched from backend API and cached
+    if (field.dynamic_fetch) {
+        const cached = _optionsCache[field.dynamic_fetch];
+        if (cached && cached.length > 0) return cached;
+        // If not yet cached, fall back to any static options or empty array
+        return field.options || [];
+    }
+    if (field.dynamic_options && field.dynamic_options_provider) {
+        // Provider-specific dynamic fetch (AWS/GCP etc.)
+        const models = PROVIDER_MODELS[field.dynamic_options_provider];
+        if (models && models.length > 0) return models;
+        return field.options || [];
+    }
     if (field.dynamic_options) {
         const settings = getSettings() || {};
         const active = _getNestedValue(settings, 'provider.active') || 'gemini';

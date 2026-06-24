@@ -29,7 +29,7 @@ import { connectWS, getPendingMessages } from './modules/ws.js';
 import { loadMCP } from './modules/mcp.js';
 import { initCompanion, updateCompanionSettings } from './modules/companion.js';
 import { initMemoryGraph, destroyMemoryGraph } from './modules/memory-graph.js';
-import { initMcpCommand, openMcpPanel, isMcpPanelOpen, handleMcpKeydown } from './modules/mcp-command.js';
+import { initMcpCommand, openMcpPanel, closeMcpPanel, isMcpPanelOpen, handleMcpKeydown } from './modules/mcp-command.js';
 import { updateHealthBar, refreshHealth } from './modules/health.js';
 import { loadHistory, initHistoryEvents, setHistoryDeps, updateHistoryToggle } from './modules/history.js';
 import { showSetupWizard, _initSetupWizard } from './modules/setup-wizard.js';
@@ -113,9 +113,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         const useSprite = window._gpuTier === 'low';
         _avatarModule = { AvatarRenderer, SpriteAvatar, useSprite };
         const settings = await fetch(BASE_URL + '/api/settings').then(r => r.json());
-        _vrmPath = settings?.avatar?.model_path
-            ? BASE_URL + `/${settings.avatar.model_path}`
-            : BASE_URL + '/characters/default/model.vrm';
+        if (settings?.avatar?.model_path) {
+            _vrmPath = BASE_URL + `/${settings.avatar.model_path}`;
+        } else {
+            // Fallback: derive from the active character's model_url
+            try {
+                const charsResp = await fetch(BASE_URL + '/api/characters');
+                if (charsResp.ok) {
+                    const chars = await charsResp.json();
+                    const activeId = settings?.character?.active || 'amalgam';
+                    const charModelUrl = chars?.[activeId]?.model_url;
+                    if (charModelUrl) {
+                        _vrmPath = charModelUrl.startsWith('/') || charModelUrl.startsWith('http')
+                            ? (charModelUrl.startsWith('http') ? charModelUrl : BASE_URL + charModelUrl)
+                            : BASE_URL + '/characters/default/model.vrm';
+                    }
+                }
+            } catch (_) {}
+        }
 
         if (avatarPreview) {
             setAvatarPreviewRenderer(new AvatarRenderer(avatarPreview, _vrmPath, { preview: true }));
@@ -561,6 +576,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             _sending = false;
         }
     }
+    // ─── Message history for Ctrl+Up/Down navigation ───
+    let _messageHistory = [];
+    let _messageHistoryIndex = -1;
+    const MAX_MESSAGE_HISTORY = 100;
+
     function _sendMessageInner() {
         const text = chatInput.value.trim();
         if (!text) return;
@@ -620,6 +640,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (imgInput) imgInput.value = '';
         }
         try { ws.send(JSON.stringify(msg)); } catch (e) { showToast('Send failed', 'danger'); }
+
+        // Capture to message history (skip slash commands)
+        if (!text.startsWith('/')) {
+            _messageHistory.push(text);
+            if (_messageHistory.length > MAX_MESSAGE_HISTORY) _messageHistory.shift();
+            _messageHistoryIndex = _messageHistory.length;
+        }
 
         const av = getAvatarRenderer();
         if (av?._idleManager) av._idleManager.wake();
@@ -899,34 +926,130 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ─── Keyboard shortcuts ───
     function setupKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
+            const tag = e.target.tagName;
+            const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+            // ── Ctrl+Enter (or Cmd+Enter): Send message ──
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                const sendBtn = document.getElementById('send-btn');
-                if (sendBtn && !sendBtn.disabled) { e.preventDefault(); sendBtn.click(); }
+                if (!isMcpPanelOpen()) {
+                    e.preventDefault();
+                    sendMessage();
+                }
                 return;
             }
+
+            // ── Escape: Close any open modal/dropdown/panel ──
             if (e.key === 'Escape') {
+                // Close MCP panel first
+                if (isMcpPanelOpen()) {
+                    e.preventDefault();
+                    closeMcpPanel();
+                    return;
+                }
+                // Close history panel
                 const historyPanel = document.getElementById('history-panel');
-                if (historyPanel?.classList.contains('visible')) { historyPanel.classList.remove('visible'); return; }
+                if (historyPanel?.classList.contains('visible')) {
+                    historyPanel.classList.remove('visible');
+                    e.preventDefault();
+                    return;
+                }
+                // Close kbd-hint dialog
                 const kbdHint = document.getElementById('kbd-hint');
-                if (kbdHint?.classList.contains('visible')) { kbdHint.classList.remove('visible'); return; }
+                if (kbdHint?.classList.contains('visible')) {
+                    kbdHint.classList.remove('visible');
+                    e.preventDefault();
+                    return;
+                }
+                // Close shell permission overlay
                 const shellOverlay = document.getElementById('shell-permission-overlay');
-                if (shellOverlay && shellOverlay.style.display !== 'none') { shellOverlay.style.display = 'none'; return; }
+                if (shellOverlay && shellOverlay.style.display !== 'none') {
+                    shellOverlay.style.display = 'none';
+                    e.preventDefault();
+                    return;
+                }
+                // Close setup wizard
                 const setupWizard = document.getElementById('setup-wizard-overlay');
                 if (setupWizard && setupWizard.style.display !== 'none') {
                     setupWizard.style.display = 'none';
-                    if (setupWizard._trapFocusHandler) { setupWizard.removeEventListener('keydown', setupWizard._trapFocusHandler); delete setupWizard._trapFocusHandler; }
+                    if (setupWizard._trapFocusHandler) {
+                        setupWizard.removeEventListener('keydown', setupWizard._trapFocusHandler);
+                        delete setupWizard._trapFocusHandler;
+                    }
+                    e.preventDefault();
+                    return;
+                }
+                // If settings tab is active, switch back to chat
+                const settingsPanel = document.getElementById('tab-settings');
+                if (settingsPanel?.classList.contains('active')) {
+                    e.preventDefault();
+                    switchTab('chat');
                     return;
                 }
                 return;
             }
+
+            // ── / (slash): Focus chat input ──
             if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 if (chatInput && document.activeElement !== chatInput) {
-                    const activeTag = document.activeElement?.tagName?.toLowerCase();
-                    if (activeTag !== 'input' && activeTag !== 'textarea' && activeTag !== 'select') {
+                    if (!isInput || tag === 'BUTTON') {
                         e.preventDefault();
                         chatInput.focus();
                     }
                 }
+                return;
+            }
+
+            // ── Ctrl+N (or Cmd+N): New conversation ──
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'n') {
+                e.preventDefault();
+                const newBtn = document.getElementById('new-chat-btn');
+                if (newBtn && newBtn.style.display !== 'none') newBtn.click();
+                else {
+                    const newSessBtn = document.getElementById('new-session-btn');
+                    newSessBtn?.click();
+                }
+                return;
+            }
+
+            // ── Ctrl+, (or Cmd+,): Open settings panel ──
+            if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+                e.preventDefault();
+                switchTab('settings');
+                return;
+            }
+
+            // ── Ctrl+Shift+C: Clear chat ──
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+                e.preventDefault();
+                const clearBtn = document.getElementById('clear-all-history');
+                if (clearBtn) clearBtn.click();
+                return;
+            }
+
+            // ── Ctrl+Up/Down (or Cmd+Up/Down): Navigate message history ──
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                // Don't override Ctrl+Up/Down inside text editing areas (word skipping)
+                if (isInput) return;
+                e.preventDefault();
+                if (!_messageHistory.length) return;
+
+                if (e.key === 'ArrowUp') {
+                    if (_messageHistoryIndex > 0) {
+                        _messageHistoryIndex--;
+                        chatInput.value = _messageHistory[_messageHistoryIndex];
+                    }
+                } else {
+                    if (_messageHistoryIndex < _messageHistory.length - 1) {
+                        _messageHistoryIndex++;
+                        chatInput.value = _messageHistory[_messageHistoryIndex];
+                    } else {
+                        _messageHistoryIndex = _messageHistory.length;
+                        chatInput.value = '';
+                    }
+                }
+                chatInput.style.height = 'auto';
+                chatInput.style.height = chatInput.scrollHeight + 'px';
+                return;
             }
         });
     }
@@ -941,7 +1064,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let _settingsObserver = null;
     if (settingsTab) {
         const renderSettingsWithProviders = async () => {
-            await Promise.all([refreshProviderList(), refreshCharacterList()]);
+            await Promise.all([refreshProviderList(), refreshCharacterList(), import('./modules/settings-schema.js').then(m => m.initDynamicOptions())]);
             renderSettings();
             _attachSettingsDelegates();
             loadRelationship();
@@ -991,6 +1114,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         initCompanion();
         await loadCharacters();
         await fetchCommands();
+        // Refresh commands periodically so new slash commands (e.g. from MCP) appear
+        setInterval(fetchCommands, 5 * 60 * 1000); // every 5 minutes
         setupKeyboardShortcuts();
         const parts = location.hash.replace('#', '').split('/');
         const sessionId = parts[0] === 'chat' && parts[1] ? parts[1] : null;

@@ -400,6 +400,21 @@ export function handleWSMessage(data) {
         if (data.error) {
             showToast(data.error, 'danger');
         }
+    } else if (data.type === 'settings_update') {
+        // Backend pushed updated settings — apply them immediately
+        if (data.settings && _applySettings) {
+            _applySettings(data.settings);
+        }
+    } else if (data.type === 'providers_update') {
+        // Provider list changed on the backend — refresh in settings
+        import('./settings.js').then(m => m.refreshProviderList());
+    } else if (data.type === 'characters_update') {
+        // Character list changed — refresh in settings and character grid
+        import('./settings.js').then(m => m.refreshCharacterList());
+        if (_loadCharacters) _loadCharacters();
+    } else if (data.type === 'commands_update') {
+        // Command list changed — refresh suggestions
+        if (_fetchCommands) _fetchCommands();
     } else if (data.type === 'animation') {
         // Animation playback
         if (avatarRenderer && data.url) avatarRenderer.playAnimation?.(data.url);

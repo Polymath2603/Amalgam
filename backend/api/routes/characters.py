@@ -11,7 +11,8 @@ from fastapi import APIRouter
 from fastapi .responses import JSONResponse 
 from backend .api .deps import settings ,llm ,tts 
 from backend .core .config .settings import BUILTIN_VOICES 
-from backend .core .llm import LLMRouter 
+from backend .core .llm import LLMRouter
+from backend .core .llm .litellm_provider import OPENAI_COMPAT_PROVIDERS
 from backend .core .paths import CHARACTERS_DIR ,PROJECT_ROOT 
 from backend .core .utils .icon_generator import _generate_missing_icons_sync
 from backend.core.deprecated import deprecated 
@@ -143,7 +144,7 @@ async def get_provider_models (provider :str ):
             return {"models":models }
         finally:
             await fresh_llm .close ()
-    if provider in LLMRouter .OPENAI_COMPAT :
+    if provider in OPENAI_COMPAT_PROVIDERS :
         fresh_llm =LLMRouter (settings =settings ())
         try:
             models =await fresh_llm .fetch_openai_compat_models (provider )

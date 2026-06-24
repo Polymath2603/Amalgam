@@ -51,7 +51,10 @@ export function startBrowserSpeechRec() {
     browserSpeechRec = new SpeechRecognition();
     browserSpeechRec.continuous = true;
     browserSpeechRec.interimResults = true;
-    browserSpeechRec.lang = 'en-US';
+    // Use the current language setting, falling back to en-US
+    const settings = getSettings();
+    const lang = settings?.ui?.language || document.documentElement.lang || 'en-US';
+    browserSpeechRec.lang = lang;
 
     browserSpeechRec.onresult = (event) => {
         let finalText = '';
