@@ -48,6 +48,7 @@ else:
         "http://localhost:5173",
         "http://localhost:3000",
         "tauri://localhost",
+        "*",
     ]
 
 WEBUI_DIR = PROJECT_ROOT / "webui"
@@ -139,7 +140,7 @@ def create_app():
         allow_origins=CORS_ORIGINS,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
-        allow_credentials=True,
+        allow_credentials=False,
         max_age=600,
     )
     # H8: pure ASGI middleware (not BaseHTTPMiddleware)

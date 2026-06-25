@@ -133,6 +133,8 @@ def _validate_settings_update(body: dict) -> list[str]:
                 if v < 8 or v > 48:
                     errors.append(f"{key} must be between 8 and 48")
             except (ValueError, TypeError):
+                errors.append(f"{key} must be a number")
+
         # Validate wake word engine
         if key == "wake_word.engine" and value not in {"openwakeword", "snowboy", "none"}:
             errors.append(f"Unknown wake word engine: {value}. Valid: openwakeword, snowboy, none")

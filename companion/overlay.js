@@ -13,7 +13,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 // ── Config ─────────────────────────────────────────────────────────
 const BACKEND_HTTP = 'http://127.0.0.1:8000';
-const BACKEND_WS = 'ws://127.0.0.1:8000/ws';
+const BACKEND_WS = 'ws://127.0.0.1:8000/ws/chat';
 const RECONNECT_DELAYS = [500, 1000, 2000, 5000, 10000];
 const IDLE_HIDE_MS = 30000; // hide controls after 30s idle
 

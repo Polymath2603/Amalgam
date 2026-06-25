@@ -17,6 +17,8 @@ import sys
 import argparse
 import json
 import logging
+import threading
+import urllib.request
 
 # Ensure project root is on path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,6 +26,39 @@ sys.path.insert(0, PROJECT_ROOT)
 
 logging.basicConfig(level=logging.INFO, format="[Companion] %(levelname)s: %(message)s")
 log = logging.getLogger(__name__)
+
+
+def _find_free_port():
+    """Find a free TCP port on localhost."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _start_local_server(port: int) -> threading.Thread:
+    """Start a minimal HTTP server to serve companion files from the project root.
+    
+    We serve from the project root so that import map paths like
+    'webui/vendor/three.module.js' resolve correctly.
+    Using localhost instead of file:// avoids CORS issues with fetch/WS.
+    """
+    import http.server
+    import socketserver
+    import pathlib
+
+    class CompanionHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(PROJECT_ROOT), **kwargs)
+
+        def log_message(self, format, *args):
+            pass  # Suppress HTTP log spam
+
+    httpd = socketserver.TCPServer(("127.0.0.1", port), CompanionHandler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    log.debug(f"Local HTTP server on port {port}")
+    return thread
 
 
 def main():
@@ -34,11 +69,11 @@ def main():
                         help="Disable transparent window (for debugging)")
     args = parser.parse_args()
 
-    # Check backend
     backend_url = f"http://{args.host}:{args.port}"
+
+    # ── Check backend ──
     try:
-        import urllib.request
-        resp = urllib.request.urlopen(f"{backend_url}/health", timeout=3)
+        resp = urllib.request.urlopen(f"{backend_url}/api/health", timeout=3)
         health = json.loads(resp.read())
         log.info(f"Backend OK: {health.get('status', '?')}")
     except Exception as e:
@@ -46,16 +81,22 @@ def main():
         log.error("Make sure the Amalgam backend is running (python main.py webui --no-browser)")
         sys.exit(1)
 
-    # Import PySide6
+    # ── Import PySide6 ──
     try:
         from PySide6.QtWidgets import QApplication, QMainWindow
         from PySide6.QtCore import Qt, QUrl
         from PySide6.QtWebEngineWidgets import QWebEngineView
         from PySide6.QtGui import QSurfaceFormat
+        from PySide6.QtWebEngineCore import QWebEngineSettings
     except ImportError:
         log.error("PySide6 not installed. Run: pip install PySide6")
         sys.exit(1)
 
+    # ── Start local HTTP server so fetch/WS work without CORS issues ──
+    local_port = _find_free_port()
+    _start_local_server(local_port)
+
+    # ── Qt Application ──
     app = QApplication(sys.argv)
     app.setApplicationName("Amalgam Companion")
 
@@ -93,7 +134,6 @@ def main():
     web.page().setBackgroundColor(Qt.transparent)
 
     # Enable WebGL and other features
-    from PySide6.QtWebEngineCore import QWebEngineSettings
     settings = web.settings()
     settings.setAttribute(QWebEngineSettings.WebGLEnabled, True)
     settings.setAttribute(QWebEngineSettings.Accelerated2dCanvasEnabled, True)
@@ -102,9 +142,8 @@ def main():
     settings.setAttribute(QWebEngineSettings.PdfViewerEnabled, False)
     settings.setAttribute(QWebEngineSettings.FullScreenSupportEnabled, True)
 
-    # Load the overlay HTML
-    overlay_path = os.path.join(PROJECT_ROOT, "companion", "overlay.html")
-    overlay_url = QUrl.fromLocalFile(overlay_path)
+    # Load overlay from local HTTP server (not file://) to avoid CORS issues
+    overlay_url = QUrl(f"http://127.0.0.1:{local_port}/companion/overlay.html")
     web.load(overlay_url)
 
     # Make web view fill the window
@@ -118,7 +157,9 @@ def main():
     app.aboutToQuit.connect(cleanup)
 
     log.info("Companion overlay launched")
-    log.info("  Controls:  Mouse to show buttons, Esc to exit")
+    log.info(f"  URL:      http://127.0.0.1:{local_port}/companion/overlay.html")
+    log.info(f"  Backend:  {backend_url}")
+    log.info("  Controls: Mouse to show buttons, Esc to exit")
     log.info("  Shortcuts: M = toggle mute, Esc = close")
     log.info("  Click-through is ON — mouse passes through the avatar")
 
