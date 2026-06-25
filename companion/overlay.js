@@ -1,100 +1,96 @@
 /**
  * overlay.js — Standalone VRM overlay for Amalgam companion mode
  *
- * Renders a VRM avatar on a transparent background, connects to the
- * backend via WebSocket for voice/TTS/mood events.
- *
- * This is a self-contained module (no dependency on webui/state.js).
+ * Renders VRM avatar with idle animation + TTS lip-sync on a
+ * transparent background. Uses a 2D canvas compositing hack to
+ * work around QtWebEngine's broken WebGL alpha compositing.
  */
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
-// ── Config ─────────────────────────────────────────────────────────
 const BACKEND_HTTP = 'http://127.0.0.1:8000';
 const BACKEND_WS = 'ws://127.0.0.1:8000/ws/chat';
 const RECONNECT_DELAYS = [500, 1000, 2000, 5000, 10000];
-const IDLE_HIDE_MS = 30000; // hide controls after 30s idle
 
-// ── State ──────────────────────────────────────────────────────────
 let ws = null;
 let wsReconnectAttempt = 0;
 let wsReconnectTimer = null;
-let renderer = null;
+let renderer = null;         // hidden WebGL renderer
 let scene = null;
 let camera = null;
 let vrm = null;
 let clock = new THREE.Clock();
 let mixer = null;
-let currentEmotion = 'neutral';
 let mouthValue = 0;
-let idleTimer = null;
-let isVisible = true;
+let currentMouthAa = 0;
+let currentMouthOh = 0;
+let isMuted = false;
 let animId = null;
+let controlsTimer = null;
 
-// ── DOM refs ───────────────────────────────────────────────────────
+// Compositing hack: a 2D canvas that composites the WebGL output with alpha
+let displayCanvas = null;     // visible 2D canvas
+let displayCtx = null;       // 2D context for compositing
+
 const canvasContainer = document.getElementById('avatar-canvas');
 const statusEl = document.getElementById('status');
-const disconnectedBar = document.getElementById('disconnected-bar');
-const disconnectedText = document.getElementById('disconnected-text');
 const controlsEl = document.getElementById('controls');
 const muteBtn = document.getElementById('btn-mute');
-const exitBtn = document.getElementById('btn-exit');
-let isMuted = false;
+const closeBtn = document.getElementById('btn-close');
 
 // ═════════════════════════════════════════════════════════════════
-//  Three.js Scene Setup
+//  Scene & Compositing Canvas
 // ═════════════════════════════════════════════════════════════════
 
 function initScene() {
     scene = new THREE.Scene();
 
-    // Camera
-    camera = new THREE.PerspectiveCamera(25, window.innerWidth / window.innerHeight, 0.1, 20);
-    camera.position.set(0, 1.3, 3.2);
+    camera = new THREE.PerspectiveCamera(22, 280 / 420, 0.1, 20);
+    camera.position.set(0, 1.35, 2.8);
     camera.lookAt(0, 1.2, 0);
     scene.add(camera);
 
-    // WebGL renderer (transparent)
+    // ── Hidden WebGL renderer (alpha matters but QtWebEngine ignores it) ──
     renderer = new THREE.WebGLRenderer({
         alpha: true,
         antialias: true,
-        preserveDrawingBuffer: false,
+        premultipliedAlpha: false,
     });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x000000, 0); // fully transparent
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
-    canvasContainer.appendChild(renderer.domElement);
+    renderer.setSize(280, 420);
+    renderer.setPixelRatio(1);
+    renderer.setClearAlpha(0);
+    renderer.setClearColor(0x000000, 0);
+    renderer.domElement.style.display = 'none'; // hide the WebGL canvas
+    document.body.appendChild(renderer.domElement);
+
+    // ── Visible 2D compositing canvas ──
+    displayCanvas = document.createElement('canvas');
+    displayCanvas.width = 280;
+    displayCanvas.height = 420;
+    displayCanvas.style.width = '100%';
+    displayCanvas.style.height = '100%';
+    displayCanvas.style.display = 'block';
+    displayCanvas.style.background = 'transparent';
+    canvasContainer.appendChild(displayCanvas);
+
+    displayCtx = displayCanvas.getContext('2d');
 
     // Lights
-    const light = new THREE.DirectionalLight(0xffffff, Math.PI);
-    light.position.set(1, 1, 1).normalize();
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const key = new THREE.DirectionalLight(0xffffff, 1.4);
+    key.position.set(0.8, 1.5, 1.2);
+    scene.add(key);
 
-    // Subtle grid
-    const grid = new THREE.GridHelper(10, 10, 0x333355, 0x222244);
-    scene.add(grid);
+    const fill = new THREE.DirectionalLight(0x8888ff, 0.4);
+    fill.position.set(-0.5, 0.5, 1.5);
+    scene.add(fill);
 
-    // Resize handler
-    window.addEventListener('resize', onResize);
-}
-
-function onResize() {
-    if (!renderer || !camera) return;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  VRM Model Loading
+//  VRM Loading
 // ═════════════════════════════════════════════════════════════════
 
 async function loadVRM(vrmPath) {
@@ -105,121 +101,131 @@ async function loadVRM(vrmPath) {
         const gltf = await loader.loadAsync(vrmPath);
         const loadedVrm = gltf.userData.vrm;
         if (!loadedVrm) {
-            console.error('[Overlay] No VRM data in loaded model');
+            console.error('[Overlay] No VRM data');
             return null;
         }
         vrm = loadedVrm;
-        vrm.scene.name = 'VRM';
-
-        // Auto-detect hips and reposition
         VRMUtils.rotateVRM0(vrm);
         VRMUtils.removeUnnecessaryVertices(vrm.scene);
-
         scene.add(vrm.scene);
 
-        // Setup animation mixer
         mixer = new THREE.AnimationMixer(vrm.scene);
 
-        // Try to load idle animation
+        // Load idle animation
+        const animUrl = vrmPath.replace(/\/model\.vrm$/, '/anim/idle_loop.vrma');
         try {
-            const animPath = vrmPath.replace(/model\.vrm$/, 'anim/idle_loop.vrma');
-            const animResp = await fetch(animPath);
-            if (animResp.ok) {
-                const animBuffer = await animResp.arrayBuffer();
+            const resp = await fetch(animUrl);
+            if (resp.ok) {
+                const buf = await resp.arrayBuffer();
                 const { loadVRMAnimation } = await import('../webui/js/vrm-animation.js');
-                const clip = await loadVRMAnimation(animBuffer, vrm);
+                const clip = await loadVRMAnimation(buf, vrm);
                 if (clip) {
                     const action = mixer.clipAction(clip);
-                    action.play();
+                    if (action) {
+                        action.play();
+                        console.debug('[Overlay] Idle animation playing');
+                    }
                 }
             }
-        } catch (_) {
-            // No idle animation — no problem
+        } catch (e) {
+            console.debug('[Overlay] No idle anim:', e.message);
         }
 
         console.debug('[Overlay] VRM loaded:', vrmPath);
         return vrm;
     } catch (err) {
-        console.error('[Overlay] Failed to load VRM:', err);
+        console.error('[Overlay] VRM load failed:', err);
         return null;
     }
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  Animation Loop
+//  Animation Loop (with 2D compositing)
 // ═════════════════════════════════════════════════════════════════
 
 function animate() {
     animId = requestAnimationFrame(animate);
-    const delta = clock.getDelta();
+    const delta = Math.min(clock.getDelta(), 0.05);
 
-    // Update VRM (applies blendshapes, bones)
-    if (vrm && vrm.update) {
-        vrm.update(delta);
+    if (vrm?.update) vrm.update(delta);
+    if (mixer) mixer.update(delta);
+
+    // Lip-sync
+    if (vrm?.expressionManager) {
+        const s = 0.25;
+        currentMouthAa += (mouthValue - currentMouthAa) * s;
+        currentMouthOh += (mouthValue * 0.3 - currentMouthOh) * s;
+        vrm.expressionManager.setValue('aa', currentMouthAa);
+        vrm.expressionManager.setValue('oh', currentMouthOh);
+        vrm.expressionManager.setValue('ee', currentMouthOh * 0.2);
     }
 
-    // Update mixer (animations)
-    if (mixer) {
-        mixer.update(delta);
-    }
-
-    // Apply mouth opening for TTS
-    if (vrm && vrm.expressionManager) {
-        const current = mouthValue;
-        // Smoothly approach mouth value
-        const smooth = 0.3;
-        const aa = vrm.expressionManager.getValue('aa') || 0;
-        const newAa = aa + (current - aa) * smooth;
-        vrm.expressionManager.setValue('aa', Math.max(0, Math.min(1, newAa)));
-        vrm.expressionManager.setValue('oh', Math.max(0, Math.min(1, newAa * 0.3)));
-    }
-
+    // Render to hidden WebGL canvas
     renderer.render(scene, camera);
+
+    // Composite onto visible 2D canvas with alpha
+    // Read back the WebGL pixels as RGBA and draw with proper alpha
+    const w = renderer.domElement.width;
+    const h = renderer.domElement.height;
+    const pixels = new Uint8Array(w * h * 4);
+    const gl = renderer.getContext();
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    // Create ImageData from pixels (need to flip Y)
+    const imageData = displayCtx.createImageData(w, h);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const srcIdx = (y * w + x) * 4;
+            const dstIdx = ((h - 1 - y) * w + x) * 4;
+            // Copy RGBA as-is — the alpha from WebGL clearColor(0,0,0,0)
+            // should give us transparent pixels where nothing was rendered
+            imageData.data[dstIdx] = pixels[srcIdx];     // R
+            imageData.data[dstIdx + 1] = pixels[srcIdx + 1]; // G
+            imageData.data[dstIdx + 2] = pixels[srcIdx + 2]; // B
+            imageData.data[dstIdx + 3] = pixels[srcIdx + 3]; // A
+        }
+    }
+    displayCtx.putImageData(imageData, 0, 0);
+
+    // Update display canvas size if container changed
+    const rect = canvasContainer.getBoundingClientRect();
+    if (displayCanvas.width !== Math.round(rect.width) ||
+        displayCanvas.height !== Math.round(rect.height)) {
+        displayCanvas.width = Math.round(rect.width);
+        displayCanvas.height = Math.round(rect.height);
+    }
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  WebSocket Connection
+//  WebSocket
 // ═════════════════════════════════════════════════════════════════
 
 function connectWS() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
     try {
         ws = new WebSocket(BACKEND_WS);
     } catch (e) {
-        console.error('[Overlay] WS connection failed:', e);
         scheduleReconnect();
         return;
     }
 
     ws.onopen = () => {
-        console.debug('[Overlay] WS connected');
         wsReconnectAttempt = 0;
         setConnected(true);
-        // Send auth / join
         ws.send(JSON.stringify({ type: 'join' }));
-        // Request companion state
         ws.send(JSON.stringify({ type: 'companion_state', enabled: true }));
     };
 
     ws.onclose = () => {
-        console.debug('[Overlay] WS disconnected');
         setConnected(false);
         ws = null;
-        if (isVisible) scheduleReconnect();
+        scheduleReconnect();
     };
 
-    ws.onerror = (e) => {
-        console.error('[Overlay] WS error:', e);
-    };
+    ws.onerror = () => {};
 
     ws.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            handleMessage(data);
-        } catch (e) {
-            console.error('[Overlay] Failed to parse message:', e);
-        }
+        try { handleMessage(JSON.parse(event.data)); } catch (_) {}
     };
 }
 
@@ -227,158 +233,70 @@ function scheduleReconnect() {
     if (wsReconnectTimer) return;
     const delay = RECONNECT_DELAYS[Math.min(wsReconnectAttempt, RECONNECT_DELAYS.length - 1)];
     wsReconnectAttempt++;
-    console.debug(`[Overlay] Reconnecting in ${delay}ms (attempt ${wsReconnectAttempt})`);
-    wsReconnectTimer = setTimeout(() => {
-        wsReconnectTimer = null;
-        connectWS();
-    }, delay);
+    wsReconnectTimer = setTimeout(() => { wsReconnectTimer = null; connectWS(); }, delay);
 }
 
-function setConnected(connected) {
-    statusEl.textContent = connected ? 'connected' : 'disconnected';
-    statusEl.className = connected ? 'connected' : 'disconnected';
-    if (connected) {
-        disconnectedBar.style.display = 'none';
-        disconnectedText.style.display = 'none';
-        disconnectedText.classList.remove('visible');
-    } else {
-        disconnectedBar.style.display = '';
-        disconnectedText.style.display = '';
-        disconnectedText.classList.add('visible');
-    }
+function setConnected(c) {
+    statusEl.textContent = c ? 'connected' : 'disconnected';
+    statusEl.className = c ? 'connected' : 'disconnected';
 }
-
-// ═════════════════════════════════════════════════════════════════
-//  Message Handling
-// ═════════════════════════════════════════════════════════════════
 
 function handleMessage(data) {
     switch (data.type) {
-        case 'error':
-            console.error('[Overlay] Server error:', data.message);
-            break;
-
-        case 'settings_update':
-            // Backend pushed settings change — check companion state
-            if (data.settings?.companion?.enabled === false) {
-                // Companion was disabled by backend — close overlay
-                closeOverlay();
-            }
-            break;
-
         case 'tts_state':
-            // Mouth animation based on TTS
-            if (data.playing !== undefined) {
-                mouthValue = data.playing ? 0.7 : 0.0;
-            }
+            mouthValue = data.playing ? 0.7 : 0.0;
             break;
-
-        case 'emotion':
-            // Emotion from backend
-            if (data.emotion) {
-                currentEmotion = data.emotion;
-                applyEmotion(data.emotion);
-            }
-            break;
-
         case 'voice_level':
-            // Real-time audio level (0-1) for mouth animation
-            if (data.level !== undefined) {
-                mouthValue = Math.min(1, data.level * 1.5);
-            }
+            if (data.level !== undefined) mouthValue = Math.min(1, data.level * 2.0);
             break;
-
+        case 'emotion':
+            if (data.emotion && vrm?.expressionManager) setExpression(data.emotion);
+            break;
         case 'interrupt':
-            if (data.action === 'stop_audio_and_animation') {
-                mouthValue = 0;
-            }
+            if (data.action === 'stop_audio_and_animation') mouthValue = 0;
             break;
-
-        default:
-            // Generic message types — log only
-            if (data.type !== 'pong' && data.type !== 'health') {
-                console.debug('[Overlay] Unhandled message type:', data.type);
-            }
+        case 'settings_update':
+            if (data.settings?.companion?.enabled === false) closeOverlay();
+            break;
     }
 }
 
-function applyEmotion(emotion) {
-    if (!vrm || !vrm.expressionManager) return;
-    // Reset all expressions
-    const names = vrm.expressionManager.expressionMap ? 
-        Object.keys(vrm.expressionManager.expressionMap) : [];
-    for (const name of names) {
-        vrm.expressionManager.setValue(name, 0);
-    }
-    // Set the target emotion
-    const emotionMap = {
-        'happy': 'happy', 'joy': 'happy',
-        'sad': 'sad', 'angry': 'angry',
-        'surprised': 'surprised', 'surprise': 'surprised',
-        'relaxed': 'relaxed', 'neutral': 'neutral',
-    };
-    const target = emotionMap[emotion] || emotion;
-    if (vrm.expressionManager.expressionMap?.[target]) {
-        vrm.expressionManager.setValue(target, 1);
-    }
+function setExpression(emotion) {
+    if (!vrm?.expressionManager) return;
+    const emap = vrm.expressionManager.expressionMap;
+    if (!emap) return;
+    for (const k of Object.keys(emap)) vrm.expressionManager.setValue(k, 0);
+    const m = { happy:'happy', joy:'happy', neutral:'neutral', sad:'sad', angry:'angry', surprise:'surprised', relaxed:'relaxed' };
+    const t = m[emotion] || emotion;
+    if (emap[t]) vrm.expressionManager.setValue(t, 1);
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  Controls & UI
+//  Controls
 // ═════════════════════════════════════════════════════════════════
 
 function showControls() {
-    controlsEl.classList.remove('hidden');
-    resetIdleTimer();
+    controlsEl.classList.add('visible');
+    if (controlsTimer) clearTimeout(controlsTimer);
+    controlsTimer = setTimeout(() => controlsEl.classList.remove('visible'), 5000);
 }
 
-function hideControls() {
-    controlsEl.classList.add('hidden');
-}
-
-function resetIdleTimer() {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(hideControls, IDLE_HIDE_MS);
-}
-
-// Mute toggle
 muteBtn.addEventListener('click', () => {
     isMuted = !isMuted;
-    muteBtn.classList.toggle('active', isMuted);
     muteBtn.textContent = isMuted ? '🔇' : '🎤';
-    // Send mute state to backend
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'mute', muted: isMuted }));
-    }
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'mute', muted: isMuted }));
+    showControls();
 });
 
-// Exit button
-exitBtn.addEventListener('click', closeOverlay);
+closeBtn.addEventListener('click', closeOverlay);
+document.addEventListener('mousemove', showControls);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeOverlay(); });
 
 function closeOverlay() {
-    // Tell backend we're leaving companion mode
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'companion_state', enabled: false }));
-    }
-    // Exit the window
-    if (typeof window !== 'undefined') {
-        window.close();
-    }
-    // If window.close() didn't work (browser security), try sending a signal
-    setTimeout(() => {
-        document.body.innerHTML = '<div style="padding:2rem;text-align:center;color:#888">Companion closed</div>';
-    }, 500);
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'companion_state', enabled: false }));
+    window.close();
+    setTimeout(() => { document.body.innerHTML = '<div style="padding:2rem;color:#666">Closed</div>'; }, 300);
 }
-
-// Mouse movement shows controls
-document.addEventListener('mousemove', showControls);
-document.addEventListener('touchstart', showControls);
-
-// Keyboard shortcut: Esc to close
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeOverlay();
-    if (e.key === 'm' || e.key === 'M') muteBtn.click();
-});
 
 // ═════════════════════════════════════════════════════════════════
 //  Boot
@@ -387,49 +305,27 @@ document.addEventListener('keydown', (e) => {
 async function boot() {
     initScene();
 
-    // Determine VRM path from backend settings
     let vrmPath = BACKEND_HTTP + '/characters/default/model.vrm';
     try {
-        const resp = await fetch(BACKEND_HTTP + '/api/settings');
-        if (resp.ok) {
-            const settings = await resp.json();
-            const charActive = settings?.character?.active;
-            if (charActive) {
-                const charsResp = await fetch(BACKEND_HTTP + '/api/characters');
-                if (charsResp.ok) {
-                    const chars = await charsResp.json();
-                    const charModelUrl = chars?.[charActive]?.model_url;
-                    if (charModelUrl) {
-                        vrmPath = charModelUrl.startsWith('http')
-                            ? charModelUrl
-                            : BACKEND_HTTP + charModelUrl;
-                    }
-                }
-            }
-            if (settings?.avatar?.model_path) {
-                vrmPath = BACKEND_HTTP + '/' + settings.avatar.model_path;
-            }
+        const s = await (await fetch(BACKEND_HTTP + '/api/settings')).json();
+        if (s?.avatar?.model_path) {
+            vrmPath = BACKEND_HTTP + '/' + s.avatar.model_path;
+        } else if (s?.character?.active) {
+            const chars = await (await fetch(BACKEND_HTTP + '/api/characters')).json();
+            const url = chars?.[s.character.active]?.model_url;
+            if (url) vrmPath = url.startsWith('http') ? url : BACKEND_HTTP + url;
         }
-    } catch (e) {
-        console.warn('[Overlay] Failed to fetch settings, using default VRM');
-    }
+    } catch (_) {}
 
-    // Load VRM
     await loadVRM(vrmPath);
-
-    // Start render loop
     clock.start();
     animate();
-
-    // Connect to backend
     connectWS();
-
-    // Show controls briefly at start
     showControls();
+    console.debug('[Overlay] Boot complete');
 }
 
 boot().catch(err => {
-    console.error('[Overlay] Boot failed:', err);
+    console.error('[Overlay] Boot error:', err);
     statusEl.textContent = 'error';
-    statusEl.className = 'disconnected';
 });
