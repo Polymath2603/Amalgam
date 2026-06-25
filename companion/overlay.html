@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amalgam Companion</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        #avatar-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            pointer-events: none;
+        }
+        #avatar-canvas canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+        }
+        /* Disconnected indicator */
+        #disconnected-bar {
+            position: fixed; top: 0; left: 0; right: 0;
+            height: 3px; background: #ff5c5c; z-index: 100;
+            animation: pulse 2s ease-in-out infinite;
+            display: none;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+        #disconnected-text {
+            position: fixed; top: 8px; left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 12px; background: rgba(255,92,92,0.9);
+            border-radius: 8px; color: #fff; font-size: 11px;
+            font-weight: 600; z-index: 100; pointer-events: none;
+            opacity: 0; transition: opacity 0.3s;
+            display: none;
+        }
+        #disconnected-text.visible { opacity: 1; }
+        /* Connection status */
+        #status {
+            position: fixed; bottom: 16px; right: 16px;
+            padding: 4px 10px; border-radius: 6px;
+            font-size: 10px; font-weight: 600;
+            background: rgba(0,0,0,0.5); color: #aaa;
+            z-index: 100; pointer-events: none;
+            transition: color 0.3s;
+        }
+        #status.connected { color: #00e699; }
+        #status.disconnected { color: #ff5c5c; }
+        /* Controls overlay (hides after a few seconds) */
+        #controls {
+            position: fixed; bottom: 24px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; gap: 4px;
+            padding: 6px 10px;
+            background: rgba(26,27,36,0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px; z-index: 200;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: auto;
+        }
+        #controls.hidden {
+            opacity: 0; transform: translateX(-50%) translateY(12px);
+            pointer-events: none;
+        }
+        .ctrl-btn {
+            width: 36px; height: 36px; border: none;
+            border-radius: 8px; background: transparent;
+            color: #d1d5db; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.15s, color 0.15s;
+            font-size: 18px;
+        }
+        .ctrl-btn:hover { background: rgba(125,108,241,0.2); color: #c4b5fd; }
+        .ctrl-btn.active { color: #ff5c5c; }
+        .ctrl-btn.exit:hover { background: rgba(255,92,92,0.2); color: #ff5c5c; }
+    </style>
+</head>
+<body>
+    <div id="avatar-canvas"></div>
+    <div id="disconnected-bar"></div>
+    <div id="disconnected-text">Connection lost</div>
+    <div id="status" class="disconnected">disconnected</div>
+    <div id="controls">
+        <button class="ctrl-btn" id="btn-mute" title="Mute mic">🎤</button>
+        <button class="ctrl-btn" id="btn-exit" title="Close companion" class="exit">✕</button>
+    </div>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "../webui/vendor/three.module.js",
+            "three/addons/": "../webui/vendor/",
+            "@pixiv/three-vrm": "../webui/vendor/three-vrm.module.min.js"
+        }
+    }
+    </script>
+    <script type="module" src="./overlay.js"></script>
+</body>
+</html>

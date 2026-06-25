@@ -70,7 +70,7 @@ def _print_help():
     table.add_row("cli", "Launch interactive CLI")
     table.add_row("desktop", "Build and launch Tauri desktop app")
     table.add_row("stats", "Show metrics report [dim](--stats-days N)[/dim]")
-    table.add_row("help", "Show this help message")
+    table.add_row("companion","Launch standalone VRM overlay window [dim](requires PySide6)[/dim]")
     con.print(table)
     con.print()
     con.print("[bold]Options:[/bold]")
@@ -185,7 +185,7 @@ def main():
     parser.add_argument(
         "frontend",
         nargs="?",
-        choices=["help", "webui", "cli", "desktop", "telegram", "stats"],
+        choices=["help", "webui", "cli", "desktop", "telegram", "stats", "companion"],
         help="Frontend to launch (webui is default)",
     )
     parser.add_argument("--grpc", action="store_true", help="Run gRPC server (or connect via CLI)")
@@ -283,6 +283,10 @@ def main():
         cli_argv = [sys.argv[0]] + unknown
         sys.argv = cli_argv
         cli_main()
+    elif args.frontend == "companion":
+        # Launch standalone companion overlay (requires PySide6)
+        from companion.launcher import main as companion_main
+        companion_main()
     else:
         port = args.port or int(os.environ.get("AMALGAM_PORT", "8000"))
         host = args.host or os.environ.get("AMALGAM_HOST", "0.0.0.0")
