@@ -1,9 +1,13 @@
 /**
- * overlay.js — Standalone VRM overlay for Amalgam
+ * overlay.js — Standalone VRM overlay
  *
- * Uses chroma-key compositing to work around QtWebEngine's
- * broken WebGL alpha. Renders against a green background,
- * then replaces green pixels with transparent on a 2D canvas.
+ * True transparent compositing:
+ * 1. Three.js renders to WebGL framebuffer (alpha=true, preserves per-pixel
+ *    alpha from clearColor(0,0,0,0) + scene.background=null)
+ * 2. gl.readPixels() reads raw RGBA from the WebGL context — this is the
+ *    ONLY way to get per-pixel alpha in QtWebEngine
+ * 3. putImageData() writes pixels onto a 2D canvas — 2D canvas alpha
+ *    composites correctly in QtWebEngine
  */
 
 import * as THREE from 'three';
@@ -14,36 +18,19 @@ const BACKEND_HTTP = 'http://127.0.0.1:8000';
 const BACKEND_WS = 'ws://127.0.0.1:8000/ws/chat';
 const RECONNECT_DELAYS = [500, 1000, 2000, 5000, 10000];
 
-// Chroma-key green — bright, unlikely to appear on any character
-const KEY_R = 0;
-const KEY_G = 255;
-const KEY_B = 0;
-const KEY_TOLERANCE = 60; // how far from pure green to still be keyed out
+let ws, wsRetry = 0, wsTimer = null;
+let glr, scene, camera, vrm, mixer, clock = new THREE.Clock();
+let mouthVal = 0, mouthAa = 0, mouthOh = 0, muted = false;
+let animId = null, hideTimer = null;
 
-let ws = null;
-let wsReconnectAttempt = 0;
-let wsReconnectTimer = null;
-let glRenderer = null;
-let scene = null;
-let camera = null;
-let vrm = null;
-let clock = new THREE.Clock();
-let mixer = null;
-let mouthValue = 0;
-let currentMouthAa = 0;
-let currentMouthOh = 0;
-let isMuted = false;
-let animId = null;
-let controlsTimer = null;
+// 2D display chain
+let disp, dctx;      // visible canvas + context
+let buf, bctx;       // offscreen buffer for pixel ops
+let pixels, flippedData, pw, ph; // reusable buffers
 
-let displayCanvas = null;
-let ctx = null;
-let compositeCanvas = null; // buffer for pixel manipulation
-let compositeCtx = null;
-
-const canvasContainer = document.getElementById('avatar-canvas');
+const container = document.getElementById('avatar-canvas');
 const statusEl = document.getElementById('status');
-const controlsEl = document.getElementById('controls');
+const ctrlEl = document.getElementById('controls');
 const muteBtn = document.getElementById('btn-mute');
 const closeBtn = document.getElementById('btn-close');
 
@@ -51,43 +38,49 @@ const closeBtn = document.getElementById('btn-close');
 //  Scene
 // ═════════════════════════════════════════════════════════════════
 
-function initScene() {
+function init() {
     scene = new THREE.Scene();
-    // Chroma-key green background
-    scene.background = new THREE.Color(KEY_R/255, KEY_G/255, KEY_B/255);
+    scene.background = null; // CRITICAL: fully transparent
 
-    camera = new THREE.PerspectiveCamera(22, 280 / 420, 0.1, 20);
+    camera = new THREE.PerspectiveCamera(22, 280/420, 0.1, 20);
     camera.position.set(0, 1.35, 2.8);
     camera.lookAt(0, 1.2, 0);
     scene.add(camera);
 
-    // Hidden WebGL renderer
-    glRenderer = new THREE.WebGLRenderer({
-        alpha: false,  // opaque — we handle transparency via chroma-key
+    // WebGL renderer with alpha channel in the framebuffer
+    glr = new THREE.WebGLRenderer({
+        alpha: true,
         antialias: true,
+        premultipliedAlpha: false,
+        preserveDrawingBuffer: true, // needed for readPixels
     });
-    glRenderer.setSize(280, 420);
-    glRenderer.setPixelRatio(window.devicePixelRatio);
-    glRenderer.setClearColor(KEY_R/255, KEY_G/255, KEY_B/255, 1);
-    glRenderer.domElement.style.position = 'fixed';
-    glRenderer.domElement.style.top = '-9999px';
-    glRenderer.domElement.style.left = '-9999px';
-    document.body.appendChild(glRenderer.domElement);
+    glr.setSize(280, 420);
+    glr.setPixelRatio(1);
+    glr.setClearAlpha(0);
+    glr.setClearColor(0x000000, 0); // transparent clear
+    // Keep it offscreen
+    glr.domElement.style.cssText = 'position:fixed;top:-9999px;left:-9999px';
+    document.body.appendChild(glr.domElement);
 
-    // Visible 2D canvas for compositing
-    displayCanvas = document.createElement('canvas');
-    displayCanvas.width = 280 * window.devicePixelRatio;
-    displayCanvas.height = 420 * window.devicePixelRatio;
-    displayCanvas.style.width = '100%';
-    displayCanvas.style.height = '100%';
-    canvasContainer.appendChild(displayCanvas);
-    ctx = displayCanvas.getContext('2d');
+    // Visible 2D display canvas — this is what the user sees
+    // 2D canvas alpha compositing works correctly in QtWebEngine
+    disp = document.createElement('canvas');
+    disp.width = 280;
+    disp.height = 420;
+    container.appendChild(disp);
+    dctx = disp.getContext('2d');
 
-    // Offscreen canvas for pixel manipulation
-    compositeCanvas = document.createElement('canvas');
-    compositeCanvas.width = displayCanvas.width;
-    compositeCanvas.height = displayCanvas.height;
-    compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true });
+    // Offscreen buffer for pixel manipulation
+    buf = document.createElement('canvas');
+    buf.width = 280;
+    buf.height = 420;
+    bctx = buf.getContext('2d', { willReadFrequently: true });
+
+    pw = 280;
+    ph = 420;
+    // Reusable pixel buffers for compositing pipeline
+    pixels = new Uint8Array(pw * ph * 4);
+    flippedData = new Uint8ClampedArray(pw * ph * 4);
 
     // Lights
     const key = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -100,208 +93,148 @@ function initScene() {
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  VRM Loading
+//  VRM
 // ═════════════════════════════════════════════════════════════════
 
 async function loadVRM(path) {
     const loader = new GLTFLoader();
-    loader.register((parser) => new VRMLoaderPlugin(parser));
-    const gltf = await loader.loadAsync(path);
-    if (!gltf.userData.vrm) throw new Error('No VRM data');
-    vrm = gltf.userData.vrm;
+    loader.register(p => new VRMLoaderPlugin(p));
+    const g = await loader.loadAsync(path);
+    if (!g.userData.vrm) throw new Error('No VRM');
+    vrm = g.userData.vrm;
     VRMUtils.rotateVRM0(vrm);
     VRMUtils.removeUnnecessaryVertices(vrm.scene);
     scene.add(vrm.scene);
-
     mixer = new THREE.AnimationMixer(vrm.scene);
 
-    // Load idle loop animation
-    const animUrl = path.replace(/\/[^/]*$/, '/anim/idle_loop.vrma');
+    // Idle animation
+    const anim = path.replace(/\/[^/]*$/, '/anim/idle_loop.vrma');
     try {
-        const resp = await fetch(animUrl);
-        if (resp.ok) {
-            const buf = await resp.arrayBuffer();
+        const r = await fetch(anim);
+        if (r.ok) {
+            const buf = await r.arrayBuffer();
             const { loadVRMAnimation } = await import('../webui/js/vrm-animation.js');
             const clip = await loadVRMAnimation(buf, vrm);
             if (clip) {
                 const a = mixer.clipAction(clip);
-                if (a) { a.play(); console.log('[Overlay] Idle animation playing'); }
-                else { console.log('[Overlay] clipAction returned null'); }
-            } else { console.log('[Overlay] loadVRMAnimation returned null'); }
-        } else { console.log('[Overlay] No idle anim, HTTP', resp.status); }
-    } catch (e) { console.log('[Overlay] Anim load error:', e.message); }
-
+                if (a) a.play();
+            }
+        }
+    } catch (_) {}
     return vrm;
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  Animation Loop with Chroma-Key Compositing
+//  Render loop — WebGL → readPixels → putImageData → 2D canvas
+//  This pipeline preserves per-pixel alpha that QtWebEngine would
+//  otherwise composite away.
 // ═════════════════════════════════════════════════════════════════
 
 function animate() {
     animId = requestAnimationFrame(animate);
-    const delta = Math.min(clock.getDelta(), 0.05);
+    const dt = Math.min(clock.getDelta(), 0.05);
 
-    if (vrm?.update) vrm.update(delta);
-    if (mixer) mixer.update(delta);
+    if (vrm?.update) vrm.update(dt);
+    if (mixer) mixer.update(dt);
 
     // Lip-sync
     if (vrm?.expressionManager) {
         const s = 0.25;
-        currentMouthAa += (mouthValue - currentMouthAa) * s;
-        currentMouthOh += (mouthValue * 0.3 - currentMouthOh) * s;
-        vrm.expressionManager.setValue('aa', currentMouthAa);
-        vrm.expressionManager.setValue('oh', currentMouthOh);
-        vrm.expressionManager.setValue('ee', currentMouthOh * 0.2);
+        mouthAa += (mouthVal - mouthAa) * s;
+        mouthOh += (mouthVal * 0.3 - mouthOh) * s;
+        vrm.expressionManager.setValue('aa', mouthAa);
+        vrm.expressionManager.setValue('oh', mouthOh);
+        vrm.expressionManager.setValue('ee', mouthOh * 0.2);
     }
 
-    // Render to WebGL (against green background)
-    glRenderer.render(scene, camera);
+    // Render 3D scene to WebGL framebuffer
+    // scene.background=null + clearAlpha(0) = transparent everywhere
+    // VRM pixels have alpha=255 (opaque)
+    glr.render(scene, camera);
 
-    // ── Chroma-key compositing pipeline ──
-    const w = compositeCanvas.width;
-    const h = compositeCanvas.height;
-
-    // Step 1: draw WebGL output onto composite canvas
-    compositeCtx.drawImage(glRenderer.domElement, 0, 0, w, h);
-
-    // Step 2: read pixels
-    const imageData = compositeCtx.getImageData(0, 0, w, h);
-    const pixels = imageData.data;
-    const len = pixels.length;
-
-    // Step 3: replace green pixels with transparent
-    // A pixel is "green" if its green channel is significantly higher than red+blue
-    const tol = KEY_TOLERANCE;
-    for (let i = 0; i < len; i += 4) {
-        const r = pixels[i];
-        const g = pixels[i + 1];
-        const b = pixels[i + 2];
-        // Detection: green is dominant and far from gray
-        if (g > r + tol && g > b + tol) {
-            pixels[i + 3] = 0; // transparent
-        } else {
-            pixels[i + 3] = 255; // opaque
-        }
+    // Read raw RGBA from WebGL framebuffer using gl.readPixels
+    // This gives us correct per-pixel alpha values (unlike drawImage which
+    // composites against opaque black in QtWebEngine)
+    const gl = glr.getContext();
+    gl.readPixels(0, 0, pw, ph, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    // WebGL readPixels is bottom-left origin, so flip Y using subarray views
+    const rowBytes = pw * 4;
+    for (let y = 0; y < ph; y++) {
+        const srcStart = y * rowBytes;
+        const dstStart = (ph - 1 - y) * rowBytes;
+        flippedData.set(pixels.subarray(srcStart, srcStart + rowBytes), dstStart);
     }
-    imageData.data.set(pixels);
-
-    // Step 4: put processed pixels onto composite canvas
-    compositeCtx.putImageData(imageData, 0, 0);
-
-    // Step 5: draw final result to display canvas (scales to fit)
-    ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-    ctx.drawImage(compositeCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
+    const id = new ImageData(flippedData, pw, ph);
+    dctx.putImageData(id, 0, 0);
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  WebSocket
+//  WS
 // ═════════════════════════════════════════════════════════════════
 
 function connectWS() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-    try { ws = new WebSocket(BACKEND_WS); } catch (_) { scheduleReconnect(); return; }
-    ws.onopen = () => {
-        wsReconnectAttempt = 0;
-        setConnected(true);
-        ws.send(JSON.stringify({ type: 'join' }));
-        ws.send(JSON.stringify({ type: 'companion_state', enabled: true }));
-    };
-    ws.onclose = () => { setConnected(false); ws = null; scheduleReconnect(); };
+    if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return;
+    try { ws = new WebSocket(BACKEND_WS); } catch (_) { reconnect(); return; }
+    ws.onopen = () => { wsRetry = 0; setConnected(true); ws.send(JSON.stringify({type:'join'})); ws.send(JSON.stringify({type:'companion_state',enabled:true})); };
+    ws.onclose = () => { setConnected(false); ws = null; reconnect(); };
     ws.onerror = () => {};
-    ws.onmessage = (ev) => { try { handleMsg(JSON.parse(ev.data)); } catch (_) {} };
+    ws.onmessage = e => { try { onMsg(JSON.parse(e.data)); } catch(_) {} };
 }
-
-function scheduleReconnect() {
-    if (wsReconnectTimer) return;
-    const d = RECONNECT_DELAYS[Math.min(wsReconnectAttempt, RECONNECT_DELAYS.length - 1)];
-    wsReconnectAttempt++;
-    wsReconnectTimer = setTimeout(() => { wsReconnectTimer = null; connectWS(); }, d);
-}
-
-function setConnected(c) {
-    statusEl.textContent = c ? 'connected' : 'disconnected';
-    statusEl.className = c ? 'connected' : 'disconnected';
-}
-
-function handleMsg(data) {
-    switch (data.type) {
-        case 'tts_state': mouthValue = data.playing ? 0.7 : 0.0; break;
-        case 'voice_level': if (data.level !== undefined) mouthValue = Math.min(1, data.level * 2.0); break;
-        case 'emotion': if (data.emotion && vrm?.expressionManager) setExpression(data.emotion); break;
-        case 'interrupt': if (data.action === 'stop_audio_and_animation') mouthValue = 0; break;
-        case 'settings_update': if (data.settings?.companion?.enabled === false) closeOverlay(); break;
+function reconnect() { if (wsTimer) return; const d = RECONNECT_DELAYS[Math.min(wsRetry, RECONNECT_DELAYS.length-1)]; wsRetry++; wsTimer = setTimeout(() => { wsTimer = null; connectWS(); }, d); }
+function setConnected(c) { statusEl.textContent = c ? 'connected' : 'disconnected'; statusEl.className = c ? 'connected' : 'disconnected'; }
+function onMsg(d) {
+    switch (d.type) {
+        case 'tts_state': mouthVal = d.playing ? 0.7 : 0; break;
+        case 'voice_level': if (d.level !== undefined) mouthVal = Math.min(1, d.level * 2); break;
+        case 'emotion': if (d.emotion && vrm?.expressionManager) setExpr(d.emotion); break;
+        case 'interrupt': if (d.action === 'stop_audio_and_animation') mouthVal = 0; break;
+        case 'settings_update': if (d.settings?.companion?.enabled === false) closeOverlay(); break;
     }
 }
-
-function setExpression(emotion) {
+function setExpr(e) {
     if (!vrm?.expressionManager) return;
-    const emap = vrm.expressionManager.expressionMap;
-    if (!emap) return;
-    for (const k of Object.keys(emap)) vrm.expressionManager.setValue(k, 0);
-    const m = { happy:'happy', joy:'happy', neutral:'neutral', sad:'sad', angry:'angry', surprise:'surprised', relaxed:'relaxed' };
-    const t = m[emotion] || emotion;
-    if (emap[t]) vrm.expressionManager.setValue(t, 1);
+    const m = vrm.expressionManager.expressionMap;
+    if (!m) return;
+    for (const k of Object.keys(m)) vrm.expressionManager.setValue(k, 0);
+    const map = { happy:'happy', joy:'happy', neutral:'neutral', sad:'sad', angry:'angry', surprise:'surprised', relaxed:'relaxed' };
+    const t = map[e] || e;
+    if (m[t]) vrm.expressionManager.setValue(t, 1);
 }
 
 // ═════════════════════════════════════════════════════════════════
 //  Controls
 // ═════════════════════════════════════════════════════════════════
 
-function showControls() {
-    controlsEl.classList.add('visible');
-    if (controlsTimer) clearTimeout(controlsTimer);
-    controlsTimer = setTimeout(() => controlsEl.classList.remove('visible'), 5000);
-}
-
-muteBtn.addEventListener('click', () => {
-    isMuted = !isMuted;
-    muteBtn.textContent = isMuted ? '🔇' : '🎤';
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'mute', muted: isMuted }));
-    showControls();
-});
-
-closeBtn.addEventListener('click', closeOverlay);
-document.addEventListener('mousemove', showControls);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeOverlay(); });
-
-function closeOverlay() {
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'companion_state', enabled: false }));
-    window.close();
-    setTimeout(() => { document.body.innerHTML = ''; }, 300);
-}
+function showCtrl() { ctrlEl.classList.add('visible'); if (hideTimer) clearTimeout(hideTimer); hideTimer = setTimeout(() => ctrlEl.classList.remove('visible'), 5000); }
+muteBtn.onclick = () => { muted = !muted; muteBtn.textContent = muted ? '🔇' : '🎤'; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'mute',muted})); showCtrl(); };
+closeBtn.onclick = closeOverlay;
+document.addEventListener('mousemove', showCtrl);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeOverlay(); });
+function closeOverlay() { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'companion_state',enabled:false})); window.close(); }
 
 // ═════════════════════════════════════════════════════════════════
 //  Boot
 // ═════════════════════════════════════════════════════════════════
 
 async function boot() {
-    initScene();
+    init();
 
-    let vrmPath = BACKEND_HTTP + '/characters/default/model.vrm';
+    let vp = BACKEND_HTTP + '/characters/default/model.vrm';
     try {
         const s = await (await fetch(BACKEND_HTTP + '/api/settings')).json();
-        if (s?.avatar?.model_path) {
-            vrmPath = BACKEND_HTTP + '/' + s.avatar.model_path;
-        } else if (s?.character?.active) {
+        if (s?.avatar?.model_path) vp = BACKEND_HTTP + '/' + s.avatar.model_path;
+        else if (s?.character?.active) {
             const chars = await (await fetch(BACKEND_HTTP + '/api/characters')).json();
-            const url = chars?.[s.character.active]?.model_url;
-            if (url) vrmPath = url.startsWith('http') ? url : BACKEND_HTTP + url;
+            const u = chars?.[s.character.active]?.model_url;
+            if (u) vp = u.startsWith('http') ? u : BACKEND_HTTP + u;
         }
-    } catch (e) {
-        console.warn('[Overlay] Using default VRM:', e.message);
-    }
+    } catch (_) {}
 
-    console.debug('[Overlay] Loading VRM:', vrmPath);
-    await loadVRM(vrmPath);
+    await loadVRM(vp);
     clock.start();
     animate();
     connectWS();
-    showControls();
-    console.debug('[Overlay] Boot complete');
+    showCtrl();
 }
 
-boot().catch(err => {
-    console.error('[Overlay] Boot error:', err);
-    statusEl.textContent = 'error';
-});
+boot().catch(e => { console.error('[Overlay]', e); statusEl.textContent = 'error'; });
