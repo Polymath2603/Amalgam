@@ -14,6 +14,7 @@ import argparse
 import json
 import logging
 import threading
+import subprocess
 import urllib.request
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,6 +66,27 @@ def main():
         log.error("Run: python main.py webui --no-browser")
         sys.exit(1)
 
+    # ── Check if compositor is running; start xcompmgr if not ──
+    # X11 needs a compositor for WA_TranslucentBackground to work
+    compositor_proc = None
+    if os.environ.get("DISPLAY"):
+        try:
+            has_cm = subprocess.run(
+                ["xprop", "-root", "_NET_WM_CM_S0"],
+                capture_output=True, text=True, timeout=3
+            )
+            if "no such atom" in has_cm.stdout or not has_cm.stdout.strip():
+                log.info("No compositor detected, starting xcompmgr...")
+                compositor_proc = subprocess.Popen(
+                    ["xcompmgr", "-n"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                log.info("xcompmgr started (PID %d)", compositor_proc.pid)
+        except FileNotFoundError:
+            log.warning("xcompmgr not found — transparency may not work")
+        except Exception as e:
+            log.warning(f"Could not start compositor: {e}")
+
     # ── Start local HTTP server ──
     local_port = _find_free_port()
     _start_local_server(local_port)
@@ -103,19 +125,20 @@ def main():
     window.setWindowTitle("Amalgam Avatar")
     window.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
 
-    # Small window positioned bottom-right — no compositor needed
-    window.setFixedSize(280, 420)
-    # Move to bottom-right of screen
-    screen = QApplication.primaryScreen()
-    if screen:
-        sg = screen.availableGeometry()
-        x = sg.x() + sg.width() - 300  # 20px margin
-        y = sg.y() + sg.height() - 440
-        window.move(x, y)
+    # Transparent background with ARGB visual
+    # Requires xcompmgr for per-pixel alpha
+    window.setAttribute(Qt.WA_TranslucentBackground)
+    window.setAttribute(Qt.WA_NoSystemBackground, True)
+
+    # Full screen, transparent — desktop shows through wherever canvas has alpha=0
+    window.showFullScreen()
 
     # ── WebEngine View ──
     web = QWebEngineView(window)
-    web.setStyleSheet("background: #000; border: none;")
+
+    # CRITICAL: make the WebEngine page itself transparent
+    # This allows canvas alpha=0 pixels to show through to the window
+    web.page().setBackgroundColor(Qt.GlobalColor.transparent)
 
     # WebGL and rendering settings
     s = web.settings()
@@ -136,14 +159,21 @@ def main():
     # ── Cleanup ──
     def cleanup():
         web.stop()
+        if compositor_proc:
+            try:
+                compositor_proc.terminate()
+                compositor_proc.wait(timeout=3)
+                log.info("xcompmgr stopped")
+            except Exception:
+                compositor_proc.kill()
         app.quit()
     app.aboutToQuit.connect(cleanup)
 
-    log.info("Companion avatar window launched")
+    log.info("Companion avatar window launched — FULL SCREEN, transparent")
     log.info(f"  URL:      http://127.0.0.1:{local_port}/companion/overlay.html")
     log.info(f"  Backend:  {backend_url}")
-    log.info("  Window is 280x420, frameless, always-on-top, bottom-right")
-    log.info("  Mouse over window to show controls · Esc to close")
+    log.info("  Desktop visible through transparent areas · VRM bottom-right")
+    log.info("  Esc to close · Move mouse for controls")
 
     sys.exit(app.exec())
 
