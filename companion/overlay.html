@@ -5,94 +5,57 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Amalgam Companion</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* { margin: 0; padding: 0; box-sizing: border-box; overflow: hidden; }
 html, body {
-    width: 100vw; height: 100vh;
-    overflow: hidden;
+    width: 100%; height: 100%;
     background: transparent;
-}
-body {
     font-family: 'Segoe UI', system-ui, sans-serif;
-    background: transparent;
 }
-
-/* Avatar rendered in bottom-right corner, not full-screen */
 #avatar-canvas {
-    position: fixed;
-    bottom: 40px;
-    right: 40px;
-    width: 280px;
-    height: 420px;
-    max-width: 30vw;
-    max-height: 50vh;
-    pointer-events: none;
-    z-index: 10;
+    width: 100%;
+    height: 100%;
 }
 #avatar-canvas canvas {
     width: 100% !important;
     height: 100% !important;
     display: block;
-    background: transparent !important;
-    opacity: 1;
 }
-
-/* Disconnected bar */
 #disconnected-bar {
     position: fixed; top: 0; left: 0; right: 0;
-    height: 3px; background: #ff5c5c; z-index: 100;
-    animation: pulse 2s ease-in-out infinite;
+    height: 2px; background: #ff5c5c;
     display: none;
 }
-@keyframes pulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 1; }
-}
 #status {
-    position: fixed; bottom: 8px; right: 8px;
-    padding: 2px 8px; border-radius: 4px;
-    font-size: 9px; font-weight: 600;
-    background: rgba(0,0,0,0.4); color: #aaa;
-    z-index: 100; pointer-events: none;
+    position: fixed; bottom: 4px; right: 4px;
+    padding: 1px 6px; border-radius: 3px;
+    font-size: 8px; font-weight: 600;
+    background: rgba(0,0,0,0.5); color: #aaa;
+    pointer-events: none;
 }
 #status.connected { color: #00e699; }
 #status.disconnected { color: #ff5c5c; }
-
-/* Controls — show on mouse move, hide after 5s */
 #controls {
     position: fixed;
-    bottom: 8px;
-    left: 50%;
+    bottom: 4px; left: 50%;
     transform: translateX(-50%);
-    display: flex;
-    gap: 2px;
-    padding: 3px 6px;
+    display: flex; gap: 2px;
+    padding: 2px 4px;
     background: rgba(26,27,36,0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
+    border-radius: 8px;
     z-index: 200;
-    transition: opacity 0.3s, transform 0.3s;
-    pointer-events: auto;
+    transition: opacity 0.3s;
     opacity: 0;
-    transform: translateX(-50%) translateY(8px);
+    pointer-events: none;
 }
-#controls.visible {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-}
+#controls.visible { opacity: 1; pointer-events: auto; }
 .ctrl-btn {
-    width: 30px; height: 30px; border: none;
-    border-radius: 6px; background: transparent;
+    width: 24px; height: 24px; border: none;
+    border-radius: 4px; background: transparent;
     color: #d1d5db; cursor: pointer;
+    font-size: 12px;
     display: flex; align-items: center; justify-content: center;
-    transition: background 0.15s;
-    font-size: 14px;
-    pointer-events: auto;
 }
-.ctrl-btn:hover { background: rgba(125,108,241,0.3); color: #c4b5fd; }
-.ctrl-btn.active { color: #ff5c5c; }
-.ctrl-btn.exit:hover { background: rgba(255,92,92,0.3); color: #ff5c5c; }
+.ctrl-btn:hover { background: rgba(125,108,241,0.3); }
 </style>
 </head>
 <body>

@@ -51,8 +51,6 @@ def main():
     parser = argparse.ArgumentParser(description="Launch Amalgam companion overlay")
     parser.add_argument("--port", type=int, default=8000, help="Backend port")
     parser.add_argument("--host", default="127.0.0.1", help="Backend host")
-    parser.add_argument("--no-transparent", action="store_true",
-                        help="Solid background for debugging")
     args = parser.parse_args()
 
     backend_url = f"http://{args.host}:{args.port}"
@@ -74,9 +72,9 @@ def main():
     # ── PySide6 imports ──
     try:
         from PySide6.QtWidgets import QApplication, QMainWindow
-        from PySide6.QtCore import Qt, QUrl, QByteArray
+        from PySide6.QtCore import Qt, QUrl
         from PySide6.QtWebEngineWidgets import QWebEngineView
-        from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineProfile
+        from PySide6.QtWebEngineCore import QWebEngineSettings
         from PySide6.QtGui import QSurfaceFormat
     except ImportError:
         log.error("PySide6 not installed. Run: pip install PySide6")
@@ -102,27 +100,22 @@ def main():
 
     # ── Window ──
     window = QMainWindow()
-    window.setWindowTitle("Amalgam Companion")
+    window.setWindowTitle("Amalgam Avatar")
+    window.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
 
-    flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-    if not args.no_transparent:
-        flags |= Qt.WindowTransparentForInput  # click-through
-    window.setWindowFlags(flags)
-
-    if not args.no_transparent:
-        window.setAttribute(Qt.WA_TranslucentBackground)
-        window.setAttribute(Qt.WA_NoSystemBackground, True)
-        window.setStyleSheet("background: transparent;")
-
-    window.showFullScreen()
+    # Small window positioned bottom-right — no compositor needed
+    window.setFixedSize(280, 420)
+    # Move to bottom-right of screen
+    screen = QApplication.primaryScreen()
+    if screen:
+        sg = screen.availableGeometry()
+        x = sg.x() + sg.width() - 300  # 20px margin
+        y = sg.y() + sg.height() - 440
+        window.move(x, y)
 
     # ── WebEngine View ──
     web = QWebEngineView(window)
-
-    # Critical: make WebEngine page transparent
-    web.page().setBackgroundColor(Qt.GlobalColor.transparent)
-    web.setAttribute(Qt.WA_TranslucentBackground, True)
-    web.setStyleSheet("background: transparent; border: none;")
+    web.setStyleSheet("background: #000; border: none;")
 
     # WebGL and rendering settings
     s = web.settings()
@@ -138,6 +131,7 @@ def main():
     web.load(QUrl(f"http://127.0.0.1:{local_port}/companion/overlay.html"))
 
     window.setCentralWidget(web)
+    window.show()
 
     # ── Cleanup ──
     def cleanup():
@@ -145,11 +139,11 @@ def main():
         app.quit()
     app.aboutToQuit.connect(cleanup)
 
-    log.info("Companion overlay launched")
+    log.info("Companion avatar window launched")
     log.info(f"  URL:      http://127.0.0.1:{local_port}/companion/overlay.html")
     log.info(f"  Backend:  {backend_url}")
-    log.info("  Mouse to show controls · Esc to close · M to mute")
-    log.info("  Window is click-through — mouse passes through avatar")
+    log.info("  Window is 280x420, frameless, always-on-top, bottom-right")
+    log.info("  Mouse over window to show controls · Esc to close")
 
     sys.exit(app.exec())
 

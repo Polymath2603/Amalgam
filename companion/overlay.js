@@ -1,13 +1,14 @@
 /**
- * overlay.js — Standalone VRM overlay
+ * overlay.js — Transparent VRM overlay
  *
- * True transparent compositing:
- * 1. Three.js renders to WebGL framebuffer (alpha=true, preserves per-pixel
- *    alpha from clearColor(0,0,0,0) + scene.background=null)
- * 2. gl.readPixels() reads raw RGBA from the WebGL context — this is the
- *    ONLY way to get per-pixel alpha in QtWebEngine
- * 3. putImageData() writes pixels onto a 2D canvas — 2D canvas alpha
- *    composites correctly in QtWebEngine
+ * Pipeline: WebGL renders against green → 2D canvas via drawImage
+ * → chroma-key replaces green with transparent → display canvas
+ *
+ * Why: QtWebEngine composites WebGL against opaque black, BUT
+ * drawImage to a 2D canvas preserves the rendered pixels including
+ * the green background. Since we control the background color, we
+ * can then replace it with transparency on the 2D canvas, which
+ * QtWebEngine DOES composite correctly.
  */
 
 import * as THREE from 'three';
@@ -18,15 +19,18 @@ const BACKEND_HTTP = 'http://127.0.0.1:8000';
 const BACKEND_WS = 'ws://127.0.0.1:8000/ws/chat';
 const RECONNECT_DELAYS = [500, 1000, 2000, 5000, 10000];
 
+// Chroma key color — bright green, won't appear on any VRM character
+const C = { r: 0, g: 255, b: 0 };
+const TOL = 50; // tolerance for green detection
+
 let ws, wsRetry = 0, wsTimer = null;
 let glr, scene, camera, vrm, mixer, clock = new THREE.Clock();
 let mouthVal = 0, mouthAa = 0, mouthOh = 0, muted = false;
 let animId = null, hideTimer = null;
 
-// 2D display chain
-let disp, dctx;      // visible canvas + context
+let disp, dctx;      // display canvas (what user sees)
 let buf, bctx;       // offscreen buffer for pixel ops
-let pixels, flippedData, pw, ph; // reusable buffers
+const W = 280, H = 420;
 
 const container = document.getElementById('avatar-canvas');
 const statusEl = document.getElementById('status');
@@ -40,47 +44,33 @@ const closeBtn = document.getElementById('btn-close');
 
 function init() {
     scene = new THREE.Scene();
-    scene.background = null; // CRITICAL: fully transparent
+    scene.background = new THREE.Color(C.r/255, C.g/255, C.b/255); // solid green
 
-    camera = new THREE.PerspectiveCamera(22, 280/420, 0.1, 20);
+    camera = new THREE.PerspectiveCamera(22, W/H, 0.1, 20);
     camera.position.set(0, 1.35, 2.8);
     camera.lookAt(0, 1.2, 0);
     scene.add(camera);
 
-    // WebGL renderer with alpha channel in the framebuffer
-    glr = new THREE.WebGLRenderer({
-        alpha: true,
-        antialias: true,
-        premultipliedAlpha: false,
-        preserveDrawingBuffer: true, // needed for readPixels
-    });
-    glr.setSize(280, 420);
+    // WebGL renderer — alpha:false, opaque green background
+    glr = new THREE.WebGLRenderer({ alpha: false, antialias: true });
+    glr.setSize(W, H);
     glr.setPixelRatio(1);
-    glr.setClearAlpha(0);
-    glr.setClearColor(0x000000, 0); // transparent clear
-    // Keep it offscreen
+    glr.setClearColor(C.r/255, C.g/255, C.b/255, 1);
     glr.domElement.style.cssText = 'position:fixed;top:-9999px;left:-9999px';
     document.body.appendChild(glr.domElement);
 
-    // Visible 2D display canvas — this is what the user sees
-    // 2D canvas alpha compositing works correctly in QtWebEngine
+    // Display 2D canvas — this handles the alpha compositing
     disp = document.createElement('canvas');
-    disp.width = 280;
-    disp.height = 420;
+    disp.width = W;
+    disp.height = H;
     container.appendChild(disp);
     dctx = disp.getContext('2d');
 
-    // Offscreen buffer for pixel manipulation
+    // Offscreen buffer for chroma-key
     buf = document.createElement('canvas');
-    buf.width = 280;
-    buf.height = 420;
+    buf.width = W;
+    buf.height = H;
     bctx = buf.getContext('2d', { willReadFrequently: true });
-
-    pw = 280;
-    ph = 420;
-    // Reusable pixel buffers for compositing pipeline
-    pixels = new Uint8Array(pw * ph * 4);
-    flippedData = new Uint8ClampedArray(pw * ph * 4);
 
     // Lights
     const key = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -107,7 +97,6 @@ async function loadVRM(path) {
     scene.add(vrm.scene);
     mixer = new THREE.AnimationMixer(vrm.scene);
 
-    // Idle animation
     const anim = path.replace(/\/[^/]*$/, '/anim/idle_loop.vrma');
     try {
         const r = await fetch(anim);
@@ -125,13 +114,11 @@ async function loadVRM(path) {
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  Render loop — WebGL → readPixels → putImageData → 2D canvas
-//  This pipeline preserves per-pixel alpha that QtWebEngine would
-//  otherwise composite away.
+//  Render loop — WebGL → 2D drawImage → chroma-key → display
 // ═════════════════════════════════════════════════════════════════
 
-function animate() {
-    animId = requestAnimationFrame(animate);
+function animFrame() {
+    animId = requestAnimationFrame(animFrame);
     const dt = Math.min(clock.getDelta(), 0.05);
 
     if (vrm?.update) vrm.update(dt);
@@ -147,24 +134,28 @@ function animate() {
         vrm.expressionManager.setValue('ee', mouthOh * 0.2);
     }
 
-    // Render 3D scene to WebGL framebuffer
-    // scene.background=null + clearAlpha(0) = transparent everywhere
-    // VRM pixels have alpha=255 (opaque)
+    // Step 1: Render 3D to WebGL against green background
     glr.render(scene, camera);
 
-    // Read raw RGBA from WebGL framebuffer using gl.readPixels
-    // This gives us correct per-pixel alpha values (unlike drawImage which
-    // composites against opaque black in QtWebEngine)
-    const gl = glr.getContext();
-    gl.readPixels(0, 0, pw, ph, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    // WebGL readPixels is bottom-left origin, so flip Y using subarray views
-    const rowBytes = pw * 4;
-    for (let y = 0; y < ph; y++) {
-        const srcStart = y * rowBytes;
-        const dstStart = (ph - 1 - y) * rowBytes;
-        flippedData.set(pixels.subarray(srcStart, srcStart + rowBytes), dstStart);
+    // Step 2: drawImage WebGL → offscreen 2D canvas
+    // drawImage composites the WebGL output (with green background)
+    bctx.drawImage(glr.domElement, 0, 0, W, H);
+
+    // Step 3: Chroma-key — replace green pixels with transparent
+    const id = bctx.getImageData(0, 0, W, H);
+    const d = id.data;
+    const len = d.length;
+    for (let i = 0; i < len; i += 4) {
+        const r = d[i], g = d[i+1], b = d[i+2];
+        // If green dominates → make transparent
+        if (g > r + TOL && g > b + TOL) {
+            d[i+3] = 0; // alpha = 0 (transparent)
+        } else {
+            d[i+3] = 255; // alpha = 255 (opaque)
+        }
     }
-    const id = new ImageData(flippedData, pw, ph);
+
+    // Step 4: Put chroma-keyed pixels onto display canvas
     dctx.putImageData(id, 0, 0);
 }
 
@@ -232,7 +223,7 @@ async function boot() {
 
     await loadVRM(vp);
     clock.start();
-    animate();
+    animFrame();
     connectWS();
     showCtrl();
 }
