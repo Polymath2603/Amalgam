@@ -101,16 +101,17 @@ def get_shared() -> MappingProxyType:
         if _shared["orchestrator"] is None:
             _shared["orchestrator"] = Orchestrator(config=_shared["settings"])
         if _shared["companion"] is None:
-            from backend.core.companion.scheduler import CompanionScheduler
-            # Capture references at init time (fix C2)
+            from backend.core.companion.engine import CompanionEngine
+            # Capture references at init time
             _settings_ref = _shared["settings"]
             _llm_ref = _shared["llm"]
             _memory_ref = _shared["memory"]
-            _shared["companion"] = CompanionScheduler(
+            _shared["companion"] = CompanionEngine(
                 settings_provider=lambda: _settings_ref,
                 llm_provider=lambda: _llm_ref,
                 memory_provider=lambda: _memory_ref,
             )
+            _shared["companion"].start()
         if _shared["agent"] is None:
             agent_type = _shared["settings"].get("agent.type", "reflective_planning")
             mcp_client = _shared["mcp"]

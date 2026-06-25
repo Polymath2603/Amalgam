@@ -48,6 +48,34 @@ html, body {
     pointer-events: none;
 }
 #controls.visible { opacity: 1; pointer-events: auto; }
+
+/* Companion speech bubble */
+.companion-bubble {
+    position: fixed;
+    left: 50%;
+    bottom: 40%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(26, 27, 36, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(125, 108, 241, 0.3);
+    border-radius: 16px;
+    padding: 12px 18px;
+    max-width: 400px;
+    color: #e5e7eb;
+    font-size: 14px;
+    line-height: 1.5;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+    z-index: 150;
+    text-align: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+.companion-bubble.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
 .ctrl-btn {
     width: 24px; height: 24px; border: none;
     border-radius: 4px; background: transparent;
@@ -61,6 +89,9 @@ html, body {
 <body>
     <div id="avatar-canvas"></div>
     <div id="disconnected-bar"></div>
+    <div id="companion-bubble" class="companion-bubble">
+        <div class="bubble-text">Hello!</div>
+    </div>
     <div id="status" class="disconnected">disconnected</div>
     <div id="controls" class="visible">
         <button class="ctrl-btn" id="btn-mute" title="Mute mic">🎤</button>
@@ -74,6 +105,10 @@ html, body {
             "@pixiv/three-vrm": "../webui/vendor/three-vrm.module.min.js"
         }
     }
+    </script>
+    <script>
+        // Read ws_port from URL query parameter (set by launcher.py)
+        const _wsPort = new URLSearchParams(window.location.search).get('ws_port');
     </script>
     <script type="module" src="overlay.js"></script>
 </body>

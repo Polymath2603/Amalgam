@@ -50,42 +50,74 @@ def _start_local_server(port: int) -> threading.Thread:
 
 def main():
     parser = argparse.ArgumentParser(description="Launch Amalgam companion overlay")
-    parser.add_argument("--port", type=int, default=8000, help="Backend port")
+    parser.add_argument("--port", type=int, default=8000, help="Backend HTTP port (ignored if --ws-port given)")
     parser.add_argument("--host", default="127.0.0.1", help="Backend host")
+    parser.add_argument("--ws-port", type=int, default=None,
+                        help="WebSocket relay port (skip health check, connect directly)")
     args = parser.parse_args()
 
-    backend_url = f"http://{args.host}:{args.port}"
+    ws_port = args.ws_port if args.ws_port else args.port
 
-    # ── Check backend ──
-    try:
-        resp = urllib.request.urlopen(f"{backend_url}/api/health", timeout=3)
-        health = json.loads(resp.read())
-        log.info(f"Backend OK: {health.get('status', '?')}")
-    except Exception as e:
-        log.error(f"Cannot connect to backend at {backend_url}: {e}")
-        log.error("Run: python main.py webui --no-browser")
-        sys.exit(1)
+    if not args.ws_port:
+        # ── Check backend (only when no relay port given) ──
+        backend_url = f"http://{args.host}:{args.port}"
+        try:
+            resp = urllib.request.urlopen(f"{backend_url}/api/health", timeout=3)
+            health = json.loads(resp.read())
+            log.info(f"Backend OK: {health.get('status', '?')}")
+        except Exception as e:
+            log.error(f"Cannot connect to backend at {backend_url}: {e}")
+            log.error("Run: python main.py webui --no-browser")
+            sys.exit(1)
+    else:
+        log.info("WS relay port provided — skipping backend health check")
 
     # ── Check if compositor is running; start xcompmgr if not ──
     # X11 needs a compositor for WA_TranslucentBackground to work
     compositor_proc = None
     if os.environ.get("DISPLAY"):
+        # Check via xprop atom and running processes
+        compositor_active = False
         try:
             has_cm = subprocess.run(
                 ["xprop", "-root", "_NET_WM_CM_S0"],
                 capture_output=True, text=True, timeout=3
             )
-            if "no such atom" in has_cm.stdout or not has_cm.stdout.strip():
+            # xprop outputs 'not found' when no compositor registered
+            if "not found" not in has_cm.stdout and has_cm.stdout.strip():
+                compositor_active = True
+        except Exception:
+            pass
+
+        if not compositor_active:
+            # Also check for known compositor processes
+            try:
+                ps_out = subprocess.run(
+                    ["ps", "-A", "-o", "comm="],
+                    capture_output=True, text=True, timeout=3
+                )
+                for name in ("xcompmgr", "picom", "compton", "mutter", "gnome-shell", "kwin"):
+                    if name in ps_out.stdout:
+                        compositor_active = True
+                        break
+            except Exception:
+                pass
+
+        if not compositor_active:
+            # Start xcompmgr
+            try:
                 log.info("No compositor detected, starting xcompmgr...")
                 compositor_proc = subprocess.Popen(
                     ["xcompmgr", "-n"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
                 log.info("xcompmgr started (PID %d)", compositor_proc.pid)
-        except FileNotFoundError:
-            log.warning("xcompmgr not found — transparency may not work")
-        except Exception as e:
-            log.warning(f"Could not start compositor: {e}")
+            except FileNotFoundError:
+                log.warning("xcompmgr not found — transparency may not work")
+            except Exception as e:
+                log.warning(f"Could not start compositor: {e}")
+        else:
+            log.info("Compositor detected — transparency should work")
 
     # ── Start local HTTP server ──
     local_port = _find_free_port()
@@ -150,8 +182,9 @@ def main():
     s.setAttribute(QWebEngineSettings.ScreenCaptureEnabled, False)
     s.setAttribute(QWebEngineSettings.ShowScrollBars, False)
 
-    # Load overlay via local HTTP server (NOT file://)
-    web.load(QUrl(f"http://127.0.0.1:{local_port}/companion/overlay.html"))
+    # Load overlay via local HTTP server (NOT file://) — pass ws_port to JS
+    overlay_url = f"http://127.0.0.1:{local_port}/companion/overlay.html?ws_port={ws_port}"
+    web.load(QUrl(overlay_url))
 
     window.setCentralWidget(web)
     window.show()

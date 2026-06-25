@@ -26,6 +26,7 @@ import argparse
 import difflib
 import logging
 import os
+import subprocess
 import sys
 import json
 import signal
@@ -49,6 +50,10 @@ _HISTFILE = str(_DATA_DIR / ".repl_history")
 _CRASH_FILE = os.path.join(os.path.expanduser("~"), ".amalgam", "crash_state.json")
 _SNAPSHOT_FILE = os.path.join(os.path.expanduser("~"), ".amalgam", "last_session.json")
 _CLI_ARGS = None  # populated by main() before entering interactive mode
+
+# Companion overlay subprocess handle (mutable list for closure access)
+overlay_proc: list[subprocess.Popen | None] = [None]
+companion_relay: list[object] = [None]  # CompanionRelay instance
 
 # ── Import sub-modules ──────────────────────────────────────────────────
 from cli.output import (
@@ -582,22 +587,105 @@ async def run_cli_direct():
                 elif arg == "off":
                     new_state = False
                 elif arg == "":
-                    new_state = not settings.get("voice.input_enabled", False)
+                    new_state = not settings.get("companion.enabled", False)
                 else:
                     con.print("[red]Usage: /companion [on|off][/red]")
                     continue
-                settings.set("voice.input_enabled", new_state)
-                settings.set("voice.output_enabled", new_state)
-                settings.set("companion.enabled", new_state)
-                # Broadcast settings_update to any active WebSocket clients
-                try:
-                    from backend.api.deps import companion as _companion_dep
-                    sched = _companion_dep()
-                    if sched and hasattr(sched, 'broadcast'):
-                        sched.broadcast({"type": "settings_update", "settings": {"companion.enabled": new_state}})
-                except Exception:
-                    pass
-                con.print(f"[green]Companion mode ON[/green]" if new_state else "[red]Companion mode OFF[/red]")
+
+                if new_state:
+                    # ── Enable ────────────────────────────────────────────
+                    errors: list[str] = []
+
+                    settings.set("companion.enabled", True)
+                    settings.set("voice.input_enabled", True)
+                    settings.set("voice.output_enabled", True)
+                    settings.save()
+
+                    # Activate companion engine
+                    try:
+                        from backend.core.deps import companion as ce
+                        eng = ce()
+                        if eng is None:
+                            errors.append("companion engine not initialized")
+                        else:
+                            eng.enable()
+                            con.print("[dim]Companion engine activated[/dim]")
+                    except Exception as e:
+                        errors.append(f"engine: {e}")
+
+                    # Start WebSocket relay for overlay to connect to
+                    relay_port = 0
+                    try:
+                        from companion.relay import CompanionRelay
+                        companion_relay[0] = CompanionRelay()
+                        relay_port = await companion_relay[0].start()
+                        con.print(f"[dim]WS relay started on port {relay_port}[/dim]")
+                    except Exception as e:
+                        errors.append(f"relay: {e}")
+
+                    # Launch overlay in background subprocess
+                    try:
+                        cmd = [sys.executable, "-m", "companion.launcher"]
+                        if relay_port:
+                            cmd += ["--ws-port", str(relay_port)]
+                        overlay_proc[0] = subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                        con.print("[dim]Overlay launched (PID {})[/dim]".format(overlay_proc[0].pid if overlay_proc[0] else "?"))
+                    except Exception as e:
+                        errors.append(f"overlay: {e}")
+
+                    if errors:
+                        con.print("[bold yellow]Companion enabled with warnings:[/bold yellow]")
+                        for e in errors:
+                            con.print(f"  [yellow]⚠ {e}[/yellow]")
+                    con.print("[bold green]✓ Companion mode ON[/bold green] — overlay + voice active")
+
+                else:
+                    # ── Disable ───────────────────────────────────────────
+                    errors: list[str] = []
+
+                    settings.set("companion.enabled", False)
+                    settings.set("voice.input_enabled", False)
+                    settings.set("voice.output_enabled", False)
+                    settings.save()
+
+                    # Kill overlay subprocess
+                    try:
+                        if overlay_proc[0]:
+                            pid = overlay_proc[0].pid
+                            overlay_proc[0].terminate()
+                            overlay_proc[0].wait(timeout=3)
+                            overlay_proc[0] = None
+                            con.print(f"[dim]Overlay (PID {pid}) terminated[/dim]")
+                    except Exception as e:
+                        errors.append(f"overlay kill: {e}")
+
+                    # Stop WebSocket relay
+                    try:
+                        if companion_relay[0]:
+                            await companion_relay[0].stop()
+                            companion_relay[0] = None
+                            con.print("[dim]WS relay stopped[/dim]")
+                    except Exception as e:
+                        errors.append(f"relay stop: {e}")
+
+                    # Deactivate companion engine
+                    try:
+                        from backend.core.deps import companion as ce
+                        eng = ce()
+                        if eng:
+                            eng.disable()
+                    except Exception as e:
+                        errors.append(f"engine: {e}")
+
+                    if errors:
+                        con.print("[bold yellow]Companion disabled with warnings:[/bold yellow]")
+                        for e in errors:
+                            con.print(f"  [yellow]⚠ {e}[/yellow]")
+                    con.print("[bold red]✗ Companion mode OFF[/bold red]")
                 continue
 
             elif text == "/think" or text.startswith("/think "):

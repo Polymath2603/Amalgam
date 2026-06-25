@@ -1962,8 +1962,31 @@ class AmalgamTUI(App):
         tbl.add_row("Daemon", "Running" if self._grpc_channel else "N/A")
         self._log_chat(tbl)
 
+    async def _start_companion_with_relay(self) -> None:
+        """Start WS relay + launch overlay (run as worker from _toggle_companion)."""
+        import subprocess, sys
+        try:
+            from companion.relay import CompanionRelay
+            self._companion_relay = CompanionRelay()
+            port = await self._companion_relay.start()
+            self._log_system(f"WS relay started on port {port}")
+        except Exception as e:
+            self._log_error(f"Relay start: {e}")
+            port = 0
+        try:
+            cmd = [sys.executable, "-m", "companion.launcher"]
+            if port:
+                cmd += ["--ws-port", str(port)]
+            self._overlay_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            self._log_error(f"Overlay: {e}")
+
     def _toggle_companion(self, arg: str = "") -> None:
-        """Toggle, enable, or disable companion mode (voice + avatar).
+        """Toggle, enable, or disable companion mode (voice + avatar + overlay).
 
         Arg: "on", "off", or "" to toggle.
         """
@@ -1976,15 +1999,70 @@ class AmalgamTUI(App):
             elif arg == "off":
                 new_state = False
             elif arg == "":
-                new_state = not self._settings.get("voice.input_enabled", False)
+                new_state = not self._settings.get("companion.enabled", False)
             else:
                 self._log_system("Usage: /companion [on|off]")
                 return
-            self._settings.set("voice.input_enabled", new_state)
-            self._settings.set("voice.output_enabled", new_state)
-            self._companion = new_state
-            self._companion_connected = new_state  # assume connected when enabled
-            self._log_system(f"Companion mode {'ON' if new_state else 'OFF'}")
+
+            if new_state:
+                # ── Enable ────────────────────────────────────────────────
+                self._settings.set("companion.enabled", True)
+                self._settings.set("voice.input_enabled", True)
+                self._settings.set("voice.output_enabled", True)
+                self._settings.save()
+
+                # Activate companion engine
+                try:
+                    from backend.core.deps import companion as ce
+                    eng = ce()
+                    if eng is not None:
+                        eng.enable()
+                except Exception as e:
+                    self._log_error(f"Engine: {e}")
+
+                # Start WebSocket relay + launch overlay (async)
+                self.run_worker(self._start_companion_with_relay())
+
+                self._companion = True
+                self._companion_connected = True
+                self._log_system("Companion mode ON — overlay + voice active")
+            else:
+                # ── Disable ───────────────────────────────────────────────
+                self._settings.set("companion.enabled", False)
+                self._settings.set("voice.input_enabled", False)
+                self._settings.set("voice.output_enabled", False)
+                self._settings.save()
+
+                # Kill overlay subprocess
+                try:
+                    if hasattr(self, '_overlay_proc') and self._overlay_proc:
+                        self._overlay_proc.terminate()
+                        self._overlay_proc.wait(timeout=3)
+                        self._overlay_proc = None
+                except Exception as e:
+                    self._log_error(f"Overlay kill: {e}")
+
+                # Stop WebSocket relay
+                try:
+                    if hasattr(self, '_companion_relay') and self._companion_relay:
+                        self.run_worker(self._companion_relay.stop())
+                        self._companion_relay = None
+                except Exception as e:
+                    self._log_error(f"Relay: {e}")
+
+                # Deactivate companion engine
+                try:
+                    from backend.core.deps import companion as ce
+                    eng = ce()
+                    if eng is not None:
+                        eng.disable()
+                except Exception as e:
+                    self._log_error(f"Engine: {e}")
+
+                self._companion = False
+                self._companion_connected = False
+                self._log_system("Companion mode OFF")
+
             self._update_header()
             self._update_status(f"{self._prov() or 'connected'} · Ctrl+Q quit · Ctrl+N new · /help")
         except Exception as e:
