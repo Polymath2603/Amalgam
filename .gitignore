@@ -64,6 +64,9 @@ frontend/godot/.godot/
 # Generated code analysis output
 graphify-out/
 
+# Audit reports (regenerated, contain no committed code)
+reports/
+
 # Gemini / OpenCode / OpenClaude tool dirs
 .gemini/
 .opencode/
