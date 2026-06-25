@@ -82,9 +82,9 @@ export function enableCompanionMode(options = {}) {
     if (_companionEnabled && !options.restore) return;
     _companionEnabled = true;
 
-    // 1. Show overlay with VRM avatar
+    // 1. Show overlay with VRM avatar (retry if renderer not ready yet)
     if (_overlayInitialized) {
-        showOverlay({});
+        _showOverlayWithRetry();
     }
 
     // 2. Enable voice input (mic) if not already on
@@ -115,6 +115,27 @@ export function enableCompanionMode(options = {}) {
 
     // Dispatch event for other modules
     document.dispatchEvent(new CustomEvent('companion:state', { detail: { enabled: true } }));
+}
+
+/**
+ * _showOverlayWithRetry()
+ * Attempts to show the overlay. If the avatar renderer is not yet available
+ * (still loading asynchronously), retries up to the given number of attempts.
+ */
+function _showOverlayWithRetry(maxAttempts = 20, intervalMs = 500) {
+    const attempt = (n) => {
+        if (n >= maxAttempts) {
+            console.warn('[Companion] Overlay show failed after max retries — avatar renderer never became available');
+            return;
+        }
+        if (showOverlay({})) {
+            // Success
+            return;
+        }
+        // Retry after interval — the avatar module might still be loading
+        setTimeout(() => attempt(n + 1), intervalMs);
+    };
+    attempt(0);
 }
 
 /**

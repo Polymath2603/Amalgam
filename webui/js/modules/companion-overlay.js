@@ -93,12 +93,12 @@ export function initOverlay() {
  * @param {number} [options.scale=1] - Saved scale factor
  */
 export function showOverlay(options = {}) {
-    if (!_overlayEl || _isVisible) return;
+    if (!_overlayEl || _isVisible) return true;
 
     const renderer = getAvatarRenderer();
     if (!renderer) {
         console.warn('[CompanionOverlay] No avatar renderer available');
-        return;
+        return false;
     }
 
     _avatarRendererRef = renderer;
@@ -152,10 +152,15 @@ export function showOverlay(options = {}) {
     updateMuteIndicator(false);
     updateTtsIndicator(false);
 
+    // Start auto-hide timer for palette
+    _resetPaletteTimer();
+
     // If tab is hidden, pause render immediately
     if (_tabVisible === false) {
         _pauseRender();
     }
+
+    return true;
 }
 
 /**
