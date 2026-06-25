@@ -151,63 +151,6 @@ export const SETTINGS_SCHEMA = {
                 key: "character.system_prompt",
                 description: "Extra instructions appended to every conversation",
             },
-            // Companion settings
-            companion_enabled: {
-                label: "Companion Enabled",
-                type: "toggle",
-                key: "companion.enabled",
-                description: "Enable proactive companion interactions",
-            },
-            companion_idle_check_delay: {
-                label: "Idle Check-In Delay (min)",
-                type: "number",
-                key: "companion.idle_check_delay",
-                min: 1, max: 120, step: 1,
-                description: "Minutes of inactivity before the companion checks in",
-            },
-            companion_proactive_interval: {
-                label: "Proactive Interval (min)",
-                type: "number",
-                key: "companion.proactive_interval",
-                min: 10, max: 480, step: 10,
-                description: "Minutes between proactive time-aware messages",
-            },
-            companion_time_awareness: {
-                label: "Time Awareness",
-                type: "toggle",
-                key: "companion.time_awareness",
-                description: "Send messages that acknowledge time of day",
-            },
-            companion_personality_notes: {
-                label: "Personality Notes",
-                type: "textarea",
-                key: "companion.personality_notes",
-                description: "Extra personality instructions for the companion",
-            },
-            companion_overlay_position_x: {
-                label: 'Overlay Position X',
-                type: 'hidden',
-                key: 'companion.overlay_position_x',
-                description: 'Companion overlay horizontal position',
-            },
-            companion_overlay_position_y: {
-                label: 'Overlay Position Y',
-                type: 'hidden',
-                key: 'companion.overlay_position_y',
-                description: 'Companion overlay vertical position',
-            },
-            companion_overlay_scale: {
-                label: 'Overlay Scale',
-                type: 'hidden',
-                key: 'companion.overlay_scale',
-                description: 'Companion avatar scale factor',
-            },
-            companion_overlay_last_state: {
-                label: 'Last Overlay State',
-                type: 'hidden',
-                key: 'companion.overlay_last_state',
-                description: 'Whether companion overlay was active (companion or chat)',
-            },
         }
     },
     "Provider": {

@@ -54,17 +54,6 @@ let _pingInterval = null;
 let _pongPending = false;
 let _pongTimeout = null;
 
-// Companion mode
-const urlParams = new URLSearchParams(window.location.search);
-const IS_COMPANION_LEGACY = urlParams.get('mode') === 'companion';
-if (IS_COMPANION_LEGACY) {
-    document.body.classList.add('companion-mode');
-    // If in legacy mode, auto-enable companion
-    import('./companion.js').then(m => {
-        if (!m.isCompanionEnabled()) m.enableCompanionMode({ silent: true });
-    });
-}
-
 function _startHeartbeat(wsRef) {
     _stopHeartbeat();
     _pongPending = false;
@@ -141,9 +130,6 @@ export function connectWS() {
         _clearReconnecting();
         if (statusDot) statusDot.className = 'status-dot online';
         if (statusText) statusText.textContent = t('status.connected');
-
-        // Dispatch custom event for companion overlay etc.
-        document.dispatchEvent(new CustomEvent('ws:connected'));
 
         // Hide offline bar on successful connection (fixes race where
         // the bar is visible before initial connect or after reconnect).
@@ -442,23 +428,10 @@ export function handleWSMessage(data) {
         }
         // Dispatch DOM event so other components can react
         document.dispatchEvent(new CustomEvent('avatarLifeState', { detail: { event: data.event } }));
-    } else if (data.type === 'companion') {
-        // Companion proactive message — display as a special assistant message
-        const cam = _addMessage?.('assistant', data.content || '');
-        if (cam) {
-            cam.classList.add('msg-companion');
-            if (data.context) cam.dataset.companionContext = data.context;
-        }
-        _setStatus?.('ready');
-        // Also notify companion module for potential overlay speech bubble
-        import('./companion.js').then(m => m.handleCompanionWSMessage(data));
-    } else if (data.type === 'companion_state_ack') {
-        // Backend acknowledged companion state change — nothing to do
-        console.debug('[Companion] Backend acknowledged state:', data.enabled);
     } else if (data.type === 'tts_state') {
-        // Notify companion overlay of TTS play state
+        // Notify of TTS play state
         if (data.playing !== undefined) {
-            import('./companion.js').then(m => m.setCompanionTtsPlaying(data.playing));
+            console.debug('[TTS] State:', data.playing);
         }
     } else if (data.type === 'interrupt') {
         if (data.action === 'stop_audio_and_animation') {

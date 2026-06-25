@@ -361,7 +361,6 @@ async function saveSetupWizard() {
                     body: JSON.stringify({
                         character: document.getElementById('setup-character')?.value || 'default',
                         permission_level: document.getElementById('setup-permission')?.value || 'confirm',
-                        companion_enabled: document.getElementById('setup-companion')?.checked ?? false,
                         thinking_enabled: document.getElementById('setup-thinking')?.checked ?? true,
                     })
                 });

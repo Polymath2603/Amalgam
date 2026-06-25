@@ -18,7 +18,6 @@
     <link rel="stylesheet" href="./icons/inter.css">
     <link rel="stylesheet" href="./icons/material-icons.css">
     <link rel="stylesheet" href="./css/style.css">
-    <link rel="stylesheet" href="./css/companion-overlay.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/nord.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
     <script>if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(() => {}); }</script>
@@ -410,13 +409,6 @@
                     </select>
 
                     <div class="setup-toggle-row">
-                        <label class="form-label" style="margin-bottom:0">Companion Mode</label>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="setup-companion">
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                    <div class="setup-toggle-row">
                         <label class="form-label" style="margin-bottom:0">Show Thinking</label>
                         <label class="toggle-switch">
                             <input type="checkbox" id="setup-thinking" checked>
@@ -436,41 +428,6 @@
                 <p class="muted">Your AI provider is configured.</p>
             </div>
         </div>
-    </div>
-
-    <!-- Companion overlay container (hidden by default, populated by JS) -->
-    <div id="companion-overlay" class="companion-overlay hidden" role="application" aria-label="Companion mode">
-        <div id="companion-avatar-container" class="companion-avatar-container"></div>
-        <div id="companion-palette" class="companion-palette hidden" role="toolbar" aria-label="Avatar tools">
-            <button class="palette-btn" data-action="show-hide" title="Show/Hide avatar" aria-label="Toggle avatar visibility">
-                <span class="material-icons-round">visibility</span>
-            </button>
-            <button class="palette-btn" data-action="mute" title="Toggle mic" aria-label="Toggle microphone">
-                <span class="material-icons-round">mic</span>
-            </button>
-            <button class="palette-btn" data-action="tts-toggle" title="Toggle speaker" aria-label="Toggle text-to-speech">
-                <span class="material-icons-round">volume_up</span>
-            </button>
-            <button class="palette-btn" data-action="close" title="Close companion mode" aria-label="Close companion mode">
-                <span class="material-icons-round">close</span>
-            </button>
-            <button class="palette-btn" data-action="settings" title="Settings" aria-label="Open companion settings">
-                <span class="material-icons-round">tune</span>
-            </button>
-        </div>
-        <!-- Mute indicator (shows when mic is muted) -->
-        <div id="companion-mute-indicator" class="companion-mute-indicator hidden">
-            <span class="material-icons-round">mic_off</span>
-            <span>Mic muted</span>
-        </div>
-        <!-- TTS indicator (shows when TTS is playing) -->
-        <div id="companion-tts-indicator" class="companion-tts-indicator hidden">
-            <span class="material-icons-round">volume_up</span>
-            <span>Speaking...</span>
-        </div>
-        <!-- Disconnected indicator -->
-        <div id="companion-disconnected-bar" class="companion-disconnected-bar"></div>
-        <div id="companion-disconnected-text" class="companion-disconnected-text">Connection lost</div>
     </div>
 
     <script src="./vendor/d3.min.js"></script>

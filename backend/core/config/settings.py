@@ -252,10 +252,6 @@ DEFAULTS = {
     },
     "companion": {
         "enabled": False,
-        "overlay_position_x": "50%",
-        "overlay_position_y": "50%",
-        "overlay_scale": 1.0,
-        "overlay_last_state": "chat",
         "idle_check_delay": 10,
         "proactive_interval": 60,
         "time_awareness": True,

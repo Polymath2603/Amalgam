@@ -133,26 +133,6 @@ def _validate_settings_update(body: dict) -> list[str]:
                 if v < 8 or v > 48:
                     errors.append(f"{key} must be between 8 and 48")
             except (ValueError, TypeError):
-                errors.append(f"{key} must be a number")
-        
-        # Validate companion overlay settings
-        if key == "companion.overlay_position_x" and value is not None:
-            if not isinstance(value, str) or not value.endswith("%"):
-                errors.append(f"{key} must be a percentage string like '50%'")
-        if key == "companion.overlay_position_y" and value is not None:
-            if not isinstance(value, str) or not value.endswith("%"):
-                errors.append(f"{key} must be a percentage string like '50%'")
-        if key == "companion.overlay_scale" and value is not None:
-            try:
-                v = float(value)
-                if v < 0.1 or v > 5.0:
-                    errors.append(f"{key} must be between 0.1 and 5.0")
-            except (ValueError, TypeError):
-                errors.append(f"{key} must be a number")
-        if key == "companion.overlay_last_state" and value is not None:
-            if value not in {"companion", "chat"}:
-                errors.append(f"{key} must be 'companion' or 'chat'")
-
         # Validate wake word engine
         if key == "wake_word.engine" and value not in {"openwakeword", "snowboy", "none"}:
             errors.append(f"Unknown wake word engine: {value}. Valid: openwakeword, snowboy, none")

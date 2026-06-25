@@ -375,9 +375,8 @@ export function renderSettings() {
         searchInput.addEventListener('input', filterSettings);
     }
 
-    // Load companion settings when the Character tab is active
     if (activeSettingsTab === 'Character') {
-        setTimeout(loadCompanionSettings, 0);
+        // Character tab — no companion settings needed
     }
     if (activeSettingsTab === 'Vault') {
         setTimeout(loadVaultList, 0);
@@ -660,30 +659,6 @@ export function confirmReset(target) {
             }
         })
         .catch(e => showToast(`Reset failed: ${e.message}`, 'danger'));
-}
-
-export async function loadCompanionSettings() {
-    const data = await api(`${BASE_URL}/api/companion/settings`);
-    if (!data) return;
-    const fieldMap = {
-        enabled: 'companion_enabled',
-        idle_check_delay: 'companion_idle_check_delay',
-        proactive_interval: 'companion_proactive_interval',
-        time_awareness: 'companion_time_awareness',
-        personality_notes: 'companion_personality_notes',
-    };
-    for (const [apiKey, fieldId] of Object.entries(fieldMap)) {
-        const el = document.getElementById(`field-${fieldId}`);
-        if (!el) continue;
-        const val = data[apiKey];
-        if (el.type === 'checkbox') {
-            el.checked = val === true;
-        } else if (el.type === 'number') {
-            el.value = val ?? '';
-        } else {
-            el.value = val ?? '';
-        }
-    }
 }
 
 export async function refreshCharacterList() {
