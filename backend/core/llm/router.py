@@ -56,6 +56,9 @@ class LLMRouter:
     def supports_native_tools(self) -> bool:
         return self._provider.supports_native_tools()
 
+    def supports_vision(self) -> bool:
+        return self._provider.supports_vision()
+
     def get_max_output_tokens(self) -> int:
         return self._provider.get_max_output_tokens()
 

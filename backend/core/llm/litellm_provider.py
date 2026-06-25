@@ -111,6 +111,10 @@ EMBEDDING_MODEL_DEFAULTS = {
     "gcp": "vertex_ai/textembedding-gecko",
 }
 
+VISION_CAPABLE = {
+    "chatgpt", "gemini", "claude", "groq", "openrouter",
+}
+
 # Providers that use an OpenAI-compatible API format
 OPENAI_COMPAT_PROVIDERS = {
     "opencode", "llamacpp", "koboldai", "siliconflow",
@@ -298,6 +302,9 @@ class LiteLLMProvider:
 
     def supports_native_tools(self) -> bool:
         return self._provider in TOOL_CAPABLE
+
+    def supports_vision(self) -> bool:
+        return self._provider in VISION_CAPABLE
 
     def get_max_output_tokens(self) -> int:
         """Return max output tokens for the active model, with caching."""

@@ -142,8 +142,10 @@ def _init_command_registry():
         ("quit",     "Quit the application",               "Exit Amalgam", None),
         ("rename",   "Rename the current session",         "Give the session a new title", None),
         ("resume",   "Show last 5 turns of current session","Display recent conversation history", None),
+        ("retry",    "Retry last assistant response",      "Regenerate the last assistant message", None),
         ("settings", "Show/set a setting",                 "View or change a configuration key", None),
         ("stats",    "Show analytics",                     "Tool-usage and cost analytics", None),
+        ("status",   "Show system status",                 "Display system status overview", None),
         ("theme",    "Switch UI theme",                    "Change color theme (dark, midnight, light, nord)", None),
         ("think",    "Toggle/on/off thinking display",    "Show or hide thinking traces", None),
     ]
@@ -1213,15 +1215,12 @@ class AmalgamTUI(App):
             self._handle_command(text)
             return
 
-        if text == "/retry" and self._last_message:
-            text = self._last_message
-        else:
-            self._last_message = text
-
         # Record in input history for reverse search
         if text:
             self._input_history.append(text)
             self._history_index = len(self._input_history)
+
+        self._last_message = text
 
         self._log_user(text)
         self._clear_stream_area()
@@ -1786,6 +1785,17 @@ class AmalgamTUI(App):
         elif cmd == "/permission":
             self._set_permission(text)
 
+        elif cmd == "/retry":
+            if self._last_message:
+                self._log_user(self._last_message)
+                self._clear_stream_area()
+                self._send_message(self._last_message)
+            else:
+                self._log_system("No previous message to retry")
+
+        elif cmd == "/status":
+            self._show_status()
+
         else:
             from cli.__init__ import _fuzzy_command_suggestion
             sug = _fuzzy_command_suggestion(text)
@@ -1921,6 +1931,36 @@ class AmalgamTUI(App):
                 self._log_system("No health data available")
         except Exception as e:
             self._log_error(f"Health check failed: {e}")
+
+    def _show_status(self) -> None:
+        """Display system status overview."""
+        from rich.table import Table, box
+        from rich.style import Style
+        tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
+        tbl.add_column("", style=_CYAN)
+        tbl.add_column("", style=_TEXT)
+        prov = self._prov() or "?"
+        model = self._model() or "?"
+        tbl.add_row("Provider", prov)
+        tbl.add_row("Model", model)
+        tbl.add_row("Companion", "ON" if self._companion else "OFF")
+        try:
+            if self._memory:
+                sid = self._memory.get_current_session()
+                turns = len(self._memory.get_session_turns(sid, turns=999))
+                tbl.add_row("Session", sid[:16] + "…" if len(sid) > 16 else sid)
+                tbl.add_row("Messages", str(self._msg_count))
+                tbl.add_row("Characters", f"{self._char_count:,}")
+        except Exception:
+            pass
+        try:
+            if self._settings:
+                profile = self._settings.get("profile", "default")
+                tbl.add_row("Profile", profile)
+        except Exception:
+            pass
+        tbl.add_row("Daemon", "Running" if self._grpc_channel else "N/A")
+        self._log_chat(tbl)
 
     def _toggle_companion(self, arg: str = "") -> None:
         """Toggle, enable, or disable companion mode (voice + avatar).

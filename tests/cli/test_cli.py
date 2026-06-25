@@ -151,7 +151,7 @@ class TestProvider:
     def test_resolve_display_name(self):
         from cli.provider import resolve_display_name
         assert resolve_display_name("gemini") == "Google Gemini"
-        assert resolve_display_name("openai") == "OpenAI"
+        assert resolve_display_name("openai") == "OpenAI (ChatGPT)"
         assert resolve_display_name("not_a_provider") == "Not_A_Provider"
 
     def test_autocomplete_words(self, mock_settings):
