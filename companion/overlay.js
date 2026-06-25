@@ -1,9 +1,9 @@
 /**
- * overlay.js — Standalone VRM overlay for Amalgam companion mode
+ * overlay.js — Standalone VRM overlay for Amalgam
  *
- * Renders VRM avatar with idle animation + TTS lip-sync on a
- * transparent background. Uses a 2D canvas compositing hack to
- * work around QtWebEngine's broken WebGL alpha compositing.
+ * Uses chroma-key compositing to work around QtWebEngine's
+ * broken WebGL alpha. Renders against a green background,
+ * then replaces green pixels with transparent on a 2D canvas.
  */
 
 import * as THREE from 'three';
@@ -14,10 +14,16 @@ const BACKEND_HTTP = 'http://127.0.0.1:8000';
 const BACKEND_WS = 'ws://127.0.0.1:8000/ws/chat';
 const RECONNECT_DELAYS = [500, 1000, 2000, 5000, 10000];
 
+// Chroma-key green — bright, unlikely to appear on any character
+const KEY_R = 0;
+const KEY_G = 255;
+const KEY_B = 0;
+const KEY_TOLERANCE = 60; // how far from pure green to still be keyed out
+
 let ws = null;
 let wsReconnectAttempt = 0;
 let wsReconnectTimer = null;
-let renderer = null;         // hidden WebGL renderer
+let glRenderer = null;
 let scene = null;
 let camera = null;
 let vrm = null;
@@ -30,9 +36,10 @@ let isMuted = false;
 let animId = null;
 let controlsTimer = null;
 
-// Compositing hack: a 2D canvas that composites the WebGL output with alpha
-let displayCanvas = null;     // visible 2D canvas
-let displayCtx = null;       // 2D context for compositing
+let displayCanvas = null;
+let ctx = null;
+let compositeCanvas = null; // buffer for pixel manipulation
+let compositeCtx = null;
 
 const canvasContainer = document.getElementById('avatar-canvas');
 const statusEl = document.getElementById('status');
@@ -41,106 +48,94 @@ const muteBtn = document.getElementById('btn-mute');
 const closeBtn = document.getElementById('btn-close');
 
 // ═════════════════════════════════════════════════════════════════
-//  Scene & Compositing Canvas
+//  Scene
 // ═════════════════════════════════════════════════════════════════
 
 function initScene() {
     scene = new THREE.Scene();
+    // Chroma-key green background
+    scene.background = new THREE.Color(KEY_R/255, KEY_G/255, KEY_B/255);
 
     camera = new THREE.PerspectiveCamera(22, 280 / 420, 0.1, 20);
     camera.position.set(0, 1.35, 2.8);
     camera.lookAt(0, 1.2, 0);
     scene.add(camera);
 
-    // ── Hidden WebGL renderer (alpha matters but QtWebEngine ignores it) ──
-    renderer = new THREE.WebGLRenderer({
-        alpha: true,
+    // Hidden WebGL renderer
+    glRenderer = new THREE.WebGLRenderer({
+        alpha: false,  // opaque — we handle transparency via chroma-key
         antialias: true,
-        premultipliedAlpha: false,
     });
-    renderer.setSize(280, 420);
-    renderer.setPixelRatio(1);
-    renderer.setClearAlpha(0);
-    renderer.setClearColor(0x000000, 0);
-    renderer.domElement.style.display = 'none'; // hide the WebGL canvas
-    document.body.appendChild(renderer.domElement);
+    glRenderer.setSize(280, 420);
+    glRenderer.setPixelRatio(window.devicePixelRatio);
+    glRenderer.setClearColor(KEY_R/255, KEY_G/255, KEY_B/255, 1);
+    glRenderer.domElement.style.position = 'fixed';
+    glRenderer.domElement.style.top = '-9999px';
+    glRenderer.domElement.style.left = '-9999px';
+    document.body.appendChild(glRenderer.domElement);
 
-    // ── Visible 2D compositing canvas ──
+    // Visible 2D canvas for compositing
     displayCanvas = document.createElement('canvas');
-    displayCanvas.width = 280;
-    displayCanvas.height = 420;
+    displayCanvas.width = 280 * window.devicePixelRatio;
+    displayCanvas.height = 420 * window.devicePixelRatio;
     displayCanvas.style.width = '100%';
     displayCanvas.style.height = '100%';
-    displayCanvas.style.display = 'block';
-    displayCanvas.style.background = 'transparent';
     canvasContainer.appendChild(displayCanvas);
+    ctx = displayCanvas.getContext('2d');
 
-    displayCtx = displayCanvas.getContext('2d');
+    // Offscreen canvas for pixel manipulation
+    compositeCanvas = document.createElement('canvas');
+    compositeCanvas.width = displayCanvas.width;
+    compositeCanvas.height = displayCanvas.height;
+    compositeCtx = compositeCanvas.getContext('2d', { willReadFrequently: true });
 
     // Lights
-    const key = new THREE.DirectionalLight(0xffffff, 1.4);
-    key.position.set(0.8, 1.5, 1.2);
+    const key = new THREE.DirectionalLight(0xffffff, 1.2);
+    key.position.set(0.8, 1.5, 1.0);
     scene.add(key);
-
-    const fill = new THREE.DirectionalLight(0x8888ff, 0.4);
+    const fill = new THREE.DirectionalLight(0x8888ff, 0.3);
     fill.position.set(-0.5, 0.5, 1.5);
     scene.add(fill);
-
-    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 }
 
 // ═════════════════════════════════════════════════════════════════
 //  VRM Loading
 // ═════════════════════════════════════════════════════════════════
 
-async function loadVRM(vrmPath) {
+async function loadVRM(path) {
     const loader = new GLTFLoader();
     loader.register((parser) => new VRMLoaderPlugin(parser));
+    const gltf = await loader.loadAsync(path);
+    if (!gltf.userData.vrm) throw new Error('No VRM data');
+    vrm = gltf.userData.vrm;
+    VRMUtils.rotateVRM0(vrm);
+    VRMUtils.removeUnnecessaryVertices(vrm.scene);
+    scene.add(vrm.scene);
 
+    mixer = new THREE.AnimationMixer(vrm.scene);
+
+    // Load idle loop animation
+    const animUrl = path.replace(/\/[^/]*$/, '/anim/idle_loop.vrma');
     try {
-        const gltf = await loader.loadAsync(vrmPath);
-        const loadedVrm = gltf.userData.vrm;
-        if (!loadedVrm) {
-            console.error('[Overlay] No VRM data');
-            return null;
-        }
-        vrm = loadedVrm;
-        VRMUtils.rotateVRM0(vrm);
-        VRMUtils.removeUnnecessaryVertices(vrm.scene);
-        scene.add(vrm.scene);
+        const resp = await fetch(animUrl);
+        if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            const { loadVRMAnimation } = await import('../webui/js/vrm-animation.js');
+            const clip = await loadVRMAnimation(buf, vrm);
+            if (clip) {
+                const a = mixer.clipAction(clip);
+                if (a) { a.play(); console.log('[Overlay] Idle animation playing'); }
+                else { console.log('[Overlay] clipAction returned null'); }
+            } else { console.log('[Overlay] loadVRMAnimation returned null'); }
+        } else { console.log('[Overlay] No idle anim, HTTP', resp.status); }
+    } catch (e) { console.log('[Overlay] Anim load error:', e.message); }
 
-        mixer = new THREE.AnimationMixer(vrm.scene);
-
-        // Load idle animation
-        const animUrl = vrmPath.replace(/\/model\.vrm$/, '/anim/idle_loop.vrma');
-        try {
-            const resp = await fetch(animUrl);
-            if (resp.ok) {
-                const buf = await resp.arrayBuffer();
-                const { loadVRMAnimation } = await import('../webui/js/vrm-animation.js');
-                const clip = await loadVRMAnimation(buf, vrm);
-                if (clip) {
-                    const action = mixer.clipAction(clip);
-                    if (action) {
-                        action.play();
-                        console.debug('[Overlay] Idle animation playing');
-                    }
-                }
-            }
-        } catch (e) {
-            console.debug('[Overlay] No idle anim:', e.message);
-        }
-
-        console.debug('[Overlay] VRM loaded:', vrmPath);
-        return vrm;
-    } catch (err) {
-        console.error('[Overlay] VRM load failed:', err);
-        return null;
-    }
+    return vrm;
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  Animation Loop (with 2D compositing)
+//  Animation Loop with Chroma-Key Compositing
 // ═════════════════════════════════════════════════════════════════
 
 function animate() {
@@ -160,40 +155,43 @@ function animate() {
         vrm.expressionManager.setValue('ee', currentMouthOh * 0.2);
     }
 
-    // Render to hidden WebGL canvas
-    renderer.render(scene, camera);
+    // Render to WebGL (against green background)
+    glRenderer.render(scene, camera);
 
-    // Composite onto visible 2D canvas with alpha
-    // Read back the WebGL pixels as RGBA and draw with proper alpha
-    const w = renderer.domElement.width;
-    const h = renderer.domElement.height;
-    const pixels = new Uint8Array(w * h * 4);
-    const gl = renderer.getContext();
-    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    // ── Chroma-key compositing pipeline ──
+    const w = compositeCanvas.width;
+    const h = compositeCanvas.height;
 
-    // Create ImageData from pixels (need to flip Y)
-    const imageData = displayCtx.createImageData(w, h);
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-            const srcIdx = (y * w + x) * 4;
-            const dstIdx = ((h - 1 - y) * w + x) * 4;
-            // Copy RGBA as-is — the alpha from WebGL clearColor(0,0,0,0)
-            // should give us transparent pixels where nothing was rendered
-            imageData.data[dstIdx] = pixels[srcIdx];     // R
-            imageData.data[dstIdx + 1] = pixels[srcIdx + 1]; // G
-            imageData.data[dstIdx + 2] = pixels[srcIdx + 2]; // B
-            imageData.data[dstIdx + 3] = pixels[srcIdx + 3]; // A
+    // Step 1: draw WebGL output onto composite canvas
+    compositeCtx.drawImage(glRenderer.domElement, 0, 0, w, h);
+
+    // Step 2: read pixels
+    const imageData = compositeCtx.getImageData(0, 0, w, h);
+    const pixels = imageData.data;
+    const len = pixels.length;
+
+    // Step 3: replace green pixels with transparent
+    // A pixel is "green" if its green channel is significantly higher than red+blue
+    const tol = KEY_TOLERANCE;
+    for (let i = 0; i < len; i += 4) {
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        // Detection: green is dominant and far from gray
+        if (g > r + tol && g > b + tol) {
+            pixels[i + 3] = 0; // transparent
+        } else {
+            pixels[i + 3] = 255; // opaque
         }
     }
-    displayCtx.putImageData(imageData, 0, 0);
+    imageData.data.set(pixels);
 
-    // Update display canvas size if container changed
-    const rect = canvasContainer.getBoundingClientRect();
-    if (displayCanvas.width !== Math.round(rect.width) ||
-        displayCanvas.height !== Math.round(rect.height)) {
-        displayCanvas.width = Math.round(rect.width);
-        displayCanvas.height = Math.round(rect.height);
-    }
+    // Step 4: put processed pixels onto composite canvas
+    compositeCtx.putImageData(imageData, 0, 0);
+
+    // Step 5: draw final result to display canvas (scales to fit)
+    ctx.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+    ctx.drawImage(compositeCanvas, 0, 0, displayCanvas.width, displayCanvas.height);
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -202,38 +200,23 @@ function animate() {
 
 function connectWS() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-    try {
-        ws = new WebSocket(BACKEND_WS);
-    } catch (e) {
-        scheduleReconnect();
-        return;
-    }
-
+    try { ws = new WebSocket(BACKEND_WS); } catch (_) { scheduleReconnect(); return; }
     ws.onopen = () => {
         wsReconnectAttempt = 0;
         setConnected(true);
         ws.send(JSON.stringify({ type: 'join' }));
         ws.send(JSON.stringify({ type: 'companion_state', enabled: true }));
     };
-
-    ws.onclose = () => {
-        setConnected(false);
-        ws = null;
-        scheduleReconnect();
-    };
-
+    ws.onclose = () => { setConnected(false); ws = null; scheduleReconnect(); };
     ws.onerror = () => {};
-
-    ws.onmessage = (event) => {
-        try { handleMessage(JSON.parse(event.data)); } catch (_) {}
-    };
+    ws.onmessage = (ev) => { try { handleMsg(JSON.parse(ev.data)); } catch (_) {} };
 }
 
 function scheduleReconnect() {
     if (wsReconnectTimer) return;
-    const delay = RECONNECT_DELAYS[Math.min(wsReconnectAttempt, RECONNECT_DELAYS.length - 1)];
+    const d = RECONNECT_DELAYS[Math.min(wsReconnectAttempt, RECONNECT_DELAYS.length - 1)];
     wsReconnectAttempt++;
-    wsReconnectTimer = setTimeout(() => { wsReconnectTimer = null; connectWS(); }, delay);
+    wsReconnectTimer = setTimeout(() => { wsReconnectTimer = null; connectWS(); }, d);
 }
 
 function setConnected(c) {
@@ -241,23 +224,13 @@ function setConnected(c) {
     statusEl.className = c ? 'connected' : 'disconnected';
 }
 
-function handleMessage(data) {
+function handleMsg(data) {
     switch (data.type) {
-        case 'tts_state':
-            mouthValue = data.playing ? 0.7 : 0.0;
-            break;
-        case 'voice_level':
-            if (data.level !== undefined) mouthValue = Math.min(1, data.level * 2.0);
-            break;
-        case 'emotion':
-            if (data.emotion && vrm?.expressionManager) setExpression(data.emotion);
-            break;
-        case 'interrupt':
-            if (data.action === 'stop_audio_and_animation') mouthValue = 0;
-            break;
-        case 'settings_update':
-            if (data.settings?.companion?.enabled === false) closeOverlay();
-            break;
+        case 'tts_state': mouthValue = data.playing ? 0.7 : 0.0; break;
+        case 'voice_level': if (data.level !== undefined) mouthValue = Math.min(1, data.level * 2.0); break;
+        case 'emotion': if (data.emotion && vrm?.expressionManager) setExpression(data.emotion); break;
+        case 'interrupt': if (data.action === 'stop_audio_and_animation') mouthValue = 0; break;
+        case 'settings_update': if (data.settings?.companion?.enabled === false) closeOverlay(); break;
     }
 }
 
@@ -295,7 +268,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeOverl
 function closeOverlay() {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'companion_state', enabled: false }));
     window.close();
-    setTimeout(() => { document.body.innerHTML = '<div style="padding:2rem;color:#666">Closed</div>'; }, 300);
+    setTimeout(() => { document.body.innerHTML = ''; }, 300);
 }
 
 // ═════════════════════════════════════════════════════════════════
@@ -315,8 +288,11 @@ async function boot() {
             const url = chars?.[s.character.active]?.model_url;
             if (url) vrmPath = url.startsWith('http') ? url : BACKEND_HTTP + url;
         }
-    } catch (_) {}
+    } catch (e) {
+        console.warn('[Overlay] Using default VRM:', e.message);
+    }
 
+    console.debug('[Overlay] Loading VRM:', vrmPath);
     await loadVRM(vrmPath);
     clock.start();
     animate();
