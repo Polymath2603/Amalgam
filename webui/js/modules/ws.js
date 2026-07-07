@@ -437,5 +437,85 @@ export function handleWSMessage(data) {
         if (data.action === 'stop_audio_and_animation') {
             flushTTSQueue();
         }
+    } else if (data.type === 'company:start') {
+        setAICompanyStatus('running', data.preview);
+    } else if (data.type === 'company:done') {
+        setAICompanyStatus('done', `Plan ready in ${data.duration}s (${data.plan_chars} chars)`);
+    } else if (data.type === 'company:error') {
+        setAICompanyStatus('error', data.reason);
+    } else if (data.type === 'company:mode_changed') {
+        setAICompanyMode(data.mode);
     }
+}
+
+/**
+ * Reflect the AI Company plugin's live run status (running/done/error) onto
+ * the header toggle button. Auto-clears the "done"/"error" badge after a
+ * few seconds so it doesn't linger indefinitely after a one-off run.
+ */
+let _companyStatusClearTimer = null;
+export function setAICompanyStatus(status, detail) {
+    const btn = document.getElementById('ai-company-toggle');
+    if (!btn) return;
+    btn.dataset.status = status;
+    if (detail) btn.title = `AI Company: ${status} — ${detail}`;
+
+    const badge = document.getElementById('ai-company-badge');
+    if (badge) badge.hidden = status === 'idle';
+
+    if (_companyStatusClearTimer) clearTimeout(_companyStatusClearTimer);
+    if (status === 'done' || status === 'error') {
+        _companyStatusClearTimer = setTimeout(() => {
+            btn.dataset.status = 'idle';
+            if (badge) badge.hidden = true;
+        }, 6000);
+    }
+}
+
+/**
+ * Reflect the AI Company plugin's configured mode (off/auto/on) onto the
+ * header toggle button — the button's base appearance (dim/highlighted),
+ * independent of any one in-flight run's status badge.
+ */
+export function setAICompanyMode(mode) {
+    const btn = document.getElementById('ai-company-toggle');
+    if (!btn) return;
+    btn.dataset.mode = mode;
+    const labels = { off: 'AI Company: off', auto: 'AI Company: auto (complex tasks)', on: 'AI Company: on (every message)' };
+    btn.title = labels[mode] || `AI Company: ${mode}`;
+}
+
+/**
+ * Wire the AI Company header toggle: click cycles off → auto → on → off,
+ * persists the choice via the same slash-command channel /company uses
+ * server-side, and fetches the current mode on load so the button reflects
+ * real state immediately rather than defaulting to "off" until the first
+ * WS event arrives.
+ */
+const _AI_COMPANY_CYCLE = ['off', 'auto', 'on'];
+
+export function initAICompanyToggle() {
+    const btn = document.getElementById('ai-company-toggle');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+        const current = btn.dataset.mode || 'off';
+        const next = _AI_COMPANY_CYCLE[(_AI_COMPANY_CYCLE.indexOf(current) + 1) % _AI_COMPANY_CYCLE.length];
+        setAICompanyMode(next);
+        const wsInst = getWs();
+        if (wsInst && wsInst.readyState === WebSocket.OPEN) {
+            wsInst.send(JSON.stringify({ type: 'command', command: `/company ${next}` }));
+        }
+        showToast(`AI Company: ${next}`);
+    });
+
+    // Reflect the real current mode on load rather than defaulting to "off"
+    fetch(`${BASE_URL}/api/settings/get/ai_company.mode`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+            if (data && data.value) setAICompanyMode(data.value);
+        })
+        .catch(() => {
+            /* backend not reachable yet — button stays at its default "off" state */
+        });
 }

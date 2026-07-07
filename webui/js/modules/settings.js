@@ -18,7 +18,7 @@ export function getActiveSettingsTab() { return activeSettingsTab; }
 export function setActiveSettingsTab(v) { activeSettingsTab = v; }
 
 // Internal helpers
-function _getFieldKey(fieldId, field) {
+export function _getFieldKey(fieldId, field) {
     const settings = getSettings() || {};
     if (field.key_dynamic) {
         const active = _getNestedValue(settings, 'provider.active') || 'gemini';
@@ -28,7 +28,7 @@ function _getFieldKey(fieldId, field) {
     return field.key || fieldId;
 }
 
-function _getFieldValue(fieldId, field) {
+export function _getFieldValue(fieldId, field) {
     const settings = getSettings() || {};
     const key = _getFieldKey(fieldId, field);
     let val = _getNestedValue(settings, key);
@@ -40,7 +40,7 @@ function _getFieldValue(fieldId, field) {
     return val ?? '';
 }
 
-function _getFieldOptions(fieldId, field) {
+export function _getFieldOptions(fieldId, field) {
     // dynamic_fetch: options fetched from backend API and cached
     if (field.dynamic_fetch) {
         const cached = _optionsCache[field.dynamic_fetch];
@@ -68,7 +68,7 @@ function _getFieldOptions(fieldId, field) {
     return field.options || [];
 }
 
-function _shouldShowField(fieldId, field) {
+export function _shouldShowField(fieldId, field) {
     if (!field.show_if) return true;
     const settings = getSettings() || {};
     const sf = field.show_if;
@@ -710,17 +710,20 @@ export async function refreshCharacterInfo() {
 
 // ─── Vault Tab ────────────────────────────────────────────────────────
 
-function _formatBytes(bytes) {
+export function _formatBytes(bytes) {
     if (!bytes && bytes !== 0) return '';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-function _formatDate(ts) {
+export function _formatDate(ts) {
     if (!ts) return '';
     try { return new Date(ts).toLocaleDateString(); }
-    catch (_) { return String(ts); }
+    catch (_) {
+        try { return String(ts); }
+        catch (_2) { return '[unformattable date]'; }
+    }
 }
 
 function _renderVaultTab() {
@@ -1146,7 +1149,6 @@ window.testConnection = testConnection;
 window.fetchModels = fetchModels;
 window.testVoice = testVoice;
 window.confirmReset = confirmReset;
-window.loadCompanionSettings = loadCompanionSettings;
 window.testConnectionFromField = function(fieldId) {
     const inp = document.getElementById(fieldId);
     if (!inp) return;

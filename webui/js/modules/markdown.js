@@ -46,7 +46,7 @@ export function formatMessage(text) {
         (match, name, args) => {
             const id = 'tc-' + (++_toolCallIdCounter);
             const cardHtml = `
-                    <div class="tool-call-card" data-tool="${name}" data-tool-call-id="${id}">
+                    <div class="tool-call-card" data-tool="${escHtml(name)}" data-tool-call-id="${id}">
                         <div class="tool-call-header">
                             <span class="material-icons-round tool-call-icon">build</span>
                             <span class="tool-call-name">${escHtml(name)}</span>

@@ -80,6 +80,28 @@ class CompanionEngine:
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
+    def _create_task_safely(self, coro, description: str) -> None:
+        """Schedule a background coroutine, without crashing callers that
+        aren't inside a running event loop (e.g. CLI startup via
+        backend.core.deps.get_shared(), which is a plain sync function).
+
+        If there's no running loop, the coroutine is closed cleanly (so
+        Python doesn't warn "coroutine was never awaited") and a warning is
+        logged — this is honest about the scheduler not actually starting,
+        rather than crashing the caller or silently pretending to succeed.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            coro.close()
+            logger.warning(
+                "Companion: cannot start background task (%s) — no running "
+                "event loop. Call this from an async context, e.g. during "
+                "FastAPI startup.", description,
+            )
+            return
+        loop.create_task(coro)
+
     def start(self) -> None:
         """Start the companion engine."""
         if self._running:
@@ -93,7 +115,7 @@ class CompanionEngine:
         self._running = False
         self._state = CompanionState.DISABLED
         # Fire scheduler stop asynchronously
-        asyncio.create_task(self._scheduler.stop())
+        self._create_task_safely(self._scheduler.stop(), "scheduler.stop (engine.stop)")
         logger.info("Companion engine stopped")
 
     async def stop_async(self) -> None:
@@ -114,10 +136,10 @@ class CompanionEngine:
         enabled = bool(self._settings().get("companion.enabled", False))
         if enabled and self._state == CompanionState.DISABLED:
             self._state = CompanionState.ACTIVE
-            asyncio.create_task(self._scheduler.start())
+            self._create_task_safely(self._scheduler.start(), "scheduler.start (sync_state)")
         elif not enabled and self._state != CompanionState.DISABLED:
             self._state = CompanionState.DISABLED
-            asyncio.create_task(self._scheduler.stop())
+            self._create_task_safely(self._scheduler.stop(), "scheduler.stop (sync_state)")
         self._notify_state_change()
 
     def enable(self) -> None:
@@ -125,7 +147,7 @@ class CompanionEngine:
         self._settings().set("companion.enabled", True)
         if self._state == CompanionState.DISABLED:
             self._state = CompanionState.ACTIVE
-            asyncio.create_task(self._scheduler.start())
+            self._create_task_safely(self._scheduler.start(), "scheduler.start (enable)")
             self._notify_state_change()
 
     def disable(self) -> None:
@@ -133,7 +155,7 @@ class CompanionEngine:
         self._settings().set("companion.enabled", False)
         if self._state != CompanionState.DISABLED:
             self._state = CompanionState.DISABLED
-            asyncio.create_task(self._scheduler.stop())
+            self._create_task_safely(self._scheduler.stop(), "scheduler.stop (disable)")
             self._notify_state_change()
 
     def is_enabled(self) -> bool:
@@ -168,7 +190,7 @@ class CompanionEngine:
         if not self.is_enabled():
             return
         # Fire scheduler event asynchronously — don't await here
-        asyncio.create_task(self._scheduler.on_event(event))
+        self._create_task_safely(self._scheduler.on_event(event), "scheduler.on_event")
 
         # Handle events that affect engine state
         if event.event_type == CompanionEventType.IDLE_ENTER:

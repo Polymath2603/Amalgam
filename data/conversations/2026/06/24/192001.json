@@ -1,0 +1,18 @@
+{
+  "id": "2026-06-24_192001_82d22b",
+  "created": "2026-06-24T19:20:01.864823+00:00",
+  "updated": "2026-06-24T19:20:26.343852+00:00",
+  "title": "Hello",
+  "character": "batman",
+  "provider": "nonexistent_provider_xyz",
+  "model": null,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello",
+      "timestamp": "2026-06-24T19:20:26.343852+00:00",
+      "chroma_id": "2026-06-24_192001_82d22b_74a0466e"
+    }
+  ],
+  "summary": null
+}

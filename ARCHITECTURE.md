@@ -30,31 +30,25 @@ k/
 │   │   │   ├── planning_agent.py    # Task decomposition → steps → synthesis
 │   │   │   ├── core.py              # Legacy monolithic Agent (backwards compat)
 │   │   │   ├── factory.py           # AgentFactory — runtime agent selection
-│   │   │   ├── interface.py         # Shared agent interface
 │   │   │   ├── permissions.py       # Tool permission gating
 │   │   │   ├── hooks.py             # Plugin hooks integration
-│   │   │   ├── analytics.py         # Tool usage analytics
-│   │   │   └── stream_processor.py  # Streaming response processor
+│   │   │   └── analytics.py         # Tool usage analytics
 │   │   ├── config/
-│   │   │   ├── settings.py      # Persistent settings manager (JSON)
-│   │   │   ├── schema.py        # Pydantic config schemas
-│   │   │   └── character_schema.py
-│   │   ├── context/
-│   │   │   ├── builder.py       # Context builder (Jinja2 template)
-│   │   │   ├── budgets.py       # Token budget management
-│   │   │   ├── vault_injector.py# Vault context injection
-│   │   │   └── templates/       # Jinja2 templates
+│   │   │   ├── settings.py          # Persistent settings manager (JSON)
+│   │   │   └── character_schema.py  # Pydantic validation for character index.yaml
+│   │   ├── context_builder.py    # ContextBuilder — Jinja2 templates as inline
+│   │   │                         # strings (jinja2.BaseLoader), not template files
 │   │   ├── llm/
 │   │   │   ├── litellm_provider.py  # Unified LiteLLM wrapper
 │   │   │   ├── router.py           # Provider routing
 │   │   │   └── cost_router.py      # Cost-aware provider selection
 │   │   ├── memory/
-│   │   │   ├── manager.py       # Memory orchestrator (5 tiers)
+│   │   │   ├── manager.py       # Memory façade — ties working/episodic/semantic together
 │   │   │   ├── working.py       # In-memory ring buffer (last 20 turns)
 │   │   │   ├── episodic.py      # Per-session semantic storage (ChromaDB)
 │   │   │   ├── semantic.py      # Cross-session facts (BM25)
-│   │   │   ├── hybrid.py        # BM25 + vector fusion
-│   │   │   ├── fts.py           # Full-text keyword search (FTS5)
+│   │   │   ├── hybrid.py        # BM25 + vector fusion (retrieval, not a separate memory type)
+│   │   │   ├── fts.py           # Full-text keyword search (FTS5) (retrieval, not a separate memory type)
 │   │   │   ├── cache.py         # FACTCache — embedding dedup
 │   │   │   ├── session_index.py # Fast session listing
 │   │   │   └── consolidator.py  # Importance-based compaction
@@ -68,23 +62,24 @@ k/
 │   │   │   ├── corrections.py    # CorrectionStore — learns from user corrections
 │   │   │   ├── improvement.py    # SkillImprover — periodic library review
 │   │   │   └── preferences.py    # PreferenceLearner — behavioral inference
-│   │   ├── context_builder.py    # ContextBuilder (legacy, see context/)
-│   │   ├── user_profile.py       # Persistent user profiling
+│   │   ├── user_profile.py       # Persistent user profiling — the "user model" partition
 │   │   ├── metrics.py            # MetricsCollector + cost estimation
-│   │   ├── memory.py             # Memory (legacy, see memory/)
 │   │   ├── relationship.py       # Per-character relationship tracking
 │   │   ├── vault.py              # Markdown vault manager
 │   │   ├── startup.py            # Shared application init + shutdown
 │   │   ├── log_config.py         # structlog configuration
 │   │   ├── paths.py              # Centralized path definitions
 │   │   └── deps.py               # Singleton dependencies
+│   ├── core/mcp/
+│   │   └── client.py             # MCP client (separate from backend/mcp/servers/ below)
+│   ├── core/plugins/
+│   │   └── example_plugin.py     # Reference plugin implementation
 │   ├── mcp/
-│   │   ├── client.py             # MCP stdio client
 │   │   └── servers/              # Tool servers (shell, filesystem, etc.)
 │   ├── plugins/
 │   │   ├── base.py               # BasePlugin abstract class
 │   │   ├── manager.py            # PluginManager — discovery, lifecycle
-│   │   └── example_plugin.py     # Reference implementation
+│   │   └── emotion_analyzer/     # Built-in plugin
 │   ├── voice/
 │   │   ├── pipeline.py           # Voice capture → VAD → STT
 │   │   ├── stt_configurator.py   # STT engine configuration
@@ -100,8 +95,6 @@ k/
 │   ├── conversations/            # Session storage (JSON)
 │   └── settings.json             # User settings
 ├── ARCHITECTURE.md               # This file
-├── AUDIT.md                      # Security & correctness audit
-├── amalgam-review-v2.md          # Comprehensive architecture review
 └── requirements.txt              # Python dependencies
 ```
 
@@ -154,7 +147,7 @@ MetaCognitiveEngine (orchestrator: select → evaluate → adapt → record)
 
 ## Key Design Decisions
 - **Modular Agent Architecture**: Pluggable agent types via `BaseAgent` ABC + factory pattern.
-- **5-Tier Memory**: Working → Episodic → Semantic → Hybrid → FTS. Graceful degradation if ChromaDB unavailable.
+- **5-Partition Memory**: Working → Episodic → Semantic (with hybrid BM25+vector and FTS5 as retrieval mechanisms over it, not separate memory types) → Procedural (the skill system) → User model. Graceful degradation if ChromaDB unavailable.
 - **Structured Logging**: `structlog` with JSON/console modes, idempotent init.
 - **Rate Limiting**: Per-IP sliding window REST middleware (120 req/min).
 - **Metrics**: SQLite-backed `MetricsCollector` with auto cost estimation (47 model entries).
@@ -179,8 +172,8 @@ MetaCognitiveEngine (orchestrator: select → evaluate → adapt → record)
 backend/api/ws/handler.py
   → backend/core/agent/    (BaseAgent, BasicAgent, etc.)
     → backend/core/llm/    (LiteLLMProvider, CostRouter)
-    → backend/core/memory/  (5-tier memory)
-    → backend/core/context/ (Jinja2 template builder)
+    → backend/core/memory/  (working/episodic/semantic partitions)
+    → backend/core/context_builder.py (Jinja2 templates, inline strings)
     → backend/core/metacognitive/ (strategy selection)
     → backend/core/self_learning/ (auto skills, corrections)
     → backend/core/user_profile.py

@@ -1,0 +1,11 @@
+{
+  "id": "2026-06-24_191858_a9e45d",
+  "created": "2026-06-24T19:18:58.220384+00:00",
+  "updated": "2026-06-24T19:18:58.220384+00:00",
+  "title": "New Session",
+  "character": "batman",
+  "provider": "opencode",
+  "model": "deepseek-v4-flash-free",
+  "messages": [],
+  "summary": null
+}

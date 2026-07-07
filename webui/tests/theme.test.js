@@ -1,195 +1,229 @@
 /**
  * @vitest-environment happy-dom
  *
- * BRUTAL tests for theme system — system preferences, edge cases,
- * race conditions, and invalid inputs.
+ * Real tests for the theme/appearance and focus-trap utilities in
+ * webui/js/modules/utils.js: applyTheme, applyAccentColor,
+ * detectGPUCapability, and trapFocus.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { installMinimalDOM } from './_dom-shim.js';
 
-const THEMES = ['dark', 'midnight', 'light', 'nord'];
+// Only install the offline DOM shim if a real DOM isn't already present —
+// real vitest + happy-dom (after `npm install`) provides document/window
+// itself, and this must not clobber it.
+if (typeof document === 'undefined') installMinimalDOM();
+const { applyTheme, applyAccentColor, detectGPUCapability, trapFocus } =
+  await import('../js/modules/utils.js');
 
-describe('Theme system', () => {
-  beforeEach(() => {
-    document.documentElement.removeAttribute('data-theme');
-    localStorage.clear();
-  });
+beforeEach(() => {
+  document.documentElement.removeAttribute('data-theme');
+  document.body.innerHTML = '';
+});
 
-  it('defaults to dark theme when no theme saved', () => {
-    const saved = localStorage.getItem('theme');
-    expect(saved).toBeNull();
-    document.documentElement.setAttribute('data-theme', 'dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-  });
-
-  it.each(THEMES)('applies %s theme via data-theme attribute', (theme) => {
-    document.documentElement.setAttribute('data-theme', theme);
-    expect(document.documentElement.getAttribute('data-theme')).toBe(theme);
-  });
-
-  it('persists theme choice to localStorage', () => {
-    localStorage.setItem('theme', 'nord');
-    const saved = localStorage.getItem('theme');
-    expect(saved).toBe('nord');
-    document.documentElement.setAttribute('data-theme', saved);
-    expect(document.documentElement.getAttribute('data-theme')).toBe('nord');
-  });
-
-  it('switches from dark to light', () => {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+describe('applyTheme', () => {
+  it('dark theme removes the data-theme attribute (dark is the CSS default, no attribute needed)', () => {
     document.documentElement.setAttribute('data-theme', 'light');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
-  });
-
-  it('removes data-theme attribute when set to unknown value', () => {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    const valid = THEMES.includes('custom');
-    if (!valid) {
-      document.documentElement.removeAttribute('data-theme');
-    }
+    applyTheme('dark');
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
 
-  it('CSS variables are defined for each theme', () => {
-    const style = document.createElement('style');
-    style.textContent = `
-      [data-theme="dark"] { --bg: #1a1a2e; --text: #eee; }
-      [data-theme="midnight"] { --bg: #0f0f1a; --text: #c0c0ff; }
-      [data-theme="light"] { --bg: #fff; --text: #222; }
-      [data-theme="nord"] { --bg: #2e3440; --text: #eceff4; }
-    `;
-    document.head.appendChild(style);
-    expect(style.sheet.cssRules.length).toBe(4);
+  it('non-dark themes set data-theme to the given value', () => {
+    for (const theme of ['midnight', 'light', 'nord']) {
+      applyTheme(theme);
+      expect(document.documentElement.getAttribute('data-theme')).toBe(theme);
+    }
   });
 
-  it('theme selector in settings matches available themes', () => {
-    const select = document.createElement('select');
-    select.id = 'theme-select';
-    THEMES.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t;
-      select.appendChild(opt);
-    });
-    expect(select.options.length).toBe(4);
-    expect(select.options[0].value).toBe('dark');
-    expect(select.options[3].value).toBe('nord');
+  it('switching from a non-dark theme back to dark removes the attribute again', () => {
+    applyTheme('nord');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('nord');
+    applyTheme('dark');
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
 });
 
-// ===================================================================
-// BRUTAL edge cases
-// ===================================================================
-
-describe('Theme system — brutal edge cases', () => {
-  beforeEach(() => {
-    document.documentElement.removeAttribute('data-theme');
-    localStorage.clear();
+describe('applyAccentColor', () => {
+  it('sets the --accent CSS variable to the given hex value', () => {
+    applyAccentColor('#6c5ce7');
+    expect(document.documentElement.style['--accent']).toBe('#6c5ce7');
   });
 
-  it('setting empty string theme', () => {
-    document.documentElement.setAttribute('data-theme', '');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('');
+  it('computes --accent-dim as a 15%-alpha rgba() of the same color', () => {
+    applyAccentColor('#ff0000');
+    expect(document.documentElement.style['--accent-dim']).toBe('rgba(255, 0, 0, 0.15)');
   });
 
-  it('setting very long theme name', () => {
-    const longName = 'x'.repeat(10000);
-    document.documentElement.setAttribute('data-theme', longName);
-    expect(document.documentElement.getAttribute('data-theme')).toBe(longName);
+  it('marks the matching swatch active and unmarks the others', () => {
+    const wrap = document.createElement('div');
+    wrap.id = 'color-swatches';
+    const s1 = document.createElement('span');
+    s1.className = 'swatch';
+    s1.dataset.color = '#6c5ce7';
+    const s2 = document.createElement('span');
+    s2.className = 'swatch';
+    s2.dataset.color = '#00b894';
+    wrap.appendChild(s1);
+    wrap.appendChild(s2);
+    document.body.appendChild(wrap);
+
+    applyAccentColor('#00b894');
+    expect(s1.classList.contains('active')).toBe(false);
+    expect(s2.classList.contains('active')).toBe(true);
   });
 
-  it('rapid theme switching does not crash', () => {
-    for (let i = 0; i < 1000; i++) {
-      document.documentElement.setAttribute('data-theme', THEMES[i % THEMES.length]);
-    }
-    // Last iteration: i=999, 999 % 4 = 3, THEMES[3] = 'nord'
-    expect(document.documentElement.getAttribute('data-theme')).toBe('nord');
+  it('syncs the accent color picker input value when present', () => {
+    const picker = document.createElement('input');
+    picker.id = 'accent-color-picker';
+    document.body.appendChild(picker);
+    applyAccentColor('#123456');
+    expect(picker.value).toBe('#123456');
   });
 
-  it('localStorage theme persistence with special characters', () => {
-    localStorage.setItem('theme', 'dark;rm -rf /');
-    expect(localStorage.getItem('theme')).toBe('dark;rm -rf /');
+  it('does not throw when there is no picker or swatches in the DOM', () => {
+    expect(() => applyAccentColor('#abcdef')).not.toThrow();
+  });
+});
+
+describe('detectGPUCapability', () => {
+  it('returns the software tier when WebGL is unavailable', () => {
+    const result = detectGPUCapability();
+    expect(result.tier).toBe('software');
+    expect(result.reason).toBe('no-webgl');
   });
 
-  it('localStorage quota exceeded gracefully', () => {
-    // Fill localStorage to quota
-    try {
-      for (let i = 0; i < 10000; i++) {
-        localStorage.setItem(`key${i}`, 'x'.repeat(1000));
-      }
-    } catch (e) {
-      // Quota exceeded — expected
-    }
-    // Theme save might fail but should not crash
-    try {
-      localStorage.setItem('theme', 'dark');
-    } catch (e) {
-      // Expected under quota pressure
-    }
-  });
-
-  it('removeAttribute is idempotent', () => {
-    document.documentElement.removeAttribute('data-theme');
-    document.documentElement.removeAttribute('data-theme');
-    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
-  });
-
-  it('setAttribute then removeAttribute restores state', () => {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    expect(document.documentElement.hasAttribute('data-theme')).toBe(true);
-    document.documentElement.removeAttribute('data-theme');
-    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
-  });
-
-  it('getTheme returns current theme or null', () => {
-    // No theme set
-    expect(document.documentElement.getAttribute('data-theme')).toBeNull();
-    // Theme set
-    document.documentElement.setAttribute('data-theme', 'nord');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('nord');
-  });
-
-  it('each theme has distinct background color', () => {
-    const colors = {
-      dark: '#1a1a2e',
-      midnight: '#0f0f1a',
-      light: '#ffffff',
-      nord: '#2e3440',
+  it('flags a known low-end renderer string as the low tier', () => {
+    const fakeGl = {
+      getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 1, UNMASKED_VENDOR_WEBGL: 2 }),
+      getParameter: (p) => (p === 1 ? 'Mali-450 MP' : p === 2 ? 'ARM' : 8192),
+      MAX_TEXTURE_SIZE: 'MAX_TEXTURE_SIZE',
     };
-    const uniqueColors = new Set(Object.values(colors));
-    expect(uniqueColors.size).toBe(4);
+    const origCreateElement = document.createElement.bind(document);
+    document.createElement = (tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'canvas') el.getContext = () => fakeGl;
+      return el;
+    };
+    const result = detectGPUCapability();
+    expect(result.tier).toBe('low');
+    document.createElement = origCreateElement;
   });
 
-  it('theme CSS has correct selector syntax', () => {
-    THEMES.forEach(theme => {
-      const selector = `[data-theme="${theme}"]`;
-      expect(selector).toContain(theme);
-    });
+  it('flags a very small max texture size as the low tier even on a normal-sounding renderer', () => {
+    const fakeGl = {
+      getExtension: () => null,
+      getParameter: (p) => (p === 'MAX_TEXTURE_SIZE' ? 2048 : ''),
+      MAX_TEXTURE_SIZE: 'MAX_TEXTURE_SIZE',
+    };
+    const origCreateElement = document.createElement.bind(document);
+    document.createElement = (tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'canvas') el.getContext = () => fakeGl;
+      return el;
+    };
+    expect(detectGPUCapability().tier).toBe('low');
+    document.createElement = origCreateElement;
   });
 
-  it('localStorage getItem returns string not number', () => {
-    localStorage.setItem('theme', 'dark');
-    const value = localStorage.getItem('theme');
-    expect(typeof value).toBe('string');
+  it('reports the medium tier for a capable but mobile renderer', () => {
+    const fakeGl = {
+      getExtension: () => null,
+      getParameter: () => 8192,
+      MAX_TEXTURE_SIZE: 'MAX_TEXTURE_SIZE',
+    };
+    const origCreateElement = document.createElement.bind(document);
+    const origNavigator = global.navigator;
+    document.createElement = (tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'canvas') el.getContext = () => fakeGl;
+      return el;
+    };
+    Object.defineProperty(global, 'navigator', { value: { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)' }, configurable: true });
+    expect(detectGPUCapability().tier).toBe('medium');
+    document.createElement = origCreateElement;
+    Object.defineProperty(global, 'navigator', { value: origNavigator, configurable: true });
   });
 
-  it('concurrent setAttribute does not corrupt state', () => {
-    const results = [];
-    for (let i = 0; i < 100; i++) {
-      document.documentElement.setAttribute('data-theme', THEMES[i % THEMES.length]);
-      results.push(document.documentElement.getAttribute('data-theme'));
-    }
-    // Last write wins: i=99, 99 % 4 = 3, THEMES[3] = 'nord'
-    expect(results[results.length - 1]).toBe('nord');
+  it('reports the high tier for a capable desktop renderer', () => {
+    const fakeGl = {
+      getExtension: () => null,
+      getParameter: () => 16384,
+      MAX_TEXTURE_SIZE: 'MAX_TEXTURE_SIZE',
+    };
+    const origCreateElement = document.createElement.bind(document);
+    const origNavigator = global.navigator;
+    document.createElement = (tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'canvas') el.getContext = () => fakeGl;
+      return el;
+    };
+    Object.defineProperty(global, 'navigator', { value: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, configurable: true });
+    expect(detectGPUCapability().tier).toBe('high');
+    document.createElement = origCreateElement;
+    Object.defineProperty(global, 'navigator', { value: origNavigator, configurable: true });
+  });
+});
+
+describe('trapFocus', () => {
+  function makeModal() {
+    const modal = document.createElement('div');
+    const btn1 = document.createElement('button');
+    const input = document.createElement('input');
+    const btn2 = document.createElement('button');
+    modal.appendChild(btn1);
+    modal.appendChild(input);
+    modal.appendChild(btn2);
+    document.body.appendChild(modal);
+    return { modal, btn1, input, btn2 };
+  }
+
+  it('does nothing (no throw) when given a null element', () => {
+    expect(() => trapFocus(null)).not.toThrow();
   });
 
-  it('theme name with quotes does not break attribute', () => {
-    document.documentElement.setAttribute('data-theme', 'dark"evil');
-    const val = document.documentElement.getAttribute('data-theme');
-    expect(val).toBe('dark"evil');
+  it('Tab on the last focusable element wraps focus to the first', () => {
+    const { modal, btn1, btn2 } = makeModal();
+    trapFocus(modal);
+    btn2.focus();
+    let prevented = false;
+    modal.dispatchEvent({ type: 'keydown', key: 'Tab', shiftKey: false, preventDefault: () => { prevented = true; } });
+    expect(prevented).toBe(true);
+    expect(document.activeElement).toBe(btn1);
   });
 
-  it('theme name with spaces', () => {
-    document.documentElement.setAttribute('data-theme', 'dark mode');
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark mode');
+  it('Shift+Tab on the first focusable element wraps focus to the last', () => {
+    const { modal, btn1, btn2 } = makeModal();
+    trapFocus(modal);
+    btn1.focus();
+    let prevented = false;
+    modal.dispatchEvent({ type: 'keydown', key: 'Tab', shiftKey: true, preventDefault: () => { prevented = true; } });
+    expect(prevented).toBe(true);
+    expect(document.activeElement).toBe(btn2);
+  });
+
+  it('Tab on a middle element does not get intercepted', () => {
+    const { modal, input } = makeModal();
+    trapFocus(modal);
+    input.focus();
+    let prevented = false;
+    modal.dispatchEvent({ type: 'keydown', key: 'Tab', shiftKey: false, preventDefault: () => { prevented = true; } });
+    expect(prevented).toBe(false);
+  });
+
+  it('non-Tab keys are ignored entirely', () => {
+    const { modal, btn2 } = makeModal();
+    trapFocus(modal);
+    btn2.focus();
+    let prevented = false;
+    modal.dispatchEvent({ type: 'keydown', key: 'Enter', shiftKey: false, preventDefault: () => { prevented = true; } });
+    expect(prevented).toBe(false);
+  });
+
+  it('auto-focuses the first focusable element shortly after being called', () => {
+    vi.useFakeTimers();
+    const { modal, btn1 } = makeModal();
+    trapFocus(modal);
+    vi.advanceTimersByTime(50);
+    expect(document.activeElement).toBe(btn1);
+    vi.useRealTimers();
   });
 });

@@ -4,28 +4,85 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
-  backend:
+  backend-tests:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install core backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run backend test suite (core)
+        run: python -m pytest backend/tests/ -v
+
+      - name: Run CLI test suite
+        run: python -m pytest tests/cli/ -v
+
+  backend-voice-tests:
+    name: Backend tests (voice, optional)
+    runs-on: ubuntu-latest
+    # Voice deps (faster-whisper, sounddevice, webrtcvad) are heavier and
+    # pull in native audio libraries; kept as a separate, non-blocking job
+    # so a flaky voice-stack install doesn't block the core test signal.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system audio libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libportaudio2
+
+      - name: Install backend + voice dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-voice.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run voice-dependent tests
+        run: python -m pytest backend/tests/test_voice_pipeline.py -v
+
+  frontend-tests:
+    name: Frontend tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run frontend test suite
+        run: npm run test:frontend
+
+  python-syntax-check:
+    name: Python syntax check (all files)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
-      - run: python3 -m pip install --upgrade pip
-      - run: python3 -m pip install -r requirements.txt pytest pytest-asyncio
-      - run: python3 -m pytest backend/tests/ -v
-
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-      - run: npm ci
-      - run: npm run test:frontend
+      - name: Compile-check every .py file
+        run: python -m compileall -q backend tests

@@ -185,6 +185,46 @@ def set_shared(key: str, value: Any) -> None:
         _shared[key] = value
 
 
+def set_agent_type(agent_type: str) -> BaseAgent:
+    """
+    Rebuild the shared agent instance as a different type at runtime.
+
+    Backs `/direct` (and the WebUI equivalent): "direct" mode passes
+    agent_type="basic" to bypass PlanningAgent's task decomposition and
+    ReflectiveAgent's periodic reflection entirely — the plainest, fastest
+    path through the same AgentFactory used at startup. Calling this again
+    with the configured `agent.type` (or omitting agent_type to read it
+    fresh from settings) restores the normal agent.
+
+    Unlike the old `agent.type` *setting*, which only takes effect on the
+    next full process restart, this actually swaps the live instance in
+    `_shared["agent"]` immediately — the change applies to the very next
+    message.
+    """
+    with _init_lock:
+        s = _shared["settings"]
+        resolved_type = agent_type or s.get("agent.type", "reflective_planning") or "basic"
+        new_agent = AgentFactory.create(
+            resolved_type,
+            llm=_shared["llm"],
+            tools={},
+            memory=_shared["memory"],
+            config=s,
+            mcp_client=_shared.get("mcp"),
+            strategy_selector=_shared.get("strategy_selector"),
+        )
+        _shared["agent"] = new_agent
+        _shared["_active_agent_type"] = resolved_type
+        return new_agent
+
+
+def get_active_agent_type() -> str:
+    """Return the currently-active agent type (may differ from the
+    persisted `agent.type` setting if set_agent_type() was called at
+    runtime, e.g. via /direct)."""
+    return _shared.get("_active_agent_type") or _shared["settings"].get("agent.type", "reflective_planning") or "basic"
+
+
 # H2 fix: accessors read from _shared directly without lock.
 # GIL protects dict reads; all writes happen under _init_lock during
 # get_shared(), which is always called at startup before any accessor.

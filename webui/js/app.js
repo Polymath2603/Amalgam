@@ -25,7 +25,7 @@ import { stripMarkers, _isErrorText, formatMessage, getMessageHtml, renderMarkdo
 import { refreshProviderList, refreshCharacterList, refreshCharacterInfo, renderSettings, renderCategory, filterSettings, saveCategory, toggleFieldVisibility, testConnection, fetchModels, _attachSettingsDelegates, setActiveSettingsTab } from './modules/settings.js';
 import { processTTSQueue, flushTTSQueue, setTtsCallbacks } from './modules/tts.js';
 import { _applyVoiceInput, _applyVoiceOutput, isBrowserStt, initVoiceToggles, updateVoiceState, setVoiceStatusCallback } from './modules/voice.js';
-import { connectWS, getPendingMessages } from './modules/ws.js';
+import { connectWS, getPendingMessages, initAICompanyToggle } from './modules/ws.js';
 import { loadMCP } from './modules/mcp.js';
 import { initMemoryGraph, destroyMemoryGraph } from './modules/memory-graph.js';
 import { initMcpCommand, openMcpPanel, closeMcpPanel, isMcpPanelOpen, handleMcpKeydown } from './modules/mcp-command.js';
@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     initMcpCommand();
     initMetricsAutoRefresh();
+    initAICompanyToggle();
 
     // ─── Grab DOM refs ───
     const chatMessages = document.getElementById('chat-messages');

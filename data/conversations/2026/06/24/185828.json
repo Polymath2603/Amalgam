@@ -1,0 +1,11 @@
+{
+  "id": "2026-06-24_185828_75fc54",
+  "created": "2026-06-24T18:58:28.937029+00:00",
+  "updated": "2026-06-24T18:58:28.937029+00:00",
+  "title": "New Session",
+  "character": "batman",
+  "provider": "ollama",
+  "model": "",
+  "messages": [],
+  "summary": null
+}

@@ -1,0 +1,18 @@
+{
+  "id": "2026-06-24_192449_93529e",
+  "created": "2026-06-24T19:24:49.552239+00:00",
+  "updated": "2026-06-24T19:25:09.535377+00:00",
+  "title": "Hello (6)",
+  "character": "batman",
+  "provider": "gemini",
+  "model": "gemini-2.5-flash",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello",
+      "timestamp": "2026-06-24T19:25:09.535377+00:00",
+      "chroma_id": "2026-06-24_192449_93529e_cd4679c0"
+    }
+  ],
+  "summary": null
+}

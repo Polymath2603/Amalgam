@@ -219,6 +219,25 @@ class ChatSession:
         await self.send({"type": "emotion", "emotion": "neutral"})
         await self.send({"type": "expression", "expression": "neutral"})
 
+        # ── AI Company plugin: tell it what message we're about to process ──
+        # The plugin's on_system_prompt() hook uses this to decide whether to
+        # call the n8n pipeline and inject a plan.  Must be called before
+        # handle_user_input() since that internally calls _build_system_prompt().
+        try:
+            from backend.core.plugin import get_registry
+            reg = get_registry()
+            ac = reg.get("ai_company") if hasattr(reg, "get") else None
+            if ac is None:
+                # Fall back to the PluginManager
+                from backend.core.deps import get_shared
+                pm = get_shared().get("plugin_manager")
+                if pm:
+                    ac = pm.get_plugin("ai_company")
+            if ac is not None and ac.is_enabled():
+                ac.set_current_message(text)
+        except Exception as _ac_err:
+            logger.debug("ai_company pre-call hook failed (non-fatal): %s", _ac_err)
+
         tts_scheduler = OrderedTTSScheduler(translation_service=self._get_translation_service())
         _start = time.monotonic()
         try:
@@ -937,6 +956,12 @@ class ChatSession:
         elif cmd == "plans":
             """Alias for /plan list."""
             await self._handle_plan_command("list")
+        elif cmd == "company":
+            await self._handle_company_command(args)
+        elif cmd == "vault":
+            await self._handle_vault_command(args)
+        elif cmd == "direct":
+            await self._handle_direct_command(args)
         else:
             await self.send({"type": "chat_append", "role": "system",
                             "text": f"Unknown command: /{cmd}. Try /help", "finished": True})
@@ -1154,6 +1179,138 @@ class ChatSession:
                 "version": 1,
             },
         })
+
+    async def _handle_vault_command(self, args: str) -> None:
+        """/vault <query>  — full-text (BM25) search vault notes."""
+        query = args.strip()
+        if not query:
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": "Usage: `/vault <search query>`", "finished": True})
+            return
+        try:
+            from backend.core.deps import get_shared
+            vault = get_shared().get("vault")
+            if vault is None:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": "Vault is not available.", "finished": True})
+                return
+            results = vault.search(query, max_results=8)
+            if not results:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": f"Vault: no results for '{query}'.", "finished": True})
+                return
+            lines = [f"**Vault search: '{query}'**", ""]
+            for r in results:
+                lines.append(f"- **{r['filename']}** — {r['snippet']}")
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": "\n".join(lines), "finished": True})
+        except Exception as e:
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": f"Vault search failed: {e}", "finished": True})
+
+    async def _handle_direct_command(self, args: str) -> None:
+        """/direct — toggle direct mode: swap the live agent to the plain
+        'basic' type (skips PlanningAgent's task decomposition and
+        ReflectiveAgent's periodic reflection) for raw, fast, no-frills
+        model access. Toggling again restores the configured agent.type."""
+        try:
+            from backend.core.deps import get_active_agent_type, set_agent_type
+            current_type = get_active_agent_type()
+            if current_type == "basic":
+                set_agent_type(None)  # restore configured default
+                new_type = get_active_agent_type()
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": f"Direct mode **off** — back to `{new_type}`.", "finished": True})
+            else:
+                set_agent_type("basic")
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": "Direct mode **on** — raw model access, no planning/reflection layers.",
+                                 "finished": True})
+        except Exception as e:
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": f"Direct mode toggle failed: {e}", "finished": True})
+
+    async def _handle_company_command(self, args: str) -> None:
+        """
+        /company [on|off|auto|status|run <message>]
+
+        Manage the AI Company thinking plugin at runtime.
+        """
+        def _get_plugin():
+            try:
+                from backend.core.deps import get_shared
+                pm = get_shared().get("plugin_manager")
+                return pm.get_plugin("ai_company") if pm else None
+            except Exception:
+                return None
+
+        sub = args.strip().lower() if args.strip() else "status"
+
+        if sub == "status" or not sub:
+            plugin = _get_plugin()
+            if plugin is None:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": "**AI Company**: not loaded (check `ai_company.webhook_url` in settings).",
+                                 "finished": True})
+                return
+            st = plugin.get_status()
+            lines = [
+                "**AI Company**",
+                f"Mode: `{st['mode']}`   Status: `{st['status']}`",
+                f"Webhook: `{st['webhook_url'] or '(not set)'}…`",
+                f"Last duration: {st['last_duration']:.1f}s" if st["last_duration"] else "Last duration: —",
+                f"Plan cached: {st['plan_chars']} chars" if st["has_plan"] else "Plan cached: none",
+            ]
+            if st["last_error"]:
+                lines.append(f"Last error: _{st['last_error']}_")
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": "\n".join(lines), "finished": True})
+
+        elif sub in ("on", "off", "auto"):
+            plugin = _get_plugin()
+            if plugin is None:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": "AI Company plugin is not loaded.", "finished": True})
+                return
+            plugin.set_mode(sub)
+            # Persist to settings
+            try:
+                settings().set("ai_company.mode", sub)
+            except Exception:
+                pass
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": f"AI Company mode set to **{sub}**.", "finished": True})
+            await self.send({"type": "company:mode_changed", "mode": sub})
+
+        elif sub.startswith("run "):
+            task = args.strip()[4:].strip()
+            if not task:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": "Usage: `/company run <task description>`", "finished": True})
+                return
+            plugin = _get_plugin()
+            if plugin is None or not plugin.get_status()["webhook_url"]:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": "AI Company plugin is not loaded or has no webhook URL.", "finished": True})
+                return
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": "⚙ AI Company is planning…", "finished": False})
+            plugin.set_current_message(task)
+            from backend.core.plugin import get_registry
+            dummy_prompt = "You are Amalgam."
+            plan_prompt = await get_registry().hook_system_prompt(dummy_prompt)
+            plan_text = plan_prompt.replace(dummy_prompt, "").strip()
+            if plan_text:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": plan_text, "finished": True})
+            else:
+                await self.send({"type": "chat_append", "role": "system",
+                                 "text": "AI Company returned no plan (check webhook URL / n8n status).",
+                                 "finished": True})
+        else:
+            await self.send({"type": "chat_append", "role": "system",
+                             "text": "Usage: `/company [status|on|off|auto|run <task>]`",
+                             "finished": True})
 
     # WebSocket message size limit (1 MB)
     _MAX_WS_MSG_SIZE = 1 * 1024 * 1024

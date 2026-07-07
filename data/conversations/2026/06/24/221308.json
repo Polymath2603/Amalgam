@@ -1,0 +1,48 @@
+{
+  "id": "2026-06-24_221308_d1b999",
+  "created": "2026-06-24T22:13:08.820990+00:00",
+  "updated": "2026-06-24T22:27:11.987521+00:00",
+  "title": "She's in the parking",
+  "character": "batman",
+  "provider": "gemini",
+  "model": "gemini-2.5-flash",
+  "messages": [
+    {
+      "role": "user",
+      "content": "She's in the parking lot.  The air defense is there.  There's a ship in the deep room.  I've heard it.  It's in the place.  It's in the place.  It's in the place.  It's in the place.  It's in the place.  So that's not a mass of chance.  And that's not a mass of chance.  It's not a full of air.  It's in the place.  So here.  Okay.  I'm sorry, I'm sorry, I'm sorry.",
+      "timestamp": "2026-06-24T22:23:29.193872+00:00",
+      "chroma_id": "2026-06-24_221308_d1b999_c2a1ccfa"
+    },
+    {
+      "role": "user",
+      "content": "\u0421\u041f\u041e\u041a\u041e\u0419\u041d\u0410\u042f \u041c\u0423\u0417\u042b\u041a\u0410  \u041e\u0442\u043f\u043b\u0435\u0447\u0443\u0441\u044c.  \u0414\u0430.",
+      "timestamp": "2026-06-24T22:23:53.409379+00:00",
+      "chroma_id": "2026-06-24_221308_d1b999_63f50fa3"
+    },
+    {
+      "role": "user",
+      "content": "\u0410\u0440\u0445\u043e\u0432\u0430\u043d...  \u0412\u044b \u0432\u0435\u043b\u0438\u0449\u0438\u0439 \ucda4.  \u041e, \u043d\u0435.  \u041d\u0438\u0447\u0435\u0433\u043e, \u0447\u0442\u043e \u043e\u043d \u0442\u0430\u043c \u0437\u0430\u043f\ufffd\u0430\u0435\u0442?  \uc11c\u0441\u0442\u0435\u043f\u043f\u044c\u0442\u0435,\u0438\u043d\u043a\u0438\u0435\u0432\u0442\u0435\u043f\u0444\u0451,  \u0421\u0435\u043d\u0441\u043e\u0440\u043d\u044b\u0439 \u043b\u043e\u043c\u043a\u0438\u043d.",
+      "timestamp": "2026-06-24T22:24:31.227655+00:00",
+      "chroma_id": "2026-06-24_221308_d1b999_b72755a1"
+    },
+    {
+      "role": "user",
+      "content": "\u0410\u0440\u0445\u043e\u0432\u0430\u043d...  \u0412\u044b \u0432\u0435\u043b\u0438\u0449\u0438\u0439 \ucda4.  \u041e, \u043d\u0435.  \u041d\u0438\u0447\u0435\u0433\u043e, \u0447\u0442\u043e \u043e\u043d \u0442\u0430\u043c \u0437\u0430\u043f\ufffd\u0430\u0435\u0442?  \uc11c\u0441\u0442\u0435\u043f\u043f\u044c\u0442\u0435,\u0438\u043d\u043a\u0438\u0435\u0432\u0442\u0435\u043f\u0444\u0451,  \u0421\u0435\u043d\u0441\u043e\u0440\u043d\u044b\u0439 \u043b\u043e\u043c\u043a\u0438\u043d.",
+      "timestamp": "2026-06-24T22:24:31.239650+00:00",
+      "chroma_id": "2026-06-24_221308_d1b999_56592ba1"
+    },
+    {
+      "role": "user",
+      "content": "Dance for me!",
+      "timestamp": "2026-06-24T22:24:41.529357+00:00",
+      "chroma_id": "2026-06-24_221308_d1b999_1bcf9d47"
+    },
+    {
+      "role": "user",
+      "content": "Rue de Kampel  Rue de Kampel  Rue de Kampel",
+      "timestamp": "2026-06-24T22:27:11.987521+00:00",
+      "chroma_id": "2026-06-24_221308_d1b999_a864deb6"
+    }
+  ],
+  "summary": null
+}

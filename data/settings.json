@@ -1,0 +1,786 @@
+{
+  "config_version": 1,
+  "provider": {
+    "active": "gemini",
+    "ollama": {
+      "base_url": "http://localhost:11434",
+      "model": ""
+    },
+    "gemini": {
+      "api_key": "",
+      "model": "gemini-2.5-flash",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta"
+    },
+    "openrouter": {
+      "api_key": "",
+      "model": "meta-llama/llama-3.1-8b-instruct:free",
+      "base_url": "https://openrouter.ai/api/v1"
+    },
+    "zai": {
+      "api_key": "",
+      "model": "GLM-5.1",
+      "base_url": "https://api.z.ai/api/coding/paas/v4"
+    },
+    "siliconflow": {
+      "api_key": "",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "base_url": "https://api.siliconflow.cn/v1"
+    },
+    "groq": {
+      "api_key": "",
+      "model": "deepseek-r1-distill-llama-70b",
+      "base_url": "https://api.groq.com/openai/v1"
+    },
+    "chatgpt": {
+      "api_key": "sk-XEQ2icyFnvNKG5LsbAYG5EaZ8mrZEZqjoiqKguCtvVzlzDlM3oTgJVXN2Y3IMqnz",
+      "model": "gpt-4o-mini",
+      "base_url": "https://api.openai.com/v1"
+    },
+    "claude": {
+      "api_key": "",
+      "model": "claude-sonnet-4-20250514",
+      "base_url": "https://api.anthropic.com/v1"
+    },
+    "llamacpp": {
+      "base_url": "http://localhost:8080",
+      "model": ""
+    },
+    "koboldai": {
+      "base_url": "http://localhost:5001",
+      "model": ""
+    },
+    "deepseek": {
+      "api_key": "",
+      "model": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1"
+    },
+    "mistral": {
+      "api_key": "",
+      "model": "mistral-small-latest",
+      "base_url": "https://api.mistral.ai/v1"
+    },
+    "together": {
+      "api_key": "",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "base_url": "https://api.together.xyz/v1"
+    },
+    "azure-openai": {
+      "api_key": "",
+      "model": "gpt-4o-mini",
+      "base_url": "https://YOUR_RESOURCE.openai.azure.com"
+    },
+    "alibaba": {
+      "api_key": "",
+      "model": "qwen-turbo",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    },
+    "huggingface": {
+      "api_key": "",
+      "model": "Qwen/Qwen2.5-72B-Instruct",
+      "base_url": "https://api-inference.huggingface.co/v1"
+    },
+    "aws": {
+      "access_key": "",
+      "secret_key": "",
+      "region": "us-east-1",
+      "model": "anthropic.claude-sonnet-4-20250514"
+    },
+    "gcp": {
+      "service_account_json": "",
+      "project_id": "",
+      "region": "us-central1",
+      "model": "gemini-2.0-flash-001"
+    },
+    "opencode": {
+      "api_key": "sk-XEQ2icyFnvNKG5LsbAYG5EaZ8mrZEZqjoiqKguCtvVzlzDlM3oTgJVXN2Y3IMqnz",
+      "model": "deepseek-v4-flash-free",
+      "base_url": "https://opencode.ai/zen/v1"
+    },
+    "openai": {
+      "model": "gpt-4o-mini"
+    }
+  },
+  "log": {
+    "level": "WARNING",
+    "format": "console"
+  },
+  "telegram": {
+    "token": "",
+    "allowed_users": [],
+    "enabled": false
+  },
+  "character": {
+    "active": "batman",
+    "greeting": "Hello",
+    "system_prompt": "",
+    "rules": ""
+  },
+  "voice": {
+    "engine": "edge-tts",
+    "stt_engine": "browser",
+    "stt_engine_cli": "faster-whisper",
+    "stt_engine_webui": "browser",
+    "lipsync_enabled": true,
+    "vad_mode": "2",
+    "vad_frame_size": 960,
+    "vad_energy_threshold": 0.02,
+    "vad_silence_frames": 33,
+    "faster_whisper": {
+      "model": "base"
+    },
+    "openai_whisper": {
+      "api_key": "",
+      "model": "whisper-1"
+    },
+    "elevenlabs": {
+      "api_key": "",
+      "voice_id": "21m00Tcm4TlvDq8ikWAM",
+      "model": "eleven_multilingual_v2"
+    },
+    "openai_tts": {
+      "api_key": "",
+      "model": "tts-1",
+      "voice": "alloy",
+      "base_url": "https://api.openai.com/v1"
+    },
+    "alltalk": {
+      "url": "http://127.0.0.1:7851",
+      "language": "en",
+      "version": "v2",
+      "rvc_voice": "",
+      "rvc_pitch": "0",
+      "voice": "female_01.wav"
+    },
+    "piper": {
+      "url": "http://127.0.0.1:5000"
+    },
+    "coqui_local": {
+      "url": "http://127.0.0.1:5002",
+      "speaker_id": ""
+    },
+    "kokoro": {
+      "url": "http://127.0.0.1:8880",
+      "voice": "af_heart"
+    },
+    "azure": {
+      "api_key": "",
+      "region": "eastus"
+    },
+    "dashscope": {
+      "api_key": "",
+      "model": "cosyvoice-v1"
+    },
+    "volcengine": {
+      "app_id": "",
+      "access_token": "",
+      "cluster": "volcano_tts"
+    },
+    "deepgram_tts": {
+      "api_key": "",
+      "model": "aura-2"
+    },
+    "rvc": {
+      "url": "http://127.0.0.1:7897",
+      "f0_up_key": 0,
+      "f0_method": "rmvpe"
+    },
+    "groq_whisper": {
+      "api_key": "",
+      "model": "whisper-large-v3",
+      "base_url": "https://api.groq.com/openai/v1"
+    },
+    "whispercpp": {
+      "url": "http://127.0.0.1:8080"
+    },
+    "deepgram_stt": {
+      "api_key": "",
+      "model": "nova-2"
+    },
+    "tts_timeout": 60.0,
+    "deepgram": {
+      "api_key": "",
+      "model": "nova-2"
+    },
+    "active": "en-US-BrandonNeural",
+    "input_enabled": true,
+    "output_enabled": true
+  },
+  "wake_word": {
+    "enabled": false,
+    "engine": "openwakeword",
+    "sensitivity": 0.5,
+    "model": "hey_amalgam"
+  },
+  "avatar": {
+    "model_path": "characters/batman/model.vrm",
+    "scale": 1.0,
+    "enabled": true,
+    "lipsync_quality": "basic",
+    "postfx_enabled": false,
+    "notes": "Avatar on but postFX and advanced lipsync disabled (GPU cost)."
+  },
+  "behavior": {
+    "companion_enabled": false,
+    "permission_level": "confirm",
+    "thinking_enabled": false
+  },
+  "companion": {
+    "enabled": true,
+    "idle_check_delay": 10,
+    "proactive_interval": 60,
+    "time_awareness": true,
+    "personality_notes": ""
+  },
+  "privacy": {
+    "metrics_opt_out": true,
+    "local_only_mode": false
+  },
+  "vault": {
+    "path": "data/vault"
+  },
+  "shell": {
+    "mode": "safe",
+    "allowed_prefixes": [
+      "echo",
+      "ls",
+      "cat",
+      "pwd",
+      "date",
+      "find",
+      "grep",
+      "head",
+      "tail",
+      "wc",
+      "mkdir",
+      "cp",
+      "mv",
+      "rm",
+      "touch",
+      "curl",
+      "wget",
+      "python3",
+      "python",
+      "pip",
+      "pip3",
+      "whoami",
+      "uname",
+      "notify-send",
+      "ps",
+      "top",
+      "htop",
+      "df",
+      "du",
+      "free",
+      "which",
+      "kill",
+      "pkill",
+      "xdotool",
+      "xclip",
+      "wl-paste"
+    ]
+  },
+  "ui": {
+    "mode": "tui",
+    "theme": "dark",
+    "font_size": 14,
+    "voice_input": true,
+    "voice_output": true,
+    "thinking_enabled": true,
+    "accent_color": "#6c5ce7",
+    "language": "en"
+  },
+  "mcp": {
+    "servers": [
+      {
+        "name": "shell",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/shell/server.py"
+        ],
+        "enabled": true,
+        "env": {
+          "AMALGAM_SHELL_MODE": "safe",
+          "AMALGAM_SHELL_ALLOWED_COMMANDS": "echo,ls,cat,pwd,date,find,grep,head,tail,wc,mkdir,cp,mv,rm,touch,curl,wget,python3,python,pip,pip3,whoami,uname,notify-send,ps,top,htop,df,du,free,which,kill,pkill,xdotool,xclip,wl-paste"
+        }
+      },
+      {
+        "name": "screenshot",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/screenshot/server.py"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "sequential-thinking",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-sequential-thinking"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "puppeteer",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-puppeteer"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "obsidian",
+        "command": "npx",
+        "args": [
+          "-y",
+          "obsidian-mcp",
+          "/home/leonardo/Workplace/k/data/vault"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "system",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/system/server.py"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "skill",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/skill/server.py"
+        ],
+        "enabled": false,
+        "env": {
+          "AMALGAM_DATA_DIR": "data"
+        }
+      },
+      {
+        "name": "windows",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@cool-mcp/desktop-automation"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "avatar",
+        "command": "python3",
+        "args": [
+          "/home/leonardo/Workplace/k/backend/mcp/servers/avatar/server.py"
+        ],
+        "enabled": false
+      },
+      {
+        "name": "duckduckgo",
+        "command": "npx",
+        "args": [
+          "-y",
+          "duckduckgo-mcp"
+        ],
+        "enabled": false
+      }
+    ],
+    "lazy_loading": true,
+    "notes": "Tool schemas not injected. Agent calls describe_tool() only when needed."
+  },
+  "system_prompt": {
+    "active": "default",
+    "additional_instructions": ""
+  },
+  "auth": {
+    "mode": "none",
+    "api_key": ""
+  },
+  "llm": {
+    "temperature": "0.7",
+    "max_tokens": 2048,
+    "timeout": 120.0,
+    "context_token_limit": 6000,
+    "routing_strategy": "single",
+    "fallback_providers": [],
+    "context_strategy": "full",
+    "sliding_window_size": 20,
+    "model": "auto",
+    "router_enabled": true,
+    "notes": "auto routes simple questions to Groq 8B (<$0.001), only complex tasks use expensive models"
+  },
+  "translation": {
+    "enabled": false,
+    "source_lang": "auto",
+    "target_lang": "ZH",
+    "base_url": "http://localhost:1188/translate"
+  },
+  "memory": {
+    "enabled": true,
+    "retrieval_k": 3,
+    "context_window": 50,
+    "summarize_threshold": 40,
+    "summarize_keep": 15,
+    "embedding_backend": "provider",
+    "fact_extraction": true,
+    "compaction": {
+      "enabled": true,
+      "importance_threshold": 0.3,
+      "aggressiveness": 0.5,
+      "frequency_turns": 10,
+      "frequency_minutes": 0,
+      "max_working_memory": 50
+    },
+    "strategies": {
+      "episodic": "chromadb",
+      "semantic": "bm25",
+      "hybrid": "weighted",
+      "fts": "sqlite_fts5"
+    },
+    "embedding": {
+      "openai": {
+        "api_key": "",
+        "model": "text-embedding-3-small"
+      },
+      "ollama": {
+        "base_url": "http://localhost:11434",
+        "model": "nomic-embed-text"
+      }
+    },
+    "sideagent_enabled": false,
+    "fts_cross_session_enabled": false,
+    "retrieval_n": 3,
+    "notes": "Sideagent verification skipped. FTS search disabled. Retrieval capped at 3 results."
+  },
+  "test": {
+    "key": "test_value",
+    "none_key": null,
+    "empty": "",
+    "int_val": 999999,
+    "neg": -42,
+    "float_val": 3.14159,
+    "bool_true": true,
+    "bool_false": false,
+    "list": [
+      1,
+      2,
+      3,
+      "a",
+      "b"
+    ],
+    "dict": {
+      "key": "value",
+      "nested": {
+        "a": 1
+      }
+    },
+    "overwrite": "new",
+    "type_change": 42,
+    "persist_key": "persist_value",
+    "runtime_check": "ok"
+  },
+  "a": {
+    "b": {
+      "c": {
+        "d": {
+          "e": {
+            "f": {
+              "g": {
+                "h": 42
+              }
+            }
+          }
+        }
+      }
+    },
+    "0": {
+      "b": "zero_index"
+    }
+  },
+  "profile": "token-friendly",
+  "context": {
+    "working_memory_turns": 5,
+    "retrieved_context_max_tokens": 400,
+    "skills_max_active": 1,
+    "constitution_compressed": true,
+    "notes": "Constitution is compressed to key rules only. Fewer history turns in context."
+  },
+  "orchestrator": {
+    "plan_mode": false,
+    "critic_lite_enabled": false,
+    "notes": "No plan preview. No post-task critic. Faster but less verified."
+  },
+  "setup_steps": [
+    "provider",
+    "voice",
+    "character",
+    "behavior"
+  ],
+  "setup_completed": true,
+  "key-with-dash": {
+    "sub_key": {
+      "sub": {
+        "key": "value"
+      }
+    }
+  },
+  "concurrent": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "11": 11,
+    "12": 12,
+    "13": 13,
+    "14": 14,
+    "15": 15,
+    "16": 16,
+    "17": 17,
+    "18": 18,
+    "19": 19,
+    "20": 20,
+    "21": 21,
+    "22": 22,
+    "23": 23,
+    "24": 24,
+    "25": 25,
+    "26": 26,
+    "27": 27,
+    "28": 28,
+    "29": 29,
+    "30": 30,
+    "31": 31,
+    "32": 32,
+    "33": 33,
+    "34": 34,
+    "35": 35,
+    "36": 36,
+    "37": 37,
+    "38": 38,
+    "39": 39,
+    "40": 40,
+    "41": 41,
+    "42": 42,
+    "43": 43,
+    "44": 44,
+    "45": 45,
+    "46": 46,
+    "47": 47,
+    "48": 48,
+    "49": 49
+  },
+  "race": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "11": 11,
+    "12": 12,
+    "13": 13,
+    "14": 14,
+    "15": 15,
+    "16": 16,
+    "17": 17,
+    "18": 18,
+    "19": 19,
+    "20": 20,
+    "21": 21,
+    "22": 22,
+    "23": 23,
+    "24": 24,
+    "25": 25,
+    "26": 26,
+    "27": 27,
+    "28": 28,
+    "29": 29,
+    "30": 30,
+    "31": 31,
+    "32": 32,
+    "33": 33,
+    "34": 34,
+    "35": 35,
+    "36": 36,
+    "37": 37,
+    "38": 38,
+    "39": 39,
+    "40": 40,
+    "41": 41,
+    "42": 42,
+    "43": 43,
+    "44": 44,
+    "45": 45,
+    "46": 46,
+    "47": 47,
+    "48": 48,
+    "49": 49,
+    "50": 50,
+    "51": 51,
+    "52": 52,
+    "53": 53,
+    "54": 54,
+    "55": 55,
+    "56": 56,
+    "57": 57,
+    "58": 58,
+    "59": 59,
+    "60": 60,
+    "61": 61,
+    "62": 62,
+    "63": 63,
+    "64": 64,
+    "65": 65,
+    "66": 66,
+    "67": 67,
+    "68": 68,
+    "69": 69,
+    "70": 70,
+    "71": 71,
+    "72": 72,
+    "73": 73,
+    "74": 74,
+    "75": 75,
+    "76": 76,
+    "77": 77,
+    "78": 78,
+    "79": 79,
+    "80": 80,
+    "81": 81,
+    "82": 82,
+    "83": 83,
+    "84": 84,
+    "85": 85,
+    "86": 86,
+    "87": 87,
+    "88": 88,
+    "89": 89,
+    "90": 90,
+    "91": 91,
+    "92": 92,
+    "93": 93,
+    "94": 94,
+    "95": 95,
+    "96": 96,
+    "97": 97,
+    "98": 98,
+    "99": 99
+  },
+  "thread_test": {
+    "0": 0,
+    "1": 1,
+    "3": 3,
+    "5": 5,
+    "7": 7,
+    "10": 10,
+    "13": 13,
+    "17": 17,
+    "18": 18,
+    "20": 20,
+    "23": 23,
+    "26": 26,
+    "29": 29,
+    "32": 32,
+    "35": 35,
+    "39": 39,
+    "41": 41,
+    "44": 44,
+    "47": 47,
+    "4": 4,
+    "8": 8,
+    "12": 12,
+    "14": 14,
+    "22": 22,
+    "24": 24,
+    "28": 28,
+    "33": 33,
+    "37": 37,
+    "42": 42,
+    "45": 45,
+    "49": 49,
+    "9": 9,
+    "11": 11,
+    "16": 16,
+    "25": 25,
+    "30": 30,
+    "34": 34,
+    "38": 38,
+    "43": 43,
+    "2": 2,
+    "6": 6,
+    "15": 15,
+    "19": 19,
+    "27": 27,
+    "40": 40,
+    "46": 46,
+    "21": 21,
+    "31": 31,
+    "36": 36,
+    "48": 48
+  },
+  "ts_0": 0,
+  "ts_1": 1,
+  "ts_3": 3,
+  "ts_7": 7,
+  "ts_9": 9,
+  "ts_12": 12,
+  "ts_14": 14,
+  "ts_17": 17,
+  "ts_20": 20,
+  "ts_23": 23,
+  "ts_26": 26,
+  "ts_28": 28,
+  "ts_31": 31,
+  "ts_34": 34,
+  "ts_37": 37,
+  "ts_40": 40,
+  "ts_43": 43,
+  "ts_45": 45,
+  "ts_47": 47,
+  "ts_4": 4,
+  "ts_8": 8,
+  "ts_11": 11,
+  "ts_13": 13,
+  "ts_18": 18,
+  "ts_21": 21,
+  "ts_25": 25,
+  "ts_29": 29,
+  "ts_33": 33,
+  "ts_38": 38,
+  "ts_42": 42,
+  "ts_49": 49,
+  "ts_2": 2,
+  "ts_5": 5,
+  "ts_15": 15,
+  "ts_22": 22,
+  "ts_24": 24,
+  "ts_30": 30,
+  "ts_35": 35,
+  "ts_41": 41,
+  "ts_48": 48,
+  "ts_10": 10,
+  "ts_27": 27,
+  "ts_32": 32,
+  "ts_39": 39,
+  "ts_6": 6,
+  "ts_16": 16,
+  "ts_44": 44,
+  "ts_46": 46,
+  "ts_19": 19,
+  "ts_36": 36,
+  "companion.enabled": true,
+  "key": "companion.enabled",
+  "value": true
+}

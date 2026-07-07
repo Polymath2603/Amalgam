@@ -86,7 +86,7 @@ class TTSRouter :
         ov =self ._ensure ("openvoice")
         return ov .get_openvoice_loaded ()
 
-    def configure_elevenlabs (self ,api_key: "REDACTED"):
+    def configure_elevenlabs (self ,api_key :str ,model :str ="eleven_multilingual_v2"):
         self ._ensure ("elevenlabs").configure (api_key ,model )
 
     def configure_openai_tts (self ,api_key :str ,model :str ="tts-1",base_url :str =None ):

@@ -20,7 +20,7 @@ class ElevenLabsProvider (TTSProvider ):
         self ._model ="eleven_multilingual_v2"
         self ._client =httpx .AsyncClient (timeout =httpx .Timeout (60.0 ,connect =10.0 ))
 
-    def configure (self ,api_key: "REDACTED"):
+    def configure (self ,api_key :str ,model :str ="eleven_multilingual_v2"):
         self ._api_key =api_key 
         self ._model =model 
 

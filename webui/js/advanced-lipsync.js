@@ -7,27 +7,7 @@
  */
 import { FrequencyAnalyzer } from './frequency-analyzer.js';
 import { VisemeScheduler } from './viseme-scheduler.js';
-
-/* Phoneme-to-viseme mapping — maps ARPAbet phonemes to mouth shapes */
-const PHONEME_TO_VISEME = {
-    'AA': 'A', 'AE': 'A', 'AH': 'A', 'AO': 'O',
-    'AW': 'O', 'AY': 'I', 'B': 'M', 'CH': 'C',
-    'D': 'D', 'DH': 'D', 'EH': 'E', 'ER': 'R',
-    'EY': 'I', 'F': 'F', 'G': 'C', 'HH': 'H',
-    'IH': 'I', 'IY': 'I', 'JH': 'C', 'K': 'C',
-    'L': 'L', 'M': 'M', 'N': 'N', 'NG': 'N',
-    'OW': 'O', 'OY': 'O', 'P': 'M', 'R': 'R',
-    'S': 'C', 'SH': 'C', 'T': 'D', 'TH': 'C',
-    'UH': 'U', 'UW': 'U', 'V': 'F', 'W': 'U',
-    'Y': 'I', 'Z': 'C', 'ZH': 'C',
-};
-
-/* Viseme → mouth openness (0 = closed, 1 = wide open) */
-const VISEME_OPENNESS = {
-    'A': 0.9, 'I': 0.7, 'U': 0.4, 'E': 0.6, 'O': 0.5,
-    'M': 0.0, 'F': 0.1, 'C': 0.2, 'D': 0.1, 'N': 0.1,
-    'L': 0.2, 'R': 0.15, 'H': 0.3,
-};
+import { VISEME_SHAPES, EXTENDED_TO_SIMPLE, getTransitionWeight } from './visemes.js';
 
 /* 4-formant frequency ranges in Hz (for vowel estimation) */
 const FORMANTS = {
@@ -48,7 +28,7 @@ export class AdvancedLipSync {
         // Coarticulation smoothing
         this._smoothingFrames = options.smoothingFrames || 3;
         this._history = [];
-        this._lastViseme = 'M';
+        this._lastViseme = 'sil';
 
         // Formant estimation state
         this._fftSize = options.fftSize || 1024;
@@ -73,12 +53,24 @@ export class AdvancedLipSync {
 
         const base = this._analyzer.analyze();
         const formantViseme = this._estimateFormants();
-        const blended = this._blendVisemes(base?.viseme || 'M', formantViseme);
+        const blended = this._blendVisemes(base?.viseme || 'sil', formantViseme);
+        const intensity = base?.intensity || 0.3;
+        const shapeDef = VISEME_SHAPES[blended] || VISEME_SHAPES.sil;
 
+        // Same return shape as VisemeScheduler.analyze() (and
+        // FrequencyAnalyzer.analyze()) — avatar.js::setViseme() reads
+        // .shape.{open,width,round} regardless of which lipsync backend
+        // or mode produced the frame, so all paths must agree on shape.
         return {
             viseme: blended,
-            mouthOpen: VISEME_OPENNESS[blended] ?? 0.3,
-            intensity: base?.intensity || 0.3,
+            simpleViseme: EXTENDED_TO_SIMPLE[blended] || 'A',
+            intensity,
+            confidence: base?.confidence ?? 0.5,
+            amplitude: base?.amplitude ?? shapeDef.open,
+            bands: base?.bands ?? null,
+            shape: { ...shapeDef },
+            transition: { from: this._lastViseme, to: blended, progress: 1 },
+            frame: this._formantHistory.length,
         };
     }
 
@@ -122,8 +114,10 @@ export class AdvancedLipSync {
         const f1 = formants.F1 || 500;
         const f2 = formants.F2 || 1500;
 
-        // Vowel triangle classification
-        if (f1 > 600 && f2 > 1800) return 'A';   // [æ] as in "cat"
+        // Vowel triangle classification — emits the same extended-scheme
+        // keys as visemes.js (VISEME_SHAPES), so this can be compared
+        // against and blended with FrequencyAnalyzer's output directly.
+        if (f1 > 600 && f2 > 1800) return 'aa';  // [æ] as in "cat"
         if (f1 > 500 && f2 < 1200) return 'O';    // [ɔ] as in "thought"
         if (f1 > 400 && f1 < 600 && f2 > 2000) return 'I'; // [i] as in "see"
         if (f1 > 350 && f1 < 550 && f2 < 1000) return 'U'; // [u] as in "blue"
@@ -133,7 +127,7 @@ export class AdvancedLipSync {
 
     /* ── Coarticulation smoothing ─────────────────────────────── */
     _blendVisemes(freqViseme, formantViseme) {
-        const now = formantViseme || freqViseme || 'M';
+        const now = formantViseme || freqViseme || 'sil';
 
         this._history.push(now);
         if (this._history.length > this._smoothingFrames) {
@@ -166,7 +160,7 @@ export class AdvancedLipSync {
         this._history = [];
         this._formantHistory = [];
         this._useScheduler = false;
-        this._lastViseme = 'M';
+        this._lastViseme = 'sil';
     }
 
     destroy() {

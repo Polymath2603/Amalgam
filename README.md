@@ -1,5 +1,15 @@
 # Amalgam
 
+> **⚠ Archived — not under active development.**
+> This project is being discontinued in favor of a plugin for
+> [Hermes Agent](https://github.com/NousResearch/hermes-agent) (Nous
+> Research), which already solves the memory/skill/self-learning/
+> scheduling side of this vision at a scale a solo project can't match.
+> This repo is left as a working, tested reference — see
+> [`LEGACY_NOTICE.md`](./LEGACY_NOTICE.md) for the full reasoning and
+> [`AUDIT_REPORT.md`](./AUDIT_REPORT.md) for what was found and fixed to
+> get it to this state.
+
 A voice-first AI companion with 3D VRM avatar, MCP tool integration, multi-provider LLM support, extensible skills, and persistent memory.
 
 ## What is Amalgam?
@@ -23,6 +33,7 @@ Amalgam is a voice-first AI companion that runs locally on your machine. It feat
 | Planning Agent (task decomposition) | New |
 | Parallel Tool Calls | New |
 | Metrics & Cost Tracking | New |
+| AI Company plugin (optional planning brain, see below) | New |
 | Layout / Position Persistence | Done |
 | URL Tab Persistence | Done |
 | Theme System | Done |
@@ -194,7 +205,59 @@ Auto-discovered Python modules in `backend/skills/`. Built-in skills include:
 - Vault reading
 - URL summarization
 
+### AI Company Plugin
+
+An optional "thinking brain" that routes complex tasks through the separate
+AI Company n8n harness — a 23-agent pipeline that plans, architects,
+splits, reviews, and tests — before the main LLM responds. The model then
+reasons from a detailed plan instead of improvising cold. The harness
+itself (n8n workflow JSON + per-agent role definitions) ships as its own
+package alongside Amalgam, not inside this repo — see its own
+`ai-company/README.md` for the full agent roster and n8n import steps.
+
+**How it works**: implemented as a normal `BasePlugin`
+(`backend/plugins/ai_company/`) using the `on_system_prompt` hook — the
+same hook every plugin already gets, no changes needed anywhere else in
+the agent loop. It POSTs the user's message to your n8n webhook, waits for
+a structured plan, and prepends it to the system prompt. If n8n is
+unreachable or times out, it fails silently and the normal flow continues
+— this is meant to be a strict enhancement, never a hard dependency.
+
+**Modes** (`ai_company.mode` in Settings → AI Company):
+| Mode | Behavior |
+|---|---|
+| `off` | Never called |
+| `auto` (default) | Called only when the message looks like a build/design/implement task |
+| `on` | Called for every message |
+
+**Setup**:
+1. Deploy the two n8n workflows from the AI Company harness (see its own
+   README for the full agent roster and n8n import steps).
+2. Set `ai_company.webhook_url` in Settings → AI Company to your n8n
+   instance's `POST /webhook/company-job` URL.
+3. Pick a mode. `auto` is the sane default — it won't fire for "what's the
+   weather" but will for "build me a REST API with auth."
+
+**Controls**:
+- TUI: `/company [status | on | off | auto | run <task>]`, plus a live
+  status indicator in the header (`◑` auto, `⚡` on, `⚙` running, `✓` done,
+  `✗` error).
+- WebUI: the psychology-icon button next to the mic/speaker toggles in the
+  chat header — click cycles off → auto → on, badge shows live run status.
+- The LLM can also call it directly as a tool (`run_company`) for one-off
+  planning requests mid-conversation.
+
 ### Persistent Memory
+
+Five functional partitions, intentionally not five identically-structured files:
+
+| Partition | Where it lives | What it holds |
+|---|---|---|
+| Working | `backend/core/memory/working.py` | Recent turns, bounded, no persistence |
+| Episodic | `backend/core/memory/episodic.py` (per session) | What happened, when |
+| Semantic | `backend/core/memory/semantic.py` + `hybrid.py`/`fts.py` | Facts + embeddings/keyword index |
+| Procedural | `backend/skills/` + `backend/core/skills/curator.py` | *How* to do things — SKILL.md definitions |
+| User model | `backend/core/user_profile.py` | Preferences/expertise learned across sessions |
 
 - SQLite with async writes
 - ChromaDB embedding-based retrieval
@@ -497,7 +560,11 @@ Available in chat input (prefix with `/`):
 | `/think` | Toggle thinking display on/off |
 | `/companion` | Toggle companion mode on/off |
 | `/permission <level>` | Set permission level (readonly, confirm, full) |
-| `/mcp` | Open MCP server management panel |
+| `/mcp [list \| connect \| disconnect \| tools] <server>` | Manage MCP tool servers |
+| `/company [status \| on \| off \| auto \| run <task>]` | Control the AI Company thinking plugin |
+| `/plan [create \| list \| run \| cancel]` | Manage multi-step plans |
+| `/vault <query>` | Search vault notes |
+| `/direct` | Toggle direct mode — swaps to a plain agent, skipping planning/reflection layers |
 
 ## Development
 
@@ -523,8 +590,8 @@ npx vitest
 
 ## Similar Projects
 
-- [Open-LLM-VTuber](https://github.com/t41372/Open-LLM-VTuber) - Open-source LLM VTuber project
-- [amica](https://github.com/t41372/amica) - VRM chat companion with voice
+- [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) - Open-source LLM VTuber project
+- [amica](https://github.com/semperai/amica) - VRM chat companion with voice
 
 ## License
 

@@ -456,6 +456,42 @@ export const SETTINGS_SCHEMA = {
             },
         }
     },
+    "AI Company": {
+        icon: "psychology",
+        fields: {
+            ai_company_mode: {
+                label: "Mode",
+                type: "select",
+                key: "ai_company.mode",
+                options: [
+                    { value: "off",  label: "Off — disabled" },
+                    { value: "auto", label: "Auto — complex tasks only (recommended)" },
+                    { value: "on",   label: "On — every message" },
+                ],
+                description: "When to route messages through the 23-agent AI Company harness. Auto detects complex/build/design tasks.",
+            },
+            ai_company_webhook_url: {
+                label: "n8n Webhook URL",
+                type: "text",
+                key: "ai_company.webhook_url",
+                description: "Your n8n POST endpoint (e.g. http://localhost:5678/webhook/company-job). Leave blank to disable.",
+            },
+            ai_company_timeout: {
+                label: "Timeout (seconds)",
+                type: "number",
+                key: "ai_company.timeout",
+                min: 10, max: 300,
+                description: "How long to wait for the pipeline before falling back silently.",
+            },
+            ai_company_max_plan_tokens: {
+                label: "Plan token budget",
+                type: "number",
+                key: "ai_company.max_plan_tokens",
+                min: 100, max: 4000,
+                description: "Approximate token limit for the plan injected into the system prompt (~4 chars/token).",
+            },
+        },
+    },
     "Memory": {
         icon: "memory",
         fields: {

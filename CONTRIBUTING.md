@@ -5,19 +5,30 @@
 ```bash
 pip install -r requirements.txt
 pip install pytest pytest-asyncio
+npm install
 ```
 
 ## Running Tests
 
-Run all tests:
+Backend (Python):
 ```bash
 pytest backend/tests/ -v
+pytest tests/cli/ -v
 ```
 
-Run a specific test file:
+Run a specific backend test file:
 ```bash
 pytest backend/tests/test_voice_pipeline.py -v
 ```
+
+Frontend (JavaScript):
+```bash
+npm run test:frontend
+```
+
+Voice-pipeline tests need the heavier `requirements-voice.txt` set
+(faster-whisper, sounddevice, webrtcvad) plus `ffmpeg`/`libportaudio2`
+system libraries — see `.github/workflows/ci.yml` for the exact setup.
 
 ## Code Style
 

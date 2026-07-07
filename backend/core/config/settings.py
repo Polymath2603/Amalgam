@@ -385,6 +385,20 @@ DEFAULTS = {
         "target_lang": "ZH",
         "base_url": "http://localhost:1188/translate",
     },
+    "ai_company": {
+        # mode: "off" | "on" | "auto"
+        #   off  — never called
+        #   on   — called on every user message
+        #   auto — called only when the message is classified as complex
+        "mode": "auto",
+        # Full URL of your n8n webhook (POST /company-job)
+        # e.g. "http://localhost:5678/webhook/company-job"
+        "webhook_url": "",
+        # Seconds to wait for the pipeline before timing out (silent fallback)
+        "timeout": 60.0,
+        # Approximate token budget for the injected plan (4 chars per token)
+        "max_plan_tokens": 800,
+    },
     "memory": {
         "enabled": True,
         "retrieval_k": 3,

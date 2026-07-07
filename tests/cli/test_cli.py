@@ -22,7 +22,7 @@ def mock_settings():
             "active": "gemini",
             "gemini": {"api_key": "test-key", "model": "gemini-2.5-flash", "base_url": "https://generativelanguage.googleapis.com/v1beta"},
             "openai": {"api_key": "", "model": "gpt-4o-mini", "base_url": ""},
-            "anthropic": {"api_key: "REDACTED", "base_url": ""},
+            "anthropic": {"api_key": "test-key", "model": "claude-sonnet-4-5", "base_url": ""},
         },
     }
 

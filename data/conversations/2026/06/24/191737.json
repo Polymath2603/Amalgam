@@ -1,0 +1,11 @@
+{
+  "id": "2026-06-24_191737_b43840",
+  "created": "2026-06-24T19:17:37.235863+00:00",
+  "updated": "2026-06-24T19:17:37.235863+00:00",
+  "title": "New Session",
+  "character": "batman",
+  "provider": "opencode",
+  "model": "gpt-4o",
+  "messages": [],
+  "summary": null
+}

@@ -9,6 +9,7 @@ Source: AgenticFlow throughput tracking + OpenJarvis energy-per-inference model.
 CLI: python -m backend stats [--days N]
 """
 import aiosqlite
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field, asdict
@@ -69,51 +70,64 @@ class MetricsCollector:
     def __init__(self, db_path: Path = METRICS_DB):
         self.db = db_path
         self._ready = False
+        self._init_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
 
     async def _init(self):
         if self._ready:
             return
-        async with aiosqlite.connect(self.db) as db:
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS turns (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT,
-                    timestamp TEXT,
-                    model TEXT,
-                    provider TEXT,
-                    input_tokens INTEGER DEFAULT 0,
-                    output_tokens INTEGER DEFAULT 0,
-                    cost_usd REAL DEFAULT 0.0,
-                    latency_ms REAL DEFAULT 0.0,
-                    tool_calls INTEGER DEFAULT 0,
-                    memory_hits INTEGER DEFAULT 0,
-                    skill_used TEXT,
-                    skill_created INTEGER DEFAULT 0
-                )
-            """)
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_ts ON turns(timestamp)")
-            await db.commit()
-        self._ready = True
+        async with self._init_lock:
+            if self._ready:  # re-check: another coroutine may have just finished
+                return
+            async with aiosqlite.connect(self.db) as db:
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS turns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT,
+                        timestamp TEXT,
+                        model TEXT,
+                        provider TEXT,
+                        input_tokens INTEGER DEFAULT 0,
+                        output_tokens INTEGER DEFAULT 0,
+                        cost_usd REAL DEFAULT 0.0,
+                        latency_ms REAL DEFAULT 0.0,
+                        tool_calls INTEGER DEFAULT 0,
+                        memory_hits INTEGER DEFAULT 0,
+                        skill_used TEXT,
+                        skill_created INTEGER DEFAULT 0
+                    )
+                """)
+                await db.execute("CREATE INDEX IF NOT EXISTS idx_ts ON turns(timestamp)")
+                await db.commit()
+            self._ready = True
 
     async def record(self, m: TurnMetrics):
-        """Fire-and-forget. Never raises."""
+        """Fire-and-forget. Never raises.
+
+        Writes are serialized through ``self._write_lock`` rather than left
+        to race on SQLite's own busy-timeout: under real concurrent load
+        (many turns finishing around the same time) that race silently
+        dropped most writes even within the busy_timeout window. Acquiring
+        the file lock is cheap; losing data silently is not.
+        """
         try:
             await self._init()
             if m.cost_usd == 0.0:
                 m.cost_usd = _estimate_cost(
                     m.provider, m.model, m.input_tokens, m.output_tokens
                 )
-            async with aiosqlite.connect(self.db) as db:
-                await db.execute(
-                    "INSERT INTO turns VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (m.session_id, m.timestamp, m.model, m.provider,
-                     m.input_tokens, m.output_tokens, m.cost_usd,
-                     m.latency_ms, m.tool_calls, m.memory_hits,
-                     m.skill_used, int(m.skill_created)),
-                )
-                await db.commit()
+            async with self._write_lock:
+                async with aiosqlite.connect(self.db) as db:
+                    await db.execute(
+                        "INSERT INTO turns VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (m.session_id, m.timestamp, m.model, m.provider,
+                         m.input_tokens, m.output_tokens, m.cost_usd,
+                         m.latency_ms, m.tool_calls, m.memory_hits,
+                         m.skill_used, int(m.skill_created)),
+                    )
+                    await db.commit()
         except Exception as e:
-            logger.debug(f"Metrics record error (non-fatal): {e}")
+            logger.warning(f"Metrics record dropped (non-fatal, turn data lost): {e}")
 
     async def report(self, days: int = 7) -> dict:
         """Returns summary stats for the last N days."""

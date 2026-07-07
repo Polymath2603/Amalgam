@@ -1,321 +1,213 @@
 /**
  * @vitest-environment happy-dom
  *
- * BRUTAL tests for avatar viseme logic — edge cases, boundary values,
- * and adversarial inputs.
+ * Real tests for AvatarRenderer (webui/js/avatar.js) — setEmotion's VRM
+ * expression-candidate fallback, the idle/bored/sleeping life-state
+ * machine, and setViseme's consumption of a lipsync frame. These
+ * construct the actual class (with three.js/VRM swapped for a minimal
+ * offline shim — see node_modules/three — since real WebGL rendering
+ * can't be verified in Node either way) and call its real methods.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { installMinimalDOM } from './_dom-shim.js';
 
-const VISEME_MAP = {
-  aa: 'aa', E: 'ee', ih: 'ih', oh: 'oh', ou: 'ou', RR: 'rr', th: 'th',
-};
+// Only install the offline DOM shim if a real DOM isn't already present —
+// real vitest + happy-dom (after `npm install`) provides document/window
+// itself, and this must not clobber it.
+if (typeof document === 'undefined') installMinimalDOM();
+const { AvatarRenderer } = await import('../js/avatar.js');
 
-function visemeToExpression(viseme) {
-  return VISEME_MAP[viseme] || 'neutral';
+function makeContainer() {
+  const el = document.createElement('div');
+  el.clientWidth = 800;
+  el.clientHeight = 600;
+  return el;
 }
 
-const LipSyncMode = { REALTIME: 'realtime', METADATA: 'metadata' };
+function makeFakeVRM(availableExpressions) {
+  const calls = [];
+  return {
+    update() {},
+    expressionManager: {
+      _values: {},
+      setValue(name, v) {
+        calls.push(['set', name, v]);
+        this._values[name] = v;
+      },
+      getValue(name) {
+        if (!availableExpressions.includes(name)) throw new Error(`no such expression: ${name}`);
+        return this._values[name] ?? 0;
+      },
+      apply() {},
+    },
+    _calls: calls,
+  };
+}
 
-// ===================================================================
-// visemeToExpression — Original + Brutal
-// ===================================================================
-
-describe('visemeToExpression', () => {
-  it('maps known phoneme visemes to correct expression keys', () => {
-    expect(visemeToExpression('aa')).toBe('aa');
-    expect(visemeToExpression('E')).toBe('ee');
-    expect(visemeToExpression('ih')).toBe('ih');
-    expect(visemeToExpression('oh')).toBe('oh');
-    expect(visemeToExpression('ou')).toBe('ou');
-    expect(visemeToExpression('RR')).toBe('rr');
-    expect(visemeToExpression('th')).toBe('th');
+describe('AvatarRenderer.setEmotion', () => {
+  let av;
+  beforeEach(() => {
+    av = new AvatarRenderer(makeContainer(), '/fake.vrm', {});
+  });
+  afterEach(() => {
+    av.destroy();
   });
 
-  it('returns neutral for unknown visemes', () => {
-    expect(visemeToExpression('xx')).toBe('neutral');
-    expect(visemeToExpression('')).toBe('neutral');
-    expect(visemeToExpression(null)).toBe('neutral');
-    expect(visemeToExpression(undefined)).toBe('neutral');
+  it('queues the emotion when no VRM is loaded yet', () => {
+    av.vrm = null;
+    av.setEmotion('happy');
+    expect(av._pendingEmotion).toBe('happy');
+    expect(av.currentEmotion).toBe('neutral'); // unchanged — not applied yet
   });
 
-  it('is case-sensitive for the E -> ee mapping', () => {
-    expect(visemeToExpression('e')).toBe('neutral');
+  it('applies the emotion directly when its exact name exists on the VRM', () => {
+    av.vrm = makeFakeVRM(['happy', 'angry', 'sad', 'relaxed', 'surprised']);
+    av.setEmotion('happy');
+    expect(av.currentEmotion).toBe('happy');
+    expect(av._targetExpressions.happy).toBe(1.0);
+    expect(av.vrm.expressionManager.getValue('happy')).toBe(1.0);
   });
 
-  // --- Brutal tests ---
-
-  it('handles numeric input', () => {
-    expect(visemeToExpression(42)).toBe('neutral');
-    expect(visemeToExpression(0)).toBe('neutral');
+  it('falls back to the next candidate name when the first is missing from this VRM', () => {
+    // EMOTION_CANDIDATES.happy = ['happy', 'joy', 'smile', 'pleasant'] — this
+    // VRM only exposes 'joy', so setEmotion must fall through to it.
+    av.vrm = makeFakeVRM(['joy', 'angry', 'sad', 'relaxed', 'surprised']);
+    av.setEmotion('happy');
+    expect(av.vrm.expressionManager.getValue('joy')).toBe(1.0);
   });
 
-  it('handles boolean input', () => {
-    expect(visemeToExpression(true)).toBe('neutral');
-    expect(visemeToExpression(false)).toBe('neutral');
+  it('resets all five base expressions to 0 before applying the new one', () => {
+    av.vrm = makeFakeVRM(['happy', 'angry', 'sad', 'relaxed', 'surprised']);
+    av.setEmotion('happy');
+    av.vrm._calls.length = 0;
+    av.setEmotion('sad');
+    const resetCalls = av.vrm._calls.filter((c) => c[2] === 0);
+    const resetNames = resetCalls.map((c) => c[1]);
+    expect(resetNames).toContain('happy');
+    expect(resetNames).toContain('angry');
   });
 
-  it('handles object input', () => {
-    expect(visemeToExpression({})).toBe('neutral');
+  it('silently leaves currentEmotion set even when no candidate exists on this VRM', () => {
+    av.vrm = makeFakeVRM([]); // no expressions at all
+    expect(() => av.setEmotion('happy')).not.toThrow();
+    expect(av.currentEmotion).toBe('happy');
   });
 
-  it('handles array input', () => {
-    expect(visemeToExpression([])).toBe('neutral');
+  it('neutral does not try to apply any expression (it is the all-zero state)', () => {
+    av.vrm = makeFakeVRM(['happy', 'angry', 'sad', 'relaxed', 'surprised']);
+    av.setEmotion('happy');
+    av.setEmotion('neutral');
+    expect(av.currentEmotion).toBe('neutral');
+    expect(av.vrm.expressionManager.getValue('happy')).toBe(0);
   });
 
-  it('handles very long string', () => {
-    expect(visemeToExpression('x'.repeat(10000))).toBe('neutral');
+  it('schedules an auto-reset-to-neutral timer for non-neutral emotions', () => {
+    vi.useFakeTimers();
+    av.vrm = makeFakeVRM(['happy', 'angry', 'sad', 'relaxed', 'surprised']);
+    av.setEmotion('happy');
+    expect(av.currentEmotion).toBe('happy');
+    vi.advanceTimersByTime(av._emotionDuration + 100);
+    expect(av.currentEmotion).toBe('neutral');
+    vi.useRealTimers();
   });
 
-  it('handles Unicode input', () => {
-    expect(visemeToExpression('\u4f60\u597d')).toBe('neutral');
-  });
-
-  it('all mapped visemes produce non-neutral output', () => {
-    for (const [viseme, expr] of Object.entries(VISEME_MAP)) {
-      expect(visemeToExpression(viseme)).toBe(expr);
-      expect(visemeToExpression(viseme)).not.toBe('neutral');
-    }
-  });
-
-  it('all neutral results are exactly the string neutral', () => {
-    expect(visemeToExpression('unknown')).toBe('neutral');
-    expect(visemeToExpression('')).toBe('neutral');
-  });
-});
-
-// ===================================================================
-// setExpression logic — Original + Brutal
-// ===================================================================
-
-describe('setExpression logic', () => {
-  it('sets expression weight on VRM expressionManager', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    if (vrm?.expressionManager) {
-      vrm.expressionManager.setValue('happy', 0.8);
-      vrm.expressionManager.apply();
-    }
-    expect(setValue).toHaveBeenCalledWith('happy', 0.8);
-    expect(apply).toHaveBeenCalled();
-  });
-
-  it('does nothing when vrm is null', () => {
-    const vrm = null;
-    expect(() => {
-      if (vrm?.expressionManager) {
-        vrm.expressionManager.setValue('test', 1);
-      }
-    }).not.toThrow();
-  });
-
-  it('does nothing when expressionManager is missing', () => {
-    const vrm = {};
-    expect(() => {
-      if (vrm.expressionManager) {
-        vrm.expressionManager.setValue('test', 1);
-      }
-    }).not.toThrow();
-  });
-
-  // --- Brutal tests ---
-
-  it('handles weight = 0', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    vrm.expressionManager.setValue('happy', 0);
-    expect(setValue).toHaveBeenCalledWith('happy', 0);
-  });
-
-  it('handles weight = 1', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    vrm.expressionManager.setValue('happy', 1);
-    expect(setValue).toHaveBeenCalledWith('happy', 1);
-  });
-
-  it('handles weight > 1 (overflow)', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    vrm.expressionManager.setValue('happy', 999);
-    expect(setValue).toHaveBeenCalledWith('happy', 999);
-  });
-
-  it('handles negative weight', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    vrm.expressionManager.setValue('happy', -0.5);
-    expect(setValue).toHaveBeenCalledWith('happy', -0.5);
-  });
-
-  it('handles empty expression name', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    vrm.expressionManager.setValue('', 0.5);
-    expect(setValue).toHaveBeenCalledWith('', 0.5);
-  });
-
-  it('handles very long expression name', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    vrm.expressionManager.setValue('x'.repeat(10000), 0.5);
-    expect(setValue).toHaveBeenCalled();
-  });
-
-  it('apply is called after setValue', () => {
-    const callOrder = [];
-    const setValue = vi.fn(() => callOrder.push('setValue'));
-    const apply = vi.fn(() => callOrder.push('apply'));
-    const vrm = { expressionManager: { setValue, apply } };
-    vrm.expressionManager.setValue('happy', 0.5);
-    vrm.expressionManager.apply();
-    expect(callOrder).toEqual(['setValue', 'apply']);
-  });
-
-  it('multiple setExpression calls in sequence', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    for (let i = 0; i < 100; i++) {
-      vrm.expressionManager.setValue('happy', i / 100);
-      vrm.expressionManager.apply();
-    }
-    expect(setValue).toHaveBeenCalledTimes(100);
-    expect(apply).toHaveBeenCalledTimes(100);
+  it('setExpression() is an alias for setEmotion()', () => {
+    av.vrm = makeFakeVRM(['happy', 'angry', 'sad', 'relaxed', 'surprised']);
+    av.setExpression('happy');
+    expect(av.currentEmotion).toBe('happy');
   });
 });
 
-// ===================================================================
-// setBlink logic — Original + Brutal
-// ===================================================================
-
-describe('setBlink logic', () => {
-  it('sets blink weight on VRM expressionManager', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    if (vrm?.expressionManager) {
-      vrm.expressionManager.setValue('blink', 0.5);
-      vrm.expressionManager.apply();
-    }
-    expect(setValue).toHaveBeenCalledWith('blink', 0.5);
-    expect(apply).toHaveBeenCalled();
+describe('AvatarRenderer life-state machine', () => {
+  let av;
+  beforeEach(() => {
+    av = new AvatarRenderer(makeContainer(), '/fake.vrm', {});
+    av.vrm = makeFakeVRM(['happy', 'angry', 'sad', 'relaxed', 'surprised']);
+    av.initLifeStateMachine();
+  });
+  afterEach(() => {
+    av.destroy();
   });
 
-  it('handles missing vrm gracefully', () => {
-    expect(() => {
-      const vrm = null;
-      if (vrm?.expressionManager) {
-        vrm.expressionManager.setValue('blink', 0.5);
-      }
-    }).not.toThrow();
+  it('starts idle with a zeroed bored timer', () => {
+    expect(av.lifeState).toBe('idle');
+    expect(av._boredTimer).toBe(0);
   });
 
-  it('blink closed (weight = 1)', () => {
-    const setValue = vi.fn();
-    const vrm = { expressionManager: { setValue, apply: vi.fn() } };
-    vrm.expressionManager.setValue('blink', 1.0);
-    expect(setValue).toHaveBeenCalledWith('blink', 1.0);
+  it('transitions idle -> bored once the inactivity threshold is reached', () => {
+    av._boredTimer = av._inactivityThreshold;
+    av._updateLifeState();
+    expect(av.lifeState).toBe('bored');
   });
 
-  it('blink open (weight = 0)', () => {
-    const setValue = vi.fn();
-    const vrm = { expressionManager: { setValue, apply: vi.fn() } };
-    vrm.expressionManager.setValue('blink', 0.0);
-    expect(setValue).toHaveBeenCalledWith('blink', 0.0);
+  it('does not transition to bored before the threshold', () => {
+    av._boredTimer = av._inactivityThreshold - 1000;
+    av._updateLifeState();
+    expect(av.lifeState).toBe('idle');
+  });
+
+  it('transitions bored -> sleeping once the sleep threshold is reached', () => {
+    av.lifeState = 'bored';
+    av._boredTimer = av._sleepThreshold;
+    av._updateLifeState();
+    expect(av.lifeState).toBe('sleeping');
+  });
+
+  it('never leaves sleeping on its own (stays asleep until interact())', () => {
+    av.lifeState = 'sleeping';
+    av._boredTimer = av._sleepThreshold + 999999;
+    av._updateLifeState();
+    expect(av.lifeState).toBe('sleeping');
+  });
+
+  it('interact() resets the timer, returns to idle, and clears the emotion', () => {
+    av.lifeState = 'sleeping';
+    av._boredTimer = 999999;
+    av.setEmotion('happy');
+    av.interact();
+    expect(av.lifeState).toBe('idle');
+    expect(av._boredTimer).toBe(0);
+    expect(av.currentEmotion).toBe('neutral');
+  });
+
+  it('_updateLifeState advances the bored timer by the poll interval each call', () => {
+    const before = av._boredTimer;
+    av._updateLifeState();
+    expect(av._boredTimer).toBe(before + 5000);
   });
 });
 
-// ===================================================================
-// processLipSync logic — Original + Brutal
-// ===================================================================
-
-describe('processLipSync logic', () => {
-  it('processes realtime (amplitude-based) mode', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    const amplitude = 0.5;
-    const viseme = 'aa';
-    const clampedAmp = Math.min(1, Math.max(0, amplitude));
-    if (vrm?.expressionManager) {
-      vrm.expressionManager.setValue(viseme || 'aa', clampedAmp);
-      vrm.expressionManager.apply();
-    }
-    expect(setValue).toHaveBeenCalledWith('aa', 0.5);
-    expect(apply).toHaveBeenCalled();
+describe('AvatarRenderer.setViseme', () => {
+  let av;
+  beforeEach(() => {
+    av = new AvatarRenderer(makeContainer(), '/fake.vrm', {});
+  });
+  afterEach(() => {
+    av.destroy();
   });
 
-  it('clips amplitude to [0, 1] range', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    const amplitude = 2.0;
-    const clampedAmp = Math.min(1, Math.max(0, amplitude));
-    vrm.expressionManager.setValue('aa', clampedAmp);
-    expect(setValue).toHaveBeenCalledWith('aa', 1.0);
+  it('does nothing (no throw) when there is no VRM loaded', () => {
+    av.vrm = null;
+    expect(() => av.setViseme({ shape: { open: 1, width: 1, round: 1 }, intensity: 1 })).not.toThrow();
   });
 
-  it('handles negative amplitude', () => {
-    const clampedAmp = Math.min(1, Math.max(0, -0.5));
-    expect(clampedAmp).toBe(0);
+  it('does nothing (no throw) when visemeFrame is null', () => {
+    av.vrm = makeFakeVRM(['aa', 'ih', 'ou', 'ee', 'oh']);
+    expect(() => av.setViseme(null)).not.toThrow();
   });
 
-  it('handles zero amplitude', () => {
-    const clampedAmp = Math.min(1, Math.max(0, 0));
-    expect(clampedAmp).toBe(0);
-  });
-
-  it('handles NaN amplitude', () => {
-    const clampedAmp = Math.min(1, Math.max(0, NaN));
-    expect(isNaN(clampedAmp) || clampedAmp === 0).toBe(true);
-  });
-
-  it('handles Infinity amplitude', () => {
-    const clampedAmp = Math.min(1, Math.max(0, Infinity));
-    expect(clampedAmp).toBe(1);
-  });
-
-  it('metadata mode uses viseme timestamps from SSML', () => {
-    const metadata = [
-      { start: 0.0, end: 0.2, viseme: 'aa' },
-      { start: 0.2, end: 0.4, viseme: 'ih' },
-      { start: 0.4, end: 0.6, viseme: 'sil' },
-    ];
-    const atTime = (t) => metadata.find(m => t >= m.start && t < m.end)?.viseme || 'sil';
-    expect(atTime(0.0)).toBe('aa');
-    expect(atTime(0.1)).toBe('aa');
-    expect(atTime(0.3)).toBe('ih');
-    expect(atTime(0.5)).toBe('sil');
-    expect(atTime(1.0)).toBe('sil');
-  });
-
-  it('metadata mode handles empty metadata', () => {
-    const atTime = (t) => [].find(m => t >= m.start && t < m.end)?.viseme || 'sil';
-    expect(atTime(0.0)).toBe('sil');
-  });
-
-  it('metadata mode handles time before first viseme', () => {
-    const metadata = [{ start: 0.5, end: 1.0, viseme: 'aa' }];
-    const atTime = (t) => metadata.find(m => t >= m.start && t < m.end)?.viseme || 'sil';
-    expect(atTime(0.0)).toBe('sil');
-  });
-
-  it('rapid lip sync updates do not crash', () => {
-    const setValue = vi.fn();
-    const apply = vi.fn();
-    const vrm = { expressionManager: { setValue, apply } };
-    for (let i = 0; i < 1000; i++) {
-      const amp = Math.random();
-      vrm.expressionManager.setValue('aa', Math.min(1, Math.max(0, amp)));
-      vrm.expressionManager.apply();
-    }
-    expect(setValue).toHaveBeenCalledTimes(1000);
+  it('applies a real lipsync frame (from AdaptiveLipsyncManager) without throwing', async () => {
+    // Integration check: feed setViseme a frame shaped exactly like what
+    // the real lipsync stack produces, not a hand-rolled approximation.
+    const { AdaptiveLipsyncManager } = await import('../js/adaptive-lipsync.js');
+    const fakeAnalyser = {
+      fftSize: 1024, frequencyBinCount: 512, smoothingTimeConstant: 0,
+      getByteTimeDomainData(arr) { arr.fill(200); },
+      getByteFrequencyData(arr) { arr.fill(150); },
+    };
+    const mgr = new AdaptiveLipsyncManager({ sampleRate: 44100 }, fakeAnalyser);
+    const frame = mgr.analyze();
+    av.vrm = makeFakeVRM(['aa', 'ih', 'ou', 'ee', 'oh']);
+    expect(() => av.setViseme(frame)).not.toThrow();
   });
 });

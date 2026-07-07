@@ -1,0 +1,11 @@
+{
+  "id": "2026-06-25_184911_cc651f",
+  "created": "2026-06-25T18:49:11.380072+00:00",
+  "updated": "2026-06-25T18:49:11.380072+00:00",
+  "title": "New Session",
+  "character": "batman",
+  "provider": "gemini",
+  "model": "gemini-2.5-flash",
+  "messages": [],
+  "summary": null
+}

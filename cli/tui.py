@@ -130,15 +130,19 @@ def _init_command_registry():
         ("clear",    "Clear the chat display",             "Clear all messages from view", None),
         ("compact",  "Force memory compaction",            "Compress session context", None),
         ("companion","Toggle/on/off companion mode",      "Enable or disable companion personality", None),
+        ("company",  "AI Company plugin",                  "on | off | auto | status | run <task>", None),
+        ("direct",   "Toggle direct mode",                 "Swap to a plain agent, skipping planning/reflection layers", None),
         ("exit",     "Quit the application",               "Exit Amalgam", None),
         ("health",   "Show service health",                "Display system health status", None),
         ("help",     "Show this help",                     "Display command reference", None),
+        ("mcp",      "Manage MCP tool servers",            "list | connect <server> | disconnect <server>", ["mcp"]),
         ("memory",   "Show memory usage",                  "Display memory stats (sessions, messages)", None),
         ("model",    "Switch model",                       "Change the active model for the current provider", ["model"]),
         ("new",      "Start a new session",                "Clear chat and start a fresh session", None),
         ("permission","Set permission level",              "Set permission level (readonly|confirm|full)", None),
+        ("plan",     "Manage multi-step plans",            "create | list | run <id> | cancel <id>", None),
         ("profile",  "Switch settings profile",            "Change profile (token-friendly, default, quality, custom)", None),
-        ("provider", "Manage providers (add|set|rm)", "Add, update, or remove a provider's API key", ["provider"]),
+        ("provider", "Manage providers (add|set|rm)",      "Add, update, or remove a provider's API key", ["provider"]),
         ("quit",     "Quit the application",               "Exit Amalgam", None),
         ("rename",   "Rename the current session",         "Give the session a new title", None),
         ("resume",   "Show last 5 turns of current session","Display recent conversation history", None),
@@ -148,6 +152,7 @@ def _init_command_registry():
         ("status",   "Show system status",                 "Display system status overview", None),
         ("theme",    "Switch UI theme",                    "Change color theme (dark, midnight, light, nord)", None),
         ("think",    "Toggle/on/off thinking display",    "Show or hide thinking traces", None),
+        ("vault",    "Search vault notes",                 "/vault <query> — search your markdown vault", None),
     ]
 
     for name, desc, help_text, arg_type in core:
@@ -476,6 +481,7 @@ class AmalgamHeader(Widget):
     companion_connected = reactive(False)
     token_count = reactive(0)
     health_ok = reactive(True)
+    company_status = reactive("off")   # off | running | done | error | auto
 
     def compose(self) -> ComposeResult:
         yield Static("", id="header-text", markup=True)
@@ -501,7 +507,17 @@ class AmalgamHeader(Widget):
         else:
             comp_indicator = ""
 
-        lines.append(f"[{_DIM}]{sid}{status_badge}{think_indicator}{comp_indicator}[/]")
+        # AI Company indicator — small, only shown when not off
+        company_glyphs = {
+            "auto": (f" [{_DIM}]◑ Company[/]", None),
+            "running": (f" [{_YELLOW}]⚙ Company…[/]", "pulse"),
+            "done": (f" [{_GREEN}]✓ Company[/]", None),
+            "error": (f" [{_RED}]✗ Company[/]", None),
+            "on": (f" [{_CYAN}]⚡ Company[/]", None),
+        }
+        company_indicator = company_glyphs.get(self.company_status, ("", None))[0]
+
+        lines.append(f"[{_DIM}]{sid}{status_badge}{think_indicator}{comp_indicator}{company_indicator}[/]")
 
         # Provider/model line with health dot
         if self.provider and self.model:
@@ -549,6 +565,7 @@ class AmalgamHeader(Widget):
     def watch_companion_connected(self, v: bool) -> None: self._refresh()
     def watch_token_count(self, v: int) -> None: self._refresh()
     def watch_health_ok(self, v: bool) -> None: self._refresh()
+    def watch_company_status(self, v: str) -> None: self._refresh()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -822,6 +839,24 @@ class AmalgamTUI(App):
         # Periodic timers
         self.set_interval(30, self._refresh_health)
         self.set_interval(5, self._refresh_uptime)
+        self.set_interval(10, self._refresh_company_status)
+        self._refresh_company_status()
+
+    def _refresh_company_status(self) -> None:
+        """Reflect the AI Company plugin's configured mode/status on the header."""
+        plugin = self._get_company_plugin()
+        if plugin is None:
+            return
+        try:
+            st = plugin.get_status()
+            header = self.query_one(AmalgamHeader)
+            # Only overwrite with the idle "mode" glyph if we're not mid-run —
+            # an in-flight "running"/"done"/"error" from _sync_company_status
+            # should not be clobbered by this periodic idle-mode refresh.
+            if st["status"] in ("idle", "disabled") or header.company_status == "":
+                header.company_status = st["mode"] if st["mode"] != "off" else "off"
+        except Exception:
+            pass
 
     def _apply_css_theme(self) -> None:
         """Override hardcoded CSS colors with the active palette at runtime."""
@@ -1796,6 +1831,18 @@ class AmalgamTUI(App):
         elif cmd == "/status":
             self._show_status()
 
+        elif cmd == "/mcp":
+            self._handle_mcp_command(args)
+
+        elif cmd == "/company":
+            self._handle_company_command(args)
+
+        elif cmd == "/vault":
+            self._handle_vault_command(args)
+
+        elif cmd == "/direct":
+            self._handle_direct_command(args)
+
         else:
             from cli.__init__ import _fuzzy_command_suggestion
             sug = _fuzzy_command_suggestion(text)
@@ -1961,6 +2008,239 @@ class AmalgamTUI(App):
             pass
         tbl.add_row("Daemon", "Running" if self._grpc_channel else "N/A")
         self._log_chat(tbl)
+
+    def _get_company_plugin(self):
+        """Return the loaded ai_company plugin instance, or None if unavailable."""
+        try:
+            from backend.core.deps import get_shared
+            pm = get_shared().get("plugin_manager")
+            return pm.get_plugin("ai_company") if pm else None
+        except Exception:
+            return None
+
+    def _sync_company_status(self, plugin) -> None:
+        """Reflect the plugin's live status onto the header indicator."""
+        try:
+            st = plugin.get_status()
+            new_status = st["status"] if st["mode"] != "off" else "off"
+            header = self.query_one(AmalgamHeader)
+            if header.company_status != new_status:
+                header.company_status = new_status
+        except Exception:
+            pass
+
+    def _handle_mcp_command(self, args: str) -> None:
+        """/mcp [list | connect <server> | disconnect <server> | tools <server>]"""
+        parts = args.strip().split(maxsplit=1)
+        sub = parts[0].lower() if parts else "list"
+        rest = parts[1] if len(parts) > 1 else ""
+
+        try:
+            from backend.core.deps import get_shared
+            mcp = get_shared().get("mcp")
+        except Exception as e:
+            self._log_error(f"MCP client unavailable: {e}")
+            return
+
+        if sub == "list" or not sub:
+            if mcp is None:
+                self._log_system("MCP: no client configured")
+                return
+            try:
+                servers = mcp.list_servers() if hasattr(mcp, "list_servers") else {}
+                if not servers:
+                    self._log_system("MCP: no servers configured — add servers via /settings mcp.servers")
+                    return
+                tbl = Table(box=box.SIMPLE, show_header=True, style=_DIM)
+                tbl.add_column("Server", style=_CYAN)
+                tbl.add_column("Status", style=_TEXT)
+                tbl.add_column("Tools", style=_DIM)
+                for name, info in servers.items():
+                    status = "[green]●[/]" if info.get("connected") else "[red]○[/]"
+                    n_tools = str(len(info.get("tools", [])))
+                    tbl.add_row(name, status, n_tools)
+                self._log_chat(tbl)
+            except Exception as e:
+                self._log_error(f"MCP list failed: {e}")
+
+        elif sub == "connect":
+            if not rest:
+                self._log_error("Usage: /mcp connect <server-name>")
+                return
+            try:
+                if mcp and hasattr(mcp, "connect_server"):
+                    self._log_system(f"MCP: connecting to {rest}…")
+                    # Fire-and-forget — connection happens in background
+                    asyncio.ensure_future(mcp.connect_server(rest))
+                else:
+                    self._log_error("MCP client does not support runtime connect")
+            except Exception as e:
+                self._log_error(f"MCP connect failed: {e}")
+
+        elif sub == "disconnect":
+            if not rest:
+                self._log_error("Usage: /mcp disconnect <server-name>")
+                return
+            try:
+                if mcp and hasattr(mcp, "disconnect_server"):
+                    asyncio.ensure_future(mcp.disconnect_server(rest))
+                    self._log_system(f"MCP: disconnected {rest}")
+                else:
+                    self._log_error("MCP client does not support runtime disconnect")
+            except Exception as e:
+                self._log_error(f"MCP disconnect failed: {e}")
+
+        elif sub == "tools":
+            if not rest:
+                self._log_error("Usage: /mcp tools <server-name>")
+                return
+            try:
+                if mcp is None:
+                    self._log_error("MCP client unavailable")
+                    return
+                all_tools = mcp.list_tools() if hasattr(mcp, "list_tools") else {}
+                server_tools = [
+                    t for t in all_tools
+                    if t.get("server", "") == rest
+                ] if isinstance(all_tools, list) else []
+                if not server_tools:
+                    self._log_system(f"MCP: no tools found for server '{rest}'")
+                    return
+                tbl = Table(box=box.SIMPLE, show_header=True, style=_DIM)
+                tbl.add_column("Tool", style=_CYAN)
+                tbl.add_column("Description", style=_TEXT)
+                for t in server_tools:
+                    tbl.add_row(t.get("name", "?"), t.get("description", "")[:60])
+                self._log_chat(tbl)
+            except Exception as e:
+                self._log_error(f"MCP tools failed: {e}")
+
+        else:
+            self._log_system("Usage: /mcp [list | connect <server> | disconnect <server> | tools <server>]")
+
+    def _handle_company_command(self, args: str) -> None:
+        """/company [on|off|auto|status]  — AI Company plugin control."""
+        sub = args.strip().lower() if args.strip() else "status"
+
+        def get_plugin():
+            try:
+                from backend.core.deps import get_shared
+                pm = get_shared().get("plugin_manager")
+                return pm.get_plugin("ai_company") if pm else None
+            except Exception:
+                return None
+
+        if sub == "status" or not sub:
+            plugin = get_plugin()
+            if plugin is None:
+                self._log_system(
+                    "AI Company: not loaded — set [cyan]ai_company.webhook_url[/] in settings."
+                )
+                return
+            st = plugin.get_status()
+            tbl = Table(box=box.SIMPLE, show_header=False, style=_DIM)
+            tbl.add_column("", style=_CYAN)
+            tbl.add_column("", style=_TEXT)
+            tbl.add_row("Mode", st["mode"])
+            tbl.add_row("Status", st["status"])
+            tbl.add_row("Webhook", st["webhook_url"][:50] + "…" if st["webhook_url"] else "(not set)")
+            if st["last_duration"]:
+                tbl.add_row("Last run", f"{st['last_duration']:.1f}s")
+            if st["has_plan"]:
+                tbl.add_row("Cached plan", f"{st['plan_chars']} chars")
+            if st["last_error"]:
+                tbl.add_row("Last error", st["last_error"])
+            self._log_chat(tbl)
+
+        elif sub in ("on", "off", "auto"):
+            plugin = get_plugin()
+            if plugin is None:
+                self._log_error("AI Company plugin is not loaded")
+                return
+            plugin.set_mode(sub)
+            try:
+                if self._settings:
+                    self._settings.set("ai_company.mode", sub)
+            except Exception:
+                pass
+            icons = {"on": "⚡", "off": "○", "auto": "◑"}
+            self._log_system(f"AI Company {icons.get(sub, '')} mode → [bold]{sub}[/]")
+
+        elif sub.startswith("run "):
+            task = args.strip()[4:].strip()
+            if not task:
+                self._log_error("Usage: /company run <task description>")
+                return
+            plugin = get_plugin()
+            if plugin is None:
+                self._log_error("AI Company plugin is not loaded")
+                return
+            self._log_system("⚙ AI Company is planning… (this may take up to 60s)")
+            # Run async in a worker so we don't block the TUI event loop
+            asyncio.ensure_future(self._run_company_plan(plugin, task))
+
+        else:
+            self._log_system("Usage: /company [status | on | off | auto | run <task>]")
+
+    async def _run_company_plan(self, plugin: Any, task: str) -> None:
+        """Async worker for /company run — runs the n8n pipeline and logs the plan."""
+        try:
+            plugin.set_current_message(task)
+            from backend.core.plugin import get_registry
+            dummy = "You are Amalgam."
+            result = await get_registry().hook_system_prompt(dummy)
+            plan = result.replace(dummy, "").strip()
+            if plan:
+                self._log_system("AI Company plan:")
+                self._log_chat(Markdown(plan))
+            else:
+                self._log_error(f"AI Company returned no plan ({plugin.get_status()['last_error'] or 'no error detail'})")
+        except Exception as e:
+            self._log_error(f"AI Company run failed: {e}")
+
+    def _handle_vault_command(self, args: str) -> None:
+        """/vault <query>  — full-text (BM25) search vault notes."""
+        query = args.strip()
+        if not query:
+            self._log_system("Usage: /vault <search query>")
+            return
+        try:
+            from backend.core.deps import get_shared
+            vault = get_shared().get("vault")
+            if vault is None:
+                self._log_error("Vault not available")
+                return
+            results = vault.search(query, max_results=8)
+            if not results:
+                self._log_system(f"Vault: no results for '{query}'")
+                return
+            tbl = Table(box=box.SIMPLE, show_header=True, style=_DIM)
+            tbl.add_column("Note", style=_CYAN)
+            tbl.add_column("Excerpt", style=_TEXT)
+            for r in results:
+                tbl.add_row(r["filename"][:30], r["snippet"][:80])
+            self._log_chat(tbl)
+        except Exception as e:
+            self._log_error(f"Vault search failed: {e}")
+
+    def _handle_direct_command(self, args: str) -> None:
+        """/direct — toggle direct mode: swap the live agent to the plain
+        'basic' type (skips PlanningAgent's task decomposition and
+        ReflectiveAgent's periodic reflection) for raw, fast, no-frills
+        model access. Toggling off restores the configured agent.type."""
+        try:
+            from backend.core.deps import get_active_agent_type, set_agent_type
+            current_type = get_active_agent_type()
+            if current_type == "basic":
+                new_agent = set_agent_type(None)  # restore configured default
+                self._agent = new_agent
+                self._log_system(f"Direct mode [red]off[/] — back to [bold]{get_active_agent_type()}[/]")
+            else:
+                new_agent = set_agent_type("basic")
+                self._agent = new_agent
+                self._log_system("Direct mode [green]on[/] — raw model access, no planning/reflection layers")
+        except Exception as e:
+            self._log_error(f"Direct mode toggle failed: {e}")
 
     async def _start_companion_with_relay(self) -> None:
         """Start WS relay + launch overlay (run as worker from _toggle_companion)."""
@@ -2297,6 +2577,18 @@ class AmalgamTUI(App):
         self._char_count += len(text)
         self._token_count += max(1, len(text.split()) * 4 // 3)  # rough estimate
 
+        # ── AI Company: tell the plugin what we're about to send, then poll
+        # its status reactively into the header while the turn is in flight.
+        # (No WebSocket in this client — handle_user_input() is a direct
+        # in-process call, so polling a plugin attribute is the simplest
+        # honest way to reflect live status without threading events through.)
+        company_plugin = self._get_company_plugin()
+        if company_plugin is not None:
+            try:
+                company_plugin.set_current_message(text)
+            except Exception:
+                pass
+
         full_response = ""
         try:
             stream: AsyncIterator = self._agent.handle_user_input(text)
@@ -2307,6 +2599,8 @@ class AmalgamTUI(App):
                 elif isinstance(chunk, str) and chunk.strip():
                     full_response += chunk
                     self._log_stream_chunk(chunk)
+                if company_plugin is not None:
+                    self._sync_company_status(company_plugin)
             # Persist the full response to chat log
             if full_response.strip():
                 self._log_assistant(full_response.strip())

@@ -1,0 +1,581 @@
+{
+  "2026-06-24_185828_75fc54": {
+    "id": "2026-06-24_185828_75fc54",
+    "created": "2026-06-24T18:58:28.937029+00:00",
+    "updated": "2026-06-24T18:58:28.937029+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_185900_f421a0": {
+    "title": ""
+  },
+  "2026-06-24_185909_cc1c3c": {
+    "id": "2026-06-24_185909_cc1c3c",
+    "created": "2026-06-24T18:59:09.297005+00:00",
+    "updated": "2026-06-24T18:59:09.297005+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_185926_dd707a": {
+    "id": "2026-06-24_185926_dd707a",
+    "created": "2026-06-24T18:59:26.994772+00:00",
+    "updated": "2026-06-24T18:59:26.994772+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_185944_d69fd7": {
+    "id": "2026-06-24_185944_d69fd7",
+    "created": "2026-06-24T18:59:44.179669+00:00",
+    "updated": "2026-06-24T18:59:44.179669+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_185949_8e9693": {
+    "id": "2026-06-24_185949_8e9693",
+    "created": "2026-06-24T18:59:49.574168+00:00",
+    "updated": "2026-06-24T18:59:49.574168+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_185955_367348": {
+    "id": "2026-06-24_185955_367348",
+    "created": "2026-06-24T18:59:55.387412+00:00",
+    "updated": "2026-06-24T18:59:55.387412+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_185956_ae079f": {
+    "id": "2026-06-24_185956_ae079f",
+    "created": "2026-06-24T18:59:56.185555+00:00",
+    "updated": "2026-06-24T18:59:56.185555+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190055_c60af4": {
+    "id": "2026-06-24_190055_c60af4",
+    "created": "2026-06-24T19:00:55.813600+00:00",
+    "updated": "2026-06-24T19:00:55.813600+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190114_f134f2": {
+    "id": "2026-06-24_190114_f134f2",
+    "created": "2026-06-24T19:01:14.955072+00:00",
+    "updated": "2026-06-24T19:01:14.955072+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190122_ca3db5": {
+    "id": "2026-06-24_190122_ca3db5",
+    "created": "2026-06-24T19:01:22.282772+00:00",
+    "updated": "2026-06-24T19:01:22.282772+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190130_699f58": {
+    "id": "2026-06-24_190130_699f58",
+    "created": "2026-06-24T19:01:30.534174+00:00",
+    "updated": "2026-06-24T19:01:30.534174+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190135_999213": {
+    "id": "2026-06-24_190135_999213",
+    "created": "2026-06-24T19:01:35.718288+00:00",
+    "updated": "2026-06-24T19:01:35.718288+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190150_f012a0": {
+    "id": "2026-06-24_190150_f012a0",
+    "created": "2026-06-24T19:01:50.737288+00:00",
+    "updated": "2026-06-24T19:01:50.737288+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190151_19d95a": {
+    "id": "2026-06-24_190151_19d95a",
+    "created": "2026-06-24T19:01:51.132565+00:00",
+    "updated": "2026-06-24T19:01:51.132565+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "ollama",
+    "model": ""
+  },
+  "2026-06-24_190208_b011f4": {
+    "id": "2026-06-24_190208_b011f4",
+    "created": "2026-06-24T19:02:08.898793+00:00",
+    "updated": "2026-06-24T19:02:08.898793+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "sst",
+    "model": null
+  },
+  "2026-06-24_190233_a5ea85": {
+    "id": "2026-06-24_190233_a5ea85",
+    "created": "2026-06-24T19:02:33.861302+00:00",
+    "updated": "2026-06-24T19:02:33.861302+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "sst",
+    "model": null
+  },
+  "2026-06-24_190316_6d6efe": {
+    "id": "2026-06-24_190316_6d6efe",
+    "created": "2026-06-24T19:03:16.629016+00:00",
+    "updated": "2026-06-24T19:03:16.629016+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "sst",
+    "model": null
+  },
+  "2026-06-24_190334_74113f": {
+    "id": "2026-06-24_190334_74113f",
+    "created": "2026-06-24T19:03:34.575559+00:00",
+    "updated": "2026-06-24T19:03:34.575559+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "sst",
+    "model": null
+  },
+  "2026-06-24_190353_d3dfa8": {
+    "id": "2026-06-24_190353_d3dfa8",
+    "created": "2026-06-24T19:03:53.161659+00:00",
+    "updated": "2026-06-24T19:03:53.161659+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "sst",
+    "model": null
+  },
+  "2026-06-24_191342_59a040": {
+    "id": "2026-06-24_191342_59a040",
+    "created": "2026-06-24T19:13:42.912399+00:00",
+    "updated": "2026-06-24T19:13:42.912399+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "chatgpt",
+    "model": "gpt-4o-mini"
+  },
+  "2026-06-24_191538_9f7cf1": {
+    "id": "2026-06-24_191538_9f7cf1",
+    "created": "2026-06-24T19:15:38.583068+00:00",
+    "updated": "2026-06-24T19:15:38.583068+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "chatgpt",
+    "model": "gpt-4o-mini"
+  },
+  "2026-06-24_191549_b5bb9a": {
+    "id": "2026-06-24_191549_b5bb9a",
+    "created": "2026-06-24T19:15:49.664300+00:00",
+    "updated": "2026-06-24T19:15:49.664300+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "chatgpt",
+    "model": "gpt-4o-mini"
+  },
+  "2026-06-24_191552_e95a63": {
+    "id": "2026-06-24_191552_e95a63",
+    "created": "2026-06-24T19:15:52.724197+00:00",
+    "updated": "2026-06-24T19:15:52.724197+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "chatgpt",
+    "model": "gpt-4o-mini"
+  },
+  "2026-06-24_191927_25762c": {
+    "id": "2026-06-24_191927_25762c",
+    "created": "2026-06-24T19:19:27.724459+00:00",
+    "updated": "2026-06-24T19:19:27.724459+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "nonexistent_provider_xyz",
+    "model": null
+  },
+  "2026-06-24_191938_f47a76": {
+    "id": "2026-06-24_191938_f47a76",
+    "created": "2026-06-24T19:19:38.884947+00:00",
+    "updated": "2026-06-24T19:19:38.884947+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "nonexistent_provider_xyz",
+    "model": null
+  },
+  "2026-06-24_192001_82d22b": {
+    "id": "2026-06-24_192001_82d22b",
+    "updated": "2026-06-24T19:20:26.343852+00:00",
+    "message_count": 1,
+    "title": "Hello"
+  },
+  "2026-06-24_192040_01a20e": {
+    "id": "2026-06-24_192040_01a20e",
+    "updated": "2026-06-24T19:20:59.561018+00:00",
+    "message_count": 1,
+    "title": "Hi"
+  },
+  "2026-06-24_192116_26aac4": {
+    "id": "2026-06-24_192116_26aac4",
+    "created": "2026-06-24T19:21:16.651207+00:00",
+    "updated": "2026-06-24T19:21:16.651207+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "nonexistent_provider_xyz",
+    "model": null
+  },
+  "2026-06-24_192130_841c7a": {
+    "id": "2026-06-24_192130_841c7a",
+    "updated": "2026-06-24T19:21:48.133897+00:00",
+    "message_count": 1,
+    "title": "Hello (1)"
+  },
+  "2026-06-24_192206_3ace89": {
+    "id": "2026-06-24_192206_3ace89",
+    "updated": "2026-06-24T19:22:26.786955+00:00",
+    "message_count": 1,
+    "title": "Hello (2)"
+  },
+  "2026-06-24_192244_424b88": {
+    "id": "2026-06-24_192244_424b88",
+    "updated": "2026-06-24T19:23:03.599839+00:00",
+    "message_count": 1,
+    "title": "Hello (3)"
+  },
+  "2026-06-24_192317_502e6c": {
+    "id": "2026-06-24_192317_502e6c",
+    "updated": "2026-06-24T19:23:33.504019+00:00",
+    "message_count": 1,
+    "title": "Hello (4)"
+  },
+  "2026-06-24_192352_deee40": {
+    "id": "2026-06-24_192352_deee40",
+    "created": "2026-06-24T19:23:52.268108+00:00",
+    "updated": "2026-06-24T19:23:52.268108+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "nonexistent_provider_xyz",
+    "model": null
+  },
+  "2026-06-24_192417_44e911": {
+    "id": "2026-06-24_192417_44e911",
+    "updated": "2026-06-24T19:24:35.457377+00:00",
+    "message_count": 1,
+    "title": "Hello (5)"
+  },
+  "2026-06-24_192449_93529e": {
+    "id": "2026-06-24_192449_93529e",
+    "updated": "2026-06-24T19:25:09.535377+00:00",
+    "message_count": 1,
+    "title": "Hello (6)"
+  },
+  "2026-06-24_192706_c8a81d": {
+    "id": "2026-06-24_192706_c8a81d",
+    "updated": "2026-06-24T19:27:09.505308+00:00",
+    "message_count": 1,
+    "title": "Hello (7)"
+  },
+  "2026-06-24_193125_32482c": {
+    "id": "2026-06-24_193125_32482c",
+    "updated": "2026-06-24T19:31:27.215271+00:00",
+    "message_count": 1,
+    "title": "Hello (8)"
+  },
+  "2026-06-24_193214_4c0ef5": {
+    "id": "2026-06-24_193214_4c0ef5",
+    "updated": "2026-06-24T19:32:17.106425+00:00",
+    "message_count": 1,
+    "title": "Hello (9)"
+  },
+  "2026-06-24_193458_64b637": {
+    "id": "2026-06-24_193458_64b637",
+    "updated": "2026-06-24T19:35:00.899222+00:00",
+    "message_count": 1,
+    "title": "Hello (10)"
+  },
+  "2026-06-24_193829_41d634": {
+    "id": "2026-06-24_193829_41d634",
+    "updated": "2026-06-24T19:38:31.788554+00:00",
+    "message_count": 1,
+    "title": "Hello (11)"
+  },
+  "2026-06-24_194021_c3f3d7": {
+    "id": "2026-06-24_194021_c3f3d7",
+    "updated": "2026-06-24T19:40:23.461476+00:00",
+    "message_count": 1,
+    "title": "Hello (12)"
+  },
+  "2026-06-24_194059_43440d": {
+    "id": "2026-06-24_194059_43440d",
+    "updated": "2026-06-24T19:41:01.772128+00:00",
+    "message_count": 1,
+    "title": "Hello (13)"
+  },
+  "2026-06-24_194134_367e11": {
+    "id": "2026-06-24_194134_367e11",
+    "created": "2026-06-24T19:41:34.897406+00:00",
+    "updated": "2026-06-24T19:41:34.897406+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_194210_721ef7": {
+    "id": "2026-06-24_194210_721ef7",
+    "updated": "2026-06-24T19:42:12.225217+00:00",
+    "message_count": 1,
+    "title": "Hello (14)"
+  },
+  "2026-06-24_194256_fc5fd7": {
+    "id": "2026-06-24_194256_fc5fd7",
+    "updated": "2026-06-24T19:42:57.702415+00:00",
+    "message_count": 1,
+    "title": "Hello (15)"
+  },
+  "2026-06-24_194503_8e725d": {
+    "id": "2026-06-24_194503_8e725d",
+    "updated": "2026-06-24T19:45:05.187694+00:00",
+    "message_count": 1,
+    "title": "Hello (16)"
+  },
+  "2026-06-24_194801_ceadc2": {
+    "id": "2026-06-24_194801_ceadc2",
+    "created": "2026-06-24T19:48:01.613365+00:00",
+    "updated": "2026-06-24T19:48:01.613365+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_194936_76fe77": {
+    "id": "2026-06-24_194936_76fe77",
+    "created": "2026-06-24T19:49:36.934092+00:00",
+    "updated": "2026-06-24T19:49:36.934092+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_195111_814292": {
+    "id": "2026-06-24_195111_814292",
+    "created": "2026-06-24T19:51:11.534182+00:00",
+    "updated": "2026-06-24T19:51:11.534182+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_195138_d24913": {
+    "id": "2026-06-24_195138_d24913",
+    "created": "2026-06-24T19:51:38.191776+00:00",
+    "updated": "2026-06-24T19:51:38.191776+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_195205_5ce8b9": {
+    "id": "2026-06-24_195205_5ce8b9",
+    "created": "2026-06-24T19:52:05.299675+00:00",
+    "updated": "2026-06-24T19:52:05.299675+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_195232_4a75ff": {
+    "id": "2026-06-24_195232_4a75ff",
+    "created": "2026-06-24T19:52:32.344300+00:00",
+    "updated": "2026-06-24T19:52:32.344300+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_195256_bf49dc": {
+    "id": "2026-06-24_195256_bf49dc",
+    "created": "2026-06-24T19:52:56.902429+00:00",
+    "updated": "2026-06-24T19:52:56.902429+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_195444_f44909": {
+    "id": "2026-06-24_195444_f44909",
+    "created": "2026-06-24T19:54:44.645543+00:00",
+    "updated": "2026-06-24T19:54:44.645543+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_195534_d6a07e": {
+    "id": "2026-06-24_195534_d6a07e",
+    "updated": "2026-06-24T19:55:38.783364+00:00",
+    "message_count": 1,
+    "title": "Hello (17)"
+  },
+  "2026-06-24_195603_e92f9d": {
+    "id": "2026-06-24_195603_e92f9d",
+    "updated": "2026-06-24T19:56:05.134640+00:00",
+    "message_count": 1,
+    "title": "Hi (1)"
+  },
+  "2026-06-24_214953_735319": {
+    "id": "2026-06-24_214953_735319",
+    "created": "2026-06-24T21:49:53.538130+00:00",
+    "updated": "2026-06-24T21:49:53.538130+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-24_221308_d1b999": {
+    "id": "2026-06-24_221308_d1b999",
+    "updated": "2026-06-24T22:27:11.987521+00:00",
+    "message_count": 6,
+    "title": "She's in the parking"
+  },
+  "2026-06-25_132855_0dcb94": {
+    "id": "2026-06-25_132855_0dcb94",
+    "created": "2026-06-25T13:28:55.786266+00:00",
+    "updated": "2026-06-25T13:28:55.786266+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_143810_e8b93f": {
+    "id": "2026-06-25_143810_e8b93f",
+    "created": "2026-06-25T14:38:10.423207+00:00",
+    "updated": "2026-06-25T14:38:10.423207+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_144434_f26616": {
+    "id": "2026-06-25_144434_f26616",
+    "created": "2026-06-25T14:44:34.676168+00:00",
+    "updated": "2026-06-25T14:44:34.676168+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_151600_e5ca70": {
+    "id": "2026-06-25_151600_e5ca70",
+    "created": "2026-06-25T15:16:00.933987+00:00",
+    "updated": "2026-06-25T15:16:00.933987+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_171328_1f2315": {
+    "id": "2026-06-25_171328_1f2315",
+    "created": "2026-06-25T17:13:28.181629+00:00",
+    "updated": "2026-06-25T17:13:28.181629+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_173131_4a16a3": {
+    "id": "2026-06-25_173131_4a16a3",
+    "created": "2026-06-25T17:31:31.905578+00:00",
+    "updated": "2026-06-25T17:31:31.905578+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_175125_652cfa": {
+    "id": "2026-06-25_175125_652cfa",
+    "created": "2026-06-25T17:51:25.886666+00:00",
+    "updated": "2026-06-25T17:51:25.886666+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_175930_576510": {
+    "id": "2026-06-25_175930_576510",
+    "created": "2026-06-25T17:59:30.605573+00:00",
+    "updated": "2026-06-25T17:59:30.605573+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_182106_1269e4": {
+    "id": "2026-06-25_182106_1269e4",
+    "created": "2026-06-25T18:21:06.150964+00:00",
+    "updated": "2026-06-25T18:21:06.150964+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_182237_5a5302": {
+    "id": "2026-06-25_182237_5a5302",
+    "created": "2026-06-25T18:22:37.084803+00:00",
+    "updated": "2026-06-25T18:22:37.084803+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_184911_cc651f": {
+    "id": "2026-06-25_184911_cc651f",
+    "created": "2026-06-25T18:49:11.380072+00:00",
+    "updated": "2026-06-25T18:49:11.380072+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_184945_22c1a5": {
+    "id": "2026-06-25_184945_22c1a5",
+    "created": "2026-06-25T18:49:45.087424+00:00",
+    "updated": "2026-06-25T18:49:45.087424+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  },
+  "2026-06-25_185834_0ae3cc": {
+    "id": "2026-06-25_185834_0ae3cc",
+    "created": "2026-06-25T18:58:34.453964+00:00",
+    "updated": "2026-06-25T18:58:34.453964+00:00",
+    "title": "New Session",
+    "character": "batman",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash"
+  }
+}

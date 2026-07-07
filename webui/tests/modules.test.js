@@ -1,357 +1,209 @@
 /**
  * @vitest-environment happy-dom
  *
- * BRUTAL tests for i18n, audio-utils, and custom-select modules.
- * Tests edge cases, boundary conditions, and adversarial inputs.
+ * Real tests for i18n.js and custom-select.js. (audio-utils.js is already
+ * covered thoroughly in lipsync.test.js and isn't duplicated here.)
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { installMinimalDOM } from './_dom-shim.js';
 
-// ===================================================================
-// i18n — Original + Brutal
-// ===================================================================
+// Only install the offline DOM shim if a real DOM isn't already present —
+// real vitest + happy-dom (after `npm install`) provides document/window
+// itself, and this must not clobber it.
+if (typeof document === 'undefined') installMinimalDOM();
 
-describe('i18n', () => {
-  const translations = {
-    en: {
-      chat: { placeholder: 'Type a message...', send: 'Send' },
-      settings: { title: 'Settings', save: 'Save', reset: 'Reset' },
-      voice: { start: 'Start Recording', stop: 'Stop Recording' },
-      status: { connected: 'Connected', disconnected: 'Disconnected' },
-    },
-    es: {
-      chat: { placeholder: 'Escribe un mensaje...', send: 'Enviar' },
-      settings: { title: 'Ajustes', save: 'Guardar', reset: 'Restablecer' },
-      voice: { start: 'Empezar grabación', stop: 'Detener grabación' },
-      status: { connected: 'Conectado', disconnected: 'Desconectado' },
-    },
-    zh: {
-      chat: { placeholder: '输入消息...', send: '发送' },
-      settings: { title: '设置', save: '保存', reset: '重置' },
-      voice: { start: '开始录音', stop: '停止录音' },
-      status: { connected: '已连接', disconnected: '已断开' },
-    },
-  };
+describe('i18n.js', () => {
+  let i18n;
+  beforeEach(async () => {
+    vi.resetModules?.();
+    document.documentElement.lang = '';
+    document.body.innerHTML = '';
+    global.fetch = async (url) => {
+      if (url.includes('zh')) {
+        return { ok: true, json: async () => ({ greeting: '你好 {name}' }) };
+      }
+      return { ok: true, json: async () => ({ greeting: 'Hello {name}', untouched: 'stays' }) };
+    };
+    // Re-import fresh each time since the module keeps internal state
+    // (_current/_lang/_cache) at module scope.
+    i18n = await import(`../js/i18n.js?t=${Math.random()}`);
+  });
 
-  function t(key, lang = 'en') {
-    const parts = key.split('.');
-    let obj = translations[lang];
-    for (const p of parts) {
-      if (!obj || typeof obj !== 'object') return key;
-      obj = obj[p];
+  it('t() returns the key itself when no translation is loaded yet', () => {
+    expect(i18n.t('greeting')).toBe('greeting');
+  });
+
+  it('setLanguage loads translations and t() reflects them afterward', async () => {
+    await i18n.setLanguage('en');
+    expect(i18n.t('greeting', { name: 'Ana' })).toBe('Hello Ana');
+  });
+
+  it('t() substitutes every {param} occurrence, repeated or not', async () => {
+    global.fetch = async () => ({ ok: true, json: async () => ({ repeat: '{x}-{x}-{x}' }) });
+    await i18n.setLanguage('en');
+    expect(i18n.t('repeat', { x: 'A' })).toBe('A-A-A');
+  });
+
+  it('getCurrentLang reflects the last language set', async () => {
+    await i18n.setLanguage('zh');
+    expect(i18n.getCurrentLang()).toBe('zh');
+  });
+
+  it('falls back to an empty translation set (and does not throw) when the fetch fails', async () => {
+    global.fetch = async () => ({ ok: false, status: 404 });
+    await i18n.setLanguage('en');
+    expect(i18n.t('greeting')).toBe('greeting'); // untranslated key falls back to itself
+  });
+
+  it('applyTranslations sets textContent for [data-i18n] elements', async () => {
+    const el = document.createElement('span');
+    el.setAttribute('data-i18n', 'greeting');
+    document.body.appendChild(el);
+    await i18n.setLanguage('en');
+    expect(el.textContent).toBe('Hello {name}'); // no params passed via data-i18n path
+  });
+
+  it('applyTranslations sets placeholder for [data-i18n-placeholder] elements', async () => {
+    const el = document.createElement('input');
+    el.setAttribute('data-i18n-placeholder', 'greeting');
+    document.body.appendChild(el);
+    await i18n.setLanguage('en');
+    expect(el.placeholder).toBe('Hello {name}');
+  });
+
+  it('applyTranslations sets title for [data-i18n-title] elements', async () => {
+    const el = document.createElement('div');
+    el.setAttribute('data-i18n-title', 'greeting');
+    document.body.appendChild(el);
+    await i18n.setLanguage('en');
+    expect(el.title).toBe('Hello {name}');
+  });
+
+  it('applyTranslations sets documentElement.lang to the active language', async () => {
+    await i18n.setLanguage('zh');
+    expect(document.documentElement.lang).toBe('zh');
+  });
+
+  it('initI18n uses the saved language when provided, skipping detection', async () => {
+    await i18n.initI18n('zh');
+    expect(i18n.getCurrentLang()).toBe('zh');
+  });
+
+  it('caches a loaded locale so a second setLanguage call does not re-fetch', async () => {
+    let fetchCount = 0;
+    global.fetch = async () => {
+      fetchCount++;
+      return { ok: true, json: async () => ({ greeting: 'Hi' }) };
+    };
+    await i18n.setLanguage('en');
+    await i18n.setLanguage('en');
+    expect(fetchCount).toBe(1);
+  });
+});
+
+describe('custom-select.js', () => {
+  let initCustomSelects, syncCustomSelect, syncAllCustomSelects;
+
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    const mod = await import(`../js/custom-select.js?t=${Math.random()}`);
+    ({ initCustomSelects, syncCustomSelect, syncAllCustomSelects } = mod);
+  });
+
+  function makeSelect(options, selectedIndex = 0) {
+    const sel = document.createElement('select');
+    for (const [value, text] of options) {
+      const opt = document.createElement('option');
+      opt.setAttribute('value', value);
+      opt.textContent = text;
+      sel.appendChild(opt);
     }
-    return typeof obj === 'string' ? obj : key;
+    sel.selectedIndex = selectedIndex;
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(sel);
+    document.body.appendChild(wrapper);
+    return sel;
   }
 
-  it('returns correct English translations', () => {
-    expect(t('chat.placeholder', 'en')).toBe('Type a message...');
-    expect(t('settings.save', 'en')).toBe('Save');
-    expect(t('voice.start', 'en')).toBe('Start Recording');
-    expect(t('status.connected', 'en')).toBe('Connected');
+  it('wraps a <select> in a .custom-select container and hides the original', () => {
+    const sel = makeSelect([['a', 'Alpha'], ['b', 'Beta']]);
+    initCustomSelects();
+    expect(sel.style.display).toBe('none');
+    expect(sel.parentNode.querySelector('.custom-select')).not.toBeNull();
   });
 
-  it('returns correct Spanish translations', () => {
-    expect(t('chat.placeholder', 'es')).toBe('Escribe un mensaje...');
-    expect(t('settings.save', 'es')).toBe('Guardar');
-    expect(t('voice.start', 'es')).toBe('Empezar grabación');
-    expect(t('status.disconnected', 'es')).toBe('Desconectado');
+  it('the button label shows the currently selected option text', () => {
+    const sel = makeSelect([['a', 'Alpha'], ['b', 'Beta']], 1);
+    initCustomSelects();
+    const btn = sel.parentNode.querySelector('.custom-select-btn');
+    expect(btn.textContent).toBe('Beta');
   });
 
-  it('returns correct Chinese translations', () => {
-    expect(t('chat.placeholder', 'zh')).toBe('输入消息...');
-    expect(t('settings.save', 'zh')).toBe('保存');
-    expect(t('voice.stop', 'zh')).toBe('停止录音');
-    expect(t('status.connected', 'zh')).toBe('已连接');
+  it('does not double-wrap a select that already has data-custom set', () => {
+    const sel = makeSelect([['a', 'Alpha']]);
+    initCustomSelects();
+    const firstWrapperCount = document.querySelectorAll('.custom-select').length;
+    initCustomSelects();
+    expect(document.querySelectorAll('.custom-select').length).toBe(firstWrapperCount);
   });
 
-  it('falls back to key when translation not found', () => {
-    expect(t('nonexistent.key', 'en')).toBe('nonexistent.key');
-    expect(t('chat.nonexistent', 'fr')).toBe('chat.nonexistent');
+  it('clicking the toggle button opens the dropdown list', () => {
+    const sel = makeSelect([['a', 'Alpha'], ['b', 'Beta']]);
+    initCustomSelects();
+    const wrapper = sel.parentNode.querySelector('.custom-select');
+    const btn = wrapper.querySelector('.custom-select-btn');
+    btn.click();
+    expect(wrapper.classList.contains('open')).toBe(true);
   });
 
-  it('falls back to key when language not found', () => {
-    expect(t('chat.placeholder', 'fr')).toBe('chat.placeholder');
+  it('clicking an option updates the real select, the button label, and fires change', () => {
+    const sel = makeSelect([['a', 'Alpha'], ['b', 'Beta']], 0);
+    let changeFired = false;
+    sel.addEventListener('change', () => { changeFired = true; });
+    initCustomSelects();
+    const wrapper = sel.parentNode.querySelector('.custom-select');
+    wrapper.querySelector('.custom-select-btn').click(); // open it (builds the option items)
+    const items = wrapper.querySelectorAll('.custom-select-item');
+    items[1].click(); // pick "Beta"
+    expect(sel.selectedIndex).toBe(1);
+    expect(wrapper.querySelector('.custom-select-btn').textContent).toBe('Beta');
+    expect(changeFired).toBe(true);
+    expect(wrapper.classList.contains('open')).toBe(false); // closes after picking
   });
 
-  it('all languages have the same keys', () => {
-    const langs = Object.values(translations);
-    const enKeys = JSON.stringify(Object.keys(translations.en));
-    for (let i = 1; i < langs.length; i++) {
-      expect(JSON.stringify(Object.keys(langs[i]))).toBe(enKeys);
-    }
+  it('handles a select with zero options without throwing', () => {
+    const sel = makeSelect([]);
+    expect(() => initCustomSelects()).not.toThrow();
+    const btn = sel.parentNode.querySelector('.custom-select-btn');
+    expect(btn.textContent).toBe('Select...');
   });
 
-  // --- Brutal i18n tests ---
-
-  it('empty key returns key itself', () => {
-    expect(t('', 'en')).toBe('');
+  it('Escape key closes an open dropdown', () => {
+    const sel = makeSelect([['a', 'Alpha'], ['b', 'Beta']]);
+    initCustomSelects();
+    const wrapper = sel.parentNode.querySelector('.custom-select');
+    wrapper.querySelector('.custom-select-btn').click();
+    expect(wrapper.classList.contains('open')).toBe(true);
+    wrapper.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault() {} });
+    expect(wrapper.classList.contains('open')).toBe(false);
   });
 
-  it('deeply nested nonexistent key returns key', () => {
-    expect(t('a.b.c.d.e.f', 'en')).toBe('a.b.c.d.e.f');
+  it('syncCustomSelect updates the button label after the real select changes elsewhere', () => {
+    const sel = makeSelect([['a', 'Alpha'], ['b', 'Beta']], 0);
+    initCustomSelects();
+    sel.selectedIndex = 1; // changed programmatically, not via the dropdown UI
+    syncCustomSelect(sel);
+    expect(sel.parentNode.querySelector('.custom-select-btn').textContent).toBe('Beta');
   });
 
-  it('null language falls back to key', () => {
-    expect(t('chat.placeholder', null)).toBe('chat.placeholder');
-  });
-
-  it('undefined language falls back to key', () => {
-    // undefined as second arg means the default param kicks in ('en')
-    expect(t('chat.placeholder', undefined)).toBe('Type a message...');
-  });
-
-  it('integer key returns key', () => {
-    expect(t('123', 'en')).toBe('123');
-  });
-
-  it('all translation values are strings', () => {
-    for (const [lang, categories] of Object.entries(translations)) {
-      for (const [cat, keys] of Object.entries(categories)) {
-        for (const [key, value] of Object.entries(keys)) {
-          expect(typeof value).toBe('string');
-        }
-      }
-    }
-  });
-
-  it('no empty translation values', () => {
-    for (const [lang, categories] of Object.entries(translations)) {
-      for (const [cat, keys] of Object.entries(categories)) {
-        for (const [key, value] of Object.entries(keys)) {
-          expect(value.length).toBeGreaterThan(0);
-        }
-      }
-    }
-  });
-
-  it('translations have no leading/trailing whitespace', () => {
-    for (const [lang, categories] of Object.entries(translations)) {
-      for (const [cat, keys] of Object.entries(categories)) {
-        for (const [key, value] of Object.entries(keys)) {
-          expect(value).toBe(value.trim());
-        }
-      }
-    }
-  });
-
-  it('rapid consecutive lookups do not crash', () => {
-    for (let i = 0; i < 1000; i++) {
-      t('chat.placeholder', 'en');
-      t('settings.save', 'es');
-      t('voice.start', 'zh');
-    }
-    // Should not throw
-  });
-});
-
-// ===================================================================
-// audio-utils — Original + Brutal
-// ===================================================================
-
-describe('audio-utils', () => {
-  it('converts float32 to int16 PCM', () => {
-    const float32 = new Float32Array([0.5, -0.5, 1.0, -1.0, 0.0]);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-    }
-    expect(int16[0]).toBe(16384);
-    expect(int16[1]).toBe(-16383);
-    expect(int16[2]).toBe(32767);
-    expect(int16[3]).toBe(-32767);
-    expect(int16[4]).toBe(0);
-  });
-
-  it('clips values outside [-1, 1]', () => {
-    const float32 = new Float32Array([2.0, -3.0]);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-    }
-    expect(int16[0]).toBe(32767);
-    expect(int16[1]).toBe(-32768);
-  });
-
-  it('calculates RMS amplitude', () => {
-    const samples = new Float32Array([0.5, -0.5, 0.5, -0.5]);
-    let sumSq = 0;
-    for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i];
-    const rms = Math.sqrt(sumSq / samples.length);
-    expect(rms).toBeCloseTo(0.5, 5);
-  });
-
-  it('silence has near-zero RMS', () => {
-    const samples = new Float32Array(100);
-    let sumSq = 0;
-    for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i];
-    const rms = Math.sqrt(sumSq / samples.length);
-    expect(rms).toBe(0);
-  });
-
-  // --- Brutal audio tests ---
-
-  it('handles NaN values in float32 conversion', () => {
-    const float32 = new Float32Array([NaN, 0.5, -0.5]);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-    }
-    expect(isNaN(int16[0]) || Math.abs(int16[0]) <= 32768).toBe(true);
-    expect(int16[1]).toBe(16384);
-  });
-
-  it('handles Infinity in float32 conversion', () => {
-    const float32 = new Float32Array([Infinity, -Infinity]);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-    }
-    expect(int16[0]).toBe(32767);
-    expect(int16[1]).toBe(-32768);
-  });
-
-  it('handles very large float32 values', () => {
-    const float32 = new Float32Array([1e10, -1e10]);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-    }
-    expect(int16[0]).toBe(32767);
-    expect(int16[1]).toBe(-32768);
-  });
-
-  it('handles empty Float32Array', () => {
-    const float32 = new Float32Array(0);
-    const int16 = new Int16Array(float32.length);
-    expect(int16.length).toBe(0);
-  });
-
-  it('handles single sample', () => {
-    const float32 = new Float32Array([0.5]);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-    }
-    expect(int16[0]).toBe(16384);
-  });
-
-  it('handles 1M samples without crash', () => {
-    const float32 = new Float32Array(1_000_000);
-    for (let i = 0; i < 1_000_000; i++) float32[i] = Math.sin(i / 1000);
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(float32[i] * 32767)));
-    }
-    expect(int16.length).toBe(1_000_000);
-  });
-
-  it('RMS of all zeros is exactly 0', () => {
-    const samples = new Float32Array(1000);
-    let sumSq = 0;
-    for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i];
-    expect(sumSq).toBe(0);
-  });
-
-  it('RMS of constant signal equals absolute value', () => {
-    const samples = new Float32Array(100).fill(0.75);
-    let sumSq = 0;
-    for (let i = 0; i < samples.length; i++) sumSq += samples[i] * samples[i];
-    const rms = Math.sqrt(sumSq / samples.length);
-    expect(rms).toBeCloseTo(0.75, 5);
-  });
-});
-
-// ===================================================================
-// custom-select — Original + Brutal
-// ===================================================================
-
-describe('custom-select', () => {
-  it('renders options from a select element', () => {
-    const select = document.createElement('select');
-    ['a', 'b', 'c'].forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = v;
-      select.appendChild(opt);
-    });
-    expect(select.options.length).toBe(3);
-    expect(select.options[0].value).toBe('a');
-    expect(select.options[2].value).toBe('c');
-  });
-
-  it('fires change event on selection', () => {
-    const select = document.createElement('select');
-    ['a', 'b'].forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = v;
-      select.appendChild(opt);
-    });
-    let changed = false;
-    select.addEventListener('change', () => { changed = true; });
-    select.value = 'b';
-    select.dispatchEvent(new Event('change'));
-    expect(changed).toBe(true);
-  });
-
-  // --- Brutal custom-select tests ---
-
-  it('handles empty select', () => {
-    const select = document.createElement('select');
-    expect(select.options.length).toBe(0);
-    expect(select.value).toBe('');
-  });
-
-  it('handles select with 1000 options', () => {
-    const select = document.createElement('select');
-    for (let i = 0; i < 1000; i++) {
-      const opt = document.createElement('option');
-      opt.value = `opt-${i}`;
-      opt.textContent = `Option ${i}`;
-      select.appendChild(opt);
-    }
-    expect(select.options.length).toBe(1000);
-    expect(select.options[999].value).toBe('opt-999');
-  });
-
-  it('handles Unicode option values', () => {
-    const select = document.createElement('select');
-    const opt = document.createElement('option');
-    opt.value = '\u4f60\u597d';
-    select.appendChild(opt);
-    expect(select.options[0].value).toBe('\u4f60\u597d');
-  });
-
-  it('handles duplicate option values', () => {
-    const select = document.createElement('select');
-    for (let i = 0; i < 3; i++) {
-      const opt = document.createElement('option');
-      opt.value = 'same';
-      select.appendChild(opt);
-    }
-    expect(select.options.length).toBe(3);
-  });
-
-  it('selectedIndex boundary values', () => {
-    const select = document.createElement('select');
-    ['a', 'b', 'c'].forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = v;
-      select.appendChild(opt);
-    });
-    select.selectedIndex = -1;
-    expect(select.selectedIndex).toBe(-1);
-    select.selectedIndex = 0;
-    expect(select.selectedIndex).toBe(0);
-    select.selectedIndex = 2;
-    expect(select.selectedIndex).toBe(2);
-  });
-
-  it('setting value to nonexistent option clears selection', () => {
-    const select = document.createElement('select');
-    ['a', 'b'].forEach(v => {
-      const opt = document.createElement('option');
-      opt.value = v;
-      select.appendChild(opt);
-    });
-    select.value = 'nonexistent';
-    expect(select.selectedIndex).toBe(-1);
+  it('syncAllCustomSelects updates every wrapped select on the page', () => {
+    const sel1 = makeSelect([['a', 'Alpha'], ['b', 'Beta']], 0);
+    const sel2 = makeSelect([['x', 'Xray'], ['y', 'Yankee']], 0);
+    initCustomSelects();
+    sel1.selectedIndex = 1;
+    sel2.selectedIndex = 1;
+    syncAllCustomSelects();
+    expect(sel1.parentNode.querySelector('.custom-select-btn').textContent).toBe('Beta');
+    expect(sel2.parentNode.querySelector('.custom-select-btn').textContent).toBe('Yankee');
   });
 });

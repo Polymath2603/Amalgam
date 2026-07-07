@@ -1,74 +1,40 @@
-# === Binary archive / temp / backup files (never committed) ===
-*.bak
-*.zip
-*.tar.gz
-*.tar
-*.7z
-*.rar
-cli_snippet.txt
-output.txt
-
-# Characters VRM assets are tracked, but avoid the pitfall:
-# the old rule said "characters/**" but the actual path is "data/characters/".
-# data/* already excludes data/characters/ — BAK/ZIP inside it are caught above.
-data/characters/**/*.bak
-data/characters/**/*.zip
-
 # Python
-*.pyc
 __pycache__/
+*.py[cod]
 *.egg-info/
 .pytest_cache/
 .venv/
 venv/
 
-# Private/user data
-data/*
-!data/characters/
-!data/settings/
-!data/settings/profiles/
-!data/settings/profiles/*.json
-backend/voice/checkpoints/
-.remember/
-processed/
-
-# Environment / secrets
-.env
-.env.*
-
 # Node
 node_modules/
+dist/
+.vite/
 
-# Tauri
-/desktop/tauri/target/
-/desktop/tauri/gen/
-/desktop/tauri/src-tauri/target/
+# Logs and runtime data
+*.log
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/sessions/*.jsonl
+data/metrics.db
 
-# Old root-level scripts (moved to backend/scripts/)
-/scripts/
+# User-provided secrets/config overrides
+.env
+.env.local
+data/settings.local.json
 
-# Godot editor cache
-frontend/godot/.godot/
-
-# Editor / OS files
+# Editor/OS
+.DS_Store
 .vscode/
 .idea/
 *.swp
-*.swo
-*~
-.DS_Store
 
-# Tool session recordings
-.playwright-mcp/
+# Tauri build output
+frontend/tauri/target/
+frontend/tauri/gen/
 
-# Generated code analysis output
-graphify-out/
-
-# Audit reports (regenerated, contain no committed code)
-reports/
-
-# Gemini / OpenCode / OpenClaude tool dirs
-.gemini/
-.opencode/
-.openclaude/
-.claude/
+# Test/coverage output
+coverage/
+.nyc_output/

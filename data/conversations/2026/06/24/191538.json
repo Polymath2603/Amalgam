@@ -1,0 +1,11 @@
+{
+  "id": "2026-06-24_191538_9f7cf1",
+  "created": "2026-06-24T19:15:38.583068+00:00",
+  "updated": "2026-06-24T19:15:38.583068+00:00",
+  "title": "New Session",
+  "character": "batman",
+  "provider": "chatgpt",
+  "model": "gpt-4o-mini",
+  "messages": [],
+  "summary": null
+}

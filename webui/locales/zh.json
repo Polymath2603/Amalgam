@@ -23,6 +23,7 @@
     "header.ready": "就绪",
     "title.voice_input": "开关语音输入（麦克风）",
     "title.voice_output": "开关语音输出（扬声器）",
+    "title.ai_company": "AI 智囊团：关闭",
     "title.new_conversation": "新建对话",
     "title.conversation_history": "对话历史",
     "title.attach_image": "附加图片",
