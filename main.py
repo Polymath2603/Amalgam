@@ -291,7 +291,7 @@ def main():
         port = args.port or int(os.environ.get("AMALGAM_PORT", "8000"))
         host = args.host or os.environ.get("AMALGAM_HOST", "0.0.0.0")
 
-        # Check if port is already in use and warn
+        # Warn if port taken
         import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:

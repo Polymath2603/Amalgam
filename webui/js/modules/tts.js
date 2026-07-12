@@ -134,7 +134,7 @@ export async function playTTSAudio(base64Wav, duration, visemeSchedule, onComple
             return;
         }
 
-        // Check if a flush was requested while we were decoding
+        // Honor flush requested during decode
         if (getTtsFlushRequested()) {
             if (typeof onComplete === 'function') onComplete();
             return;

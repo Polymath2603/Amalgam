@@ -71,7 +71,7 @@ class BasicAgent(BaseAgent):
         iterations = 0
         current_input = user_message
 
-        # Build a trace so ReflectiveAgent can inspect tool usage
+        # Build AgentTrace for reflective inspection
         model_name = ""
         if hasattr(self.llm, 'get_model_name'):
             model_name = self.llm.get_model_name()

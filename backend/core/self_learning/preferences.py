@@ -67,8 +67,7 @@ class PreferenceLearner:
 
     def __init__(self, data_dir: Optional[str] = None):
         self._path = Path(data_dir or str(DATA_DIR)) / self.SIGNAL_FILENAME
-        # Single sliding window of interaction records — avoids alignment fragility
-        # of maintaining separate deques for engagements and response_lengths.
+        # Single sliding window — avoids alignment drift between deques
         self._interactions: deque[_InteractionRecord] = deque(maxlen=ENGAGEMENT_WINDOW)
         self._topics: dict[str, int] = defaultdict(int)
         self._cached_prefs: Optional[dict] = None
@@ -85,13 +84,12 @@ class PreferenceLearner:
         user_followed_up: bool = False,
     ) -> None:
         """Record an interaction for pattern analysis."""
-        # Record response length + engagement in a single record — maintains alignment
         self._interactions.append(_InteractionRecord(
             response_length=len(assistant_response),
             engaged=user_followed_up,
         ))
 
-        # Topic frequency (simple keyword extraction from user message)
+        # Topic frequency (keyword extraction)
         # Match tokens with length >= 2 to capture short meaningful terms (API, UI, IO, etc.)
         tokens = re.findall(r'\b\w{2,}\b', user_message.lower())
         for t in tokens[:10]:

@@ -593,6 +593,22 @@ npx vitest
 - [Open-LLM-VTuber](https://github.com/Open-LLM-VTuber/Open-LLM-VTuber) - Open-source LLM VTuber project
 - [amica](https://github.com/semperai/amica) - VRM chat companion with voice
 
+## Donate
+
+If you find Amalgam useful, consider supporting the project:
+
+| Platform | Address |
+|----------|---------|
+| PayPal | `paypal.com/ncp/payment/W78F6W4TXZ4CS` |
+| Binance | `1011264323` |
+| Bybit | `467077834` |
+| TRC20 | `TMW5uSDN6sMUBNirMoqY1icpsfa7GhPZfK` |
+| BEP20/ERC20 | `0x7a8887c2ac3e596f6170c9e28b44e6b6d025c854` |
+| LTC | `LVswXiD6Vd2dejXvGbZLa1R8jkvg748F4q` |
+| TON | `UQAllRezWgHi3LPrSwyvAb4zazIph6j6goU7lMaqcFWFBxVH` |
+| BTC | `1rSX6BDN1nqDMyBHqceySkZSs6PHUP23m` |
+| SOL | `d8RonhC8oEHssrQjN1Y4UWHnd6MMP33XGCKtfNL4j59` |
+
 ## License
 
 See LICENSE file in the repository root.

@@ -112,12 +112,11 @@ class AutoSkillCreator:
             logger.debug("Session skill limit reached — skipping")
             return None
 
-        # Generate a skill name from the user message
         skill_name = self._generate_skill_name(user_message)
         if not skill_name:
             return None
 
-        # Avoid creating skills with very similar names in rapid succession
+        # Dedup: skip if recently created
         if skill_name in self._recently_created:
             logger.debug(f"Skill {skill_name!r} was recently created — skipping")
             return None
@@ -127,7 +126,6 @@ class AutoSkillCreator:
             logger.debug(f"Skill {skill_name!r} already exists — skipping")
             return None
 
-        # Decide creation method
         if self._llm_caller:
             content = await self._generate_skill_llm(
                 user_message, tool_calls, full_response
