@@ -87,7 +87,7 @@ Amalgam is a voice-first AI companion that runs locally on your machine. It feat
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/amalgam.git
+git clone https://github.com/Polymath2603/Amalgam.git
 cd amalgam
 pip install -r requirements.txt
 ```
